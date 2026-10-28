@@ -1,0 +1,28 @@
+{
+  "name": "nunuza-phase0-spike",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Phase 0 architecture spike — NOT the Nunuza application. Isolated test only.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "wrangler:dev": "wrangler dev",
+    "wrangler:build": "opennextjs-cloudflare build",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opennextjs/cloudflare": "^1.0.0",
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "wrangler": "^3.0.0"
+  }
+}

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 40" fill="none" role="img" aria-label="Nunuza">
+  <!-- Icon mark on dark: same geometry, use lighter green to maintain contrast -->
+  <g transform="translate(0, 4)">
+    <rect x="0" y="0" width="7" height="32" fill="#C9DECE"/>
+    <rect x="21" y="0" width="7" height="32" fill="#C9DECE"/>
+    <polygon points="7,0 14,0 28,32 21,32" fill="#C9DECE"/>
+  </g>
+  <!-- Wordmark in white for dark backgrounds -->
+  <text
+    x="42"
+    y="28"
+    font-family="Inter, system-ui, sans-serif"
+    font-size="22"
+    font-weight="700"
+    fill="#FFFFFF"
+    letter-spacing="-0.3"
+  >Nunuza</text>
+</svg>

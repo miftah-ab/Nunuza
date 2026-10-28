@@ -1,0 +1,42 @@
+# Nunuza — Git ignore
+
+# Environment secrets — never commit
+.env*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# OpenNext / Cloudflare build output
+.open-next/
+
+# Wrangler
+.wrangler/
+
+# Test coverage
+coverage/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+*.swp
+
+# Logs
+*.log
+
+# TypeScript incremental build
+*.tsbuildinfo
+
+# Vitest
+vitest.config.ts.timestamp*
+
+# Supabase CLI temp
+supabase/.temp/
+

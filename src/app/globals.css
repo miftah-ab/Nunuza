@@ -1,0 +1,250 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── CSS custom properties (design tokens) ──────────────────────────────────
+   These mirror the Tailwind config. Components may reference either.
+   Single source of truth: tailwind.config.js for Tailwind classes,
+   here for arbitrary CSS values.
+   ─────────────────────────────────────────────────────────────────────────── */
+@layer base {
+  :root {
+    /* Brand colours */
+    --color-forest:       #174C3C;
+    --color-forest-hover: #103B2F;
+    --color-forest-light: #EAF2EE;
+    --color-forest-muted: #C9DECE;
+
+    /* Surfaces */
+    --color-offwhite: #F8F8F5;
+    --color-white:    #FFFFFF;
+
+    /* Text */
+    --color-ink:           #202522;
+    --color-ink-secondary: #68716C;
+
+    /* Borders */
+    --color-border: #E4E8E3;
+
+    /* Semantic status */
+    --color-success:       #287A50;
+    --color-success-light: #EAF5EF;
+    --color-warning:       #A86412;
+    --color-warning-light: #FDF3E3;
+    --color-error:         #B93838;
+    --color-error-light:   #FDEAEA;
+
+    /* Typography */
+    --font-sans: 'Inter', system-ui, sans-serif;
+
+    /* Spacing rhythm */
+    --space-page: clamp(1rem, 4vw, 1.5rem);
+
+    /* Transition */
+    --transition-fast:   150ms ease;
+    --transition-normal: 200ms ease;
+  }
+
+  /* Base resets and defaults */
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    border-color: var(--color-border);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    scroll-behavior: smooth;
+  }
+
+  /* Respect reduced-motion preference */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--color-ink);
+    background-color: var(--color-white);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Keyboard focus — visible, brand-colored ring */
+  :focus-visible {
+    outline: 2px solid var(--color-forest);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Remove default focus for mouse users */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  /* Headings */
+  h1, h2, h3, h4, h5, h6 {
+    color: var(--color-ink);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  /* Links */
+  a {
+    color: var(--color-forest);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+  }
+  a:hover {
+    color: var(--color-forest-hover);
+  }
+
+  /* Selection highlight */
+  ::selection {
+    background-color: var(--color-forest-light);
+    color: var(--color-ink);
+  }
+}
+
+/* ─── Utility layer ───────────────────────────────────────────────────────── */
+@layer utilities {
+  /* Visually hidden but accessible to screen readers */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
+  /* Page-width container */
+  .container-page {
+    width: 100%;
+    max-width: 1200px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: var(--space-page);
+    padding-right: var(--space-page);
+  }
+
+  /* Narrow content container (forms, article text) */
+  .container-narrow {
+    width: 100%;
+    max-width: 680px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: var(--space-page);
+    padding-right: var(--space-page);
+  }
+
+  /* Status badge colours */
+  .badge-draft-only   { @apply bg-forest-light text-forest text-xs font-medium px-2.5 py-1 rounded-full; }
+  .badge-beta         { @apply bg-warning-light text-warning text-xs font-medium px-2.5 py-1 rounded-full; }
+  .badge-active       { @apply bg-success-light text-success text-xs font-medium px-2.5 py-1 rounded-full; }
+  .badge-error        { @apply bg-error-light text-error text-xs font-medium px-2.5 py-1 rounded-full; }
+}
+
+/* ─── Component layer ─────────────────────────────────────────────────────── */
+@layer components {
+  /* Primary button */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2
+           bg-forest text-white
+           px-5 py-2.5 rounded-lg text-sm font-medium
+           transition-colors duration-150
+           hover:bg-forest-hover
+           focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed
+           select-none whitespace-nowrap;
+  }
+
+  /* Secondary / outlined button */
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2
+           bg-white text-ink border border-border
+           px-5 py-2.5 rounded-lg text-sm font-medium
+           transition-colors duration-150
+           hover:bg-offwhite hover:border-forest-muted
+           focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed
+           select-none whitespace-nowrap;
+  }
+
+  /* Ghost button */
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2
+           bg-transparent text-ink-secondary
+           px-3 py-2 rounded-lg text-sm font-medium
+           transition-colors duration-150
+           hover:bg-offwhite hover:text-ink
+           focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed
+           select-none whitespace-nowrap;
+  }
+
+  /* Card surface */
+  .card {
+    @apply bg-white border border-border rounded-xl shadow-card;
+  }
+
+  .card-hover {
+    @apply card transition-shadow duration-200 hover:shadow-card-hover;
+  }
+
+  /* Form input */
+  .input-field {
+    @apply w-full px-3 py-2.5 text-sm
+           bg-white border border-border rounded-lg
+           text-ink placeholder:text-ink-secondary
+           transition-colors duration-150
+           focus:outline-none focus:border-forest focus:ring-2 focus:ring-forest/20
+           disabled:bg-offwhite disabled:text-ink-secondary disabled:cursor-not-allowed;
+  }
+
+  /* Section divider label */
+  .section-label {
+    @apply text-xs font-semibold uppercase tracking-widest text-ink-secondary;
+  }
+
+  /* Narrow reading-width container for legal/blog pages */
+  .container-narrow {
+    @apply max-w-2xl mx-auto px-4 sm:px-6;
+  }
+
+  /* Prose-like spacing for long-form content (privacy, terms) */
+  .prose-like p { @apply leading-relaxed; }
+  .prose-like h2 { @apply text-base font-semibold text-ink mt-8 mb-3; }
+  .prose-like ul { @apply list-disc list-inside space-y-1; }
+}
+
+/* ─── Animations ──────────────────────────────────────────────────────────── */
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 200ms ease both;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+

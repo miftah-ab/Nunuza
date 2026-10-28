@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" role="img" aria-label="Nunuza icon">
+  <!-- Geometric N mark only — used for favicon, app icon, small contexts -->
+  <!-- Left vertical bar -->
+  <rect x="2" y="2" width="7" height="28" fill="#174C3C"/>
+  <!-- Right vertical bar -->
+  <rect x="23" y="2" width="7" height="28" fill="#174C3C"/>
+  <!-- Diagonal stroke -->
+  <polygon points="9,2 16,2 30,30 23,30" fill="#174C3C"/>
+</svg>

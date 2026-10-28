@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "nunuza-spike",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "pages_build_output_dir": ".open-next/assets",
+  "queues": {
+    "producers": [
+      {
+        "queue": "nunuza-spike-jobs",
+        "binding": "NUNUZA_JOBS_QUEUE"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "nunuza-spike-jobs",
+        "max_batch_size": 5,
+        "max_batch_timeout": 10,
+        "max_retries": 3,
+        "dead_letter_queue": "nunuza-spike-jobs-dlq"
+      }
+    ]
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  "vars": {
+    "TEST_VAR": "spike-local-value"
+  }
+}
