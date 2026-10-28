@@ -19,6 +19,7 @@ import {
 } from "@/lib/auth/workspace";
 import { getPost } from "@/lib/db/posts";
 import { logAuditEvent } from "@/lib/db/workspace";
+import { publishPostToLinkedIn } from "@/lib/integrations/linkedin/client";
 import type { AgentJob, ContentPost } from "@/types/database";
 import type { JobExecutionResult, PublishPostPayload } from "./types";
 
@@ -317,37 +318,157 @@ export async function executePublishJob(
     };
   }
 
-  // 3. Check live LinkedIn API gate
-  // As established in BED-03 & BED-10, live publishing is gated on official developer app approval.
-  // Until that gate passes, jobs fail closed without fabricating post URNs.
-  const errorMessage = "LinkedIn publishing is currently disabled pending developer app scope approval (BED-03).";
-
-  await supabase
-    .from("agent_jobs")
-    .update({
-      status: "failed_terminal",
-      finished_at: new Date().toISOString(),
-      last_error_code: "LINKEDIN_INTEGRATION_DISABLED",
-      safe_error_message: errorMessage,
-    })
-    .eq("id", job.id);
-
-  // Transition post to failed with transparent reason
+  // 3. Fetch post
   const payload = job.payload as unknown as PublishPostPayload;
-  if (payload?.postId) {
+  if (!payload?.postId) {
+    await supabase
+      .from("agent_jobs")
+      .update({
+        status: "failed_terminal",
+        finished_at: new Date().toISOString(),
+        last_error_code: "INVALID_PAYLOAD",
+        safe_error_message: "Missing postId in job payload.",
+      })
+      .eq("id", job.id);
+
+    return {
+      jobId: job.id,
+      success: false,
+      status: "failed_terminal",
+      retryable: false,
+      error: "Missing postId in job payload.",
+    };
+  }
+
+  const { data: post } = await supabase
+    .from("content_posts")
+    .select("*")
+    .eq("id", payload.postId)
+    .single();
+
+  if (!post) {
+    await supabase
+      .from("agent_jobs")
+      .update({
+        status: "failed_terminal",
+        finished_at: new Date().toISOString(),
+        last_error_code: "POST_NOT_FOUND",
+        safe_error_message: `Post ${payload.postId} not found.`,
+      })
+      .eq("id", job.id);
+
+    return {
+      jobId: job.id,
+      success: false,
+      status: "failed_terminal",
+      retryable: false,
+      error: `Post ${payload.postId} not found.`,
+    };
+  }
+
+  // 4. Execute publishing via LinkedIn Client (BED-03)
+  try {
+    const result = await publishPostToLinkedIn({
+      workspaceId: job.workspace_id,
+      text: post.text,
+      supabaseOverride: supabase,
+    });
+
+    // Success! Update post and job
+    await supabase
+      .from("content_posts")
+      .update({
+        status: "published",
+        published_at: result.publishedAt,
+        linkedin_post_id: result.linkedinPostId,
+      })
+      .eq("id", post.id);
+
+    await supabase
+      .from("agent_jobs")
+      .update({
+        status: "succeeded",
+        finished_at: new Date().toISOString(),
+        safe_error_message: null,
+      })
+      .eq("id", job.id);
+
+    await logAuditEvent({
+      workspaceId: job.workspace_id,
+      actorType: "system",
+      action: "publish_post",
+      resourceType: "content_post",
+      resourceId: post.id,
+      safeMetadata: {
+        linkedinPostId: result.linkedinPostId,
+        jobId: job.id,
+      },
+    });
+
+    return {
+      jobId: job.id,
+      success: true,
+      status: "succeeded",
+      retryable: false,
+      postUrn: result.linkedinPostId,
+    };
+  } catch (publishErr: any) {
+    const errorMsg = publishErr.message || "Failed to publish post to LinkedIn.";
+    const isRetryable =
+      errorMsg.includes("RATE_LIMITED") ||
+      errorMsg.includes("500") ||
+      errorMsg.includes("502") ||
+      errorMsg.includes("503");
+    const isTerminalAuth =
+      errorMsg.includes("LINKEDIN_NOT_CONNECTED") ||
+      errorMsg.includes("LINKEDIN_AUTH_FAILED") ||
+      errorMsg.includes("LINKEDIN_AUTH_EXPIRED");
+
+    const attempts = claimedJob.attempt_count;
+    const maxAttempts = claimedJob.max_attempts || 3;
+
+    if (isRetryable && attempts < maxAttempts) {
+      await supabase
+        .from("agent_jobs")
+        .update({
+          status: "failed_retryable",
+          safe_error_message: errorMsg,
+        })
+        .eq("id", job.id);
+
+      return {
+        jobId: job.id,
+        success: false,
+        status: "failed_retryable",
+        retryable: true,
+        error: errorMsg,
+      };
+    }
+
+    // Terminal failure
+    await supabase
+      .from("agent_jobs")
+      .update({
+        status: "failed_terminal",
+        finished_at: new Date().toISOString(),
+        last_error_code: isTerminalAuth ? "LINKEDIN_INTEGRATION_ERROR" : "PUBLISH_FAILED",
+        safe_error_message: errorMsg,
+      })
+      .eq("id", job.id);
+
     await supabase
       .from("content_posts")
       .update({
         status: "failed",
       })
       .eq("id", payload.postId);
-  }
 
-  return {
-    jobId: job.id,
-    success: false,
-    status: "failed_terminal",
-    retryable: false,
-    error: errorMessage,
-  };
+    return {
+      jobId: job.id,
+      success: false,
+      status: "failed_terminal",
+      retryable: false,
+      error: errorMsg,
+    };
+  }
 }

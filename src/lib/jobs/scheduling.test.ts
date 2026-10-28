@@ -179,7 +179,7 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
     expect(result.scheduled_at).toBeNull();
   });
 
-  it("executePublishJob fails closed safely without faking LinkedIn publishing", async () => {
+  it("executePublishJob fails closed safely when LinkedIn account is not connected", async () => {
     const { createServiceClient } = await import("@/lib/supabase/server");
 
     const sampleJob: AgentJob = {
@@ -234,8 +234,30 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
         }
         if (table === "content_posts") {
           return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                single: vi.fn().mockResolvedValue({
+                  data: sampleApprovedPost,
+                  error: null,
+                }),
+              }),
+            }),
             update: vi.fn().mockReturnValue({
               eq: vi.fn().mockResolvedValue({ error: null }),
+            }),
+          };
+        }
+        if (table === "integration_connections") {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  maybeSingle: vi.fn().mockResolvedValue({
+                    data: null, // No LinkedIn connection
+                    error: null,
+                  }),
+                }),
+              }),
             }),
           };
         }
@@ -250,7 +272,7 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
     // Must fail closed with terminal error, never fabricate postUrn
     expect(outcome.success).toBe(false);
     expect(outcome.status).toBe("failed_terminal");
-    expect(outcome.error).toContain("LinkedIn publishing is currently disabled");
+    expect(outcome.error).toContain("LinkedIn is not connected");
     expect(outcome.postUrn).toBeUndefined();
   });
 });
