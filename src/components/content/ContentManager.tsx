@@ -124,7 +124,7 @@ export function ContentManager({
       const json = (await res.json()) as any;
       if (!res.ok) throw new Error(json.error ?? "Failed to save post.");
 
-      setPosts((prev) => [json.data.post, ...prev]);
+      setPosts((prev) => [json.data, ...prev]);
       setIsManualModalOpen(false);
       setManualTitle("");
       setManualText("");
@@ -151,7 +151,7 @@ export function ContentManager({
       if (!res.ok) throw new Error(json.error ?? "Failed to update post.");
 
       setPosts((prev) =>
-        prev.map((p) => (p.id === editingPost.id ? json.data.post : p))
+        prev.map((p) => (p.id === editingPost.id ? json.data : p))
       );
       setEditingPost(null);
     } catch (err: unknown) {
@@ -618,7 +618,6 @@ export function ContentManager({
                   <option value="draft">Draft</option>
                   <option value="needs_review">Needs Review</option>
                   <option value="approved">Approved</option>
-                  {!isDraftOnly && <option value="scheduled">Scheduled</option>}
                 </select>
               </div>
 

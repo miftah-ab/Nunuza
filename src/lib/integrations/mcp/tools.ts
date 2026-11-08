@@ -208,7 +208,7 @@ export async function executeMcpTool(
     case "get_agent_status": {
       const { data: ws, error } = await supabase
         .from("workspaces")
-        .select("id, name, entitlement_type, status, created_at")
+        .select("id, name, entitlement_type, state, paused_at, created_at")
         .eq("id", workspaceId)
         .single();
 
@@ -218,8 +218,8 @@ export async function executeMcpTool(
         workspace_id: ws.id,
         workspace_name: ws.name,
         entitlement_type: ws.entitlement_type,
-        status: ws.status,
-        agent_paused: ws.status === "paused",
+        state: ws.state,
+        agent_paused: ws.state === "paused",
       };
     }
 
@@ -239,7 +239,7 @@ export async function executeMcpTool(
       const limit = Math.min(Math.max(args.limit || 20, 1), 50);
       let query = supabase
         .from("content_posts")
-        .select("id, hook, text, status, scheduled_for, created_at, updated_at")
+        .select("id, internal_title, text, status, scheduled_at, created_at, updated_at")
         .eq("workspace_id", workspaceId)
         .order("created_at", { ascending: false })
         .limit(limit);
@@ -256,10 +256,10 @@ export async function executeMcpTool(
     case "get_publishing_schedule": {
       const { data, error } = await supabase
         .from("content_posts")
-        .select("id, hook, text, status, scheduled_for, created_at")
+        .select("id, internal_title, text, status, scheduled_at, created_at")
         .eq("workspace_id", workspaceId)
         .eq("status", "scheduled")
-        .order("scheduled_for", { ascending: true });
+        .order("scheduled_at", { ascending: true });
 
       if (error) throw new Error(`Failed to get schedule: ${error.message}`);
       return { scheduled_posts: data || [] };
@@ -339,10 +339,10 @@ export async function executeMcpTool(
         .insert({
           workspace_id: workspaceId,
           text: args.text.trim(),
-          hook: args.hook ? args.hook.trim() : args.text.trim().slice(0, 100),
-          prompt: args.prompt || null,
+          internal_title: args.hook ? args.hook.trim() : null,
           status: "draft",
-          created_at: new Date().toISOString(),
+          version: 1,
+          created_by: userId,
         })
         .select()
         .single();
@@ -384,12 +384,15 @@ export async function executeMcpTool(
       }
 
       // Save previous version to content_post_versions
-      await supabase.from("content_post_versions").insert({
+      const { error: versionErr } = await supabase.from("content_post_versions").insert({
+        workspace_id: workspaceId,
         post_id: draft_id,
+        version_number: existing.version,
         text: existing.text,
-        hook: existing.hook,
-        created_at: new Date().toISOString(),
+        change_source: "ai_revision",
+        changed_by: userId,
       });
+      if (versionErr) console.error(`[mcp] edit_draft version snapshot failed: ${versionErr.message}`);
 
       // If draft was approved, editing resets approval (Spec §11)
       const resetStatus = existing.status === "approved" ? "draft" : existing.status;
@@ -398,9 +401,9 @@ export async function executeMcpTool(
         .from("content_posts")
         .update({
           text: text.trim(),
-          hook: hook ? hook.trim() : existing.hook,
+          internal_title: hook ? hook.trim() : existing.internal_title,
           status: resetStatus,
-          approved_at: resetStatus === "draft" ? null : existing.approved_at,
+          version: existing.version + 1,
           updated_at: new Date().toISOString(),
         })
         .eq("id", draft_id)
@@ -492,7 +495,7 @@ export async function executeMcpTool(
     case "pause_agent": {
       await supabase
         .from("workspaces")
-        .update({ status: "paused" })
+        .update({ paused_at: new Date().toISOString(), state: "paused" })
         .eq("id", workspaceId);
 
       await supabase.from("audit_events").insert({
@@ -508,9 +511,18 @@ export async function executeMcpTool(
     }
 
     case "resume_agent": {
+      const { data: wsRow } = await supabase
+        .from("workspaces")
+        .select("operating_mode")
+        .eq("id", workspaceId)
+        .single();
+
       await supabase
         .from("workspaces")
-        .update({ status: "active" })
+        .update({
+          paused_at: null,
+          state: wsRow?.operating_mode === "autopilot" ? "active_autopilot" : "active_approval_required",
+        })
         .eq("id", workspaceId);
 
       await supabase.from("audit_events").insert({
@@ -532,9 +544,13 @@ export async function executeMcpTool(
       // Verify workspace entitlement
       const { data: ws } = await supabase
         .from("workspaces")
-        .select("entitlement_type")
+        .select("entitlement_type, paused_at")
         .eq("id", workspaceId)
         .single();
+
+      if (ws?.paused_at) {
+        throw new Error("Agent is paused. Resume before scheduling posts.");
+      }
 
       if (!ws || ws.entitlement_type === "draft_only" || ws.entitlement_type === "inactive") {
         throw new Error(
@@ -574,8 +590,8 @@ export async function executeMcpTool(
         .select("id", { count: "exact", head: true })
         .eq("workspace_id", workspaceId)
         .eq("status", "scheduled")
-        .gte("scheduled_for", dayStart.toISOString())
-        .lte("scheduled_for", dayEnd.toISOString());
+        .gte("scheduled_at", dayStart.toISOString())
+        .lte("scheduled_at", dayEnd.toISOString());
 
       if ((dailyCount ?? 0) >= 1) {
         throw new Error("RATE_LIMIT_EXCEEDED: Cannot schedule more than 1 post per calendar day (BED-02).");
@@ -588,19 +604,42 @@ export async function executeMcpTool(
         .select("id", { count: "exact", head: true })
         .eq("workspace_id", workspaceId)
         .eq("status", "scheduled")
-        .gte("scheduled_for", weekStart.toISOString())
-        .lte("scheduled_for", scheduledDate.toISOString());
+        .gte("scheduled_at", weekStart.toISOString())
+        .lte("scheduled_at", scheduledDate.toISOString());
 
       if ((weeklyCount ?? 0) >= 7) {
         throw new Error("RATE_LIMIT_EXCEEDED: Cannot schedule more than 7 posts per rolling 7-day period (BED-02).");
       }
+
+      // Enqueue the durable publish job (same shape as lib/jobs/scheduling.ts schedulePost)
+      const { error: jobErr } = await supabase.from("agent_jobs").upsert(
+        {
+          workspace_id: workspaceId,
+          job_type: "publish_post",
+          status: "queued",
+          idempotency_key: `publish-${workspaceId}-${draft_id}`,
+          payload: {
+            postId: draft_id,
+            workspaceId,
+            userId,
+            targetProvider: "linkedin",
+            scheduledFor: scheduledDate.toISOString(),
+          },
+          scheduled_for: scheduledDate.toISOString(),
+          attempt_count: 0,
+          max_attempts: 3,
+          safe_error_message: null,
+        },
+        { onConflict: "idempotency_key" }
+      );
+      if (jobErr) throw new Error(`Scheduling failed: ${jobErr.message}`);
 
       // Schedule post
       const { data: updated, error: schedErr } = await supabase
         .from("content_posts")
         .update({
           status: "scheduled",
-          scheduled_for: scheduledDate.toISOString(),
+          scheduled_at: scheduledDate.toISOString(),
           updated_at: new Date().toISOString(),
         })
         .eq("id", draft_id)
@@ -638,14 +677,23 @@ export async function executeMcpTool(
         throw new Error(`Post is not in scheduled state. Current status: ${post.status}`);
       }
 
+      // Cancel queued/retryable publish jobs (same as lib/jobs/scheduling.ts cancelScheduledPost)
+      await supabase
+        .from("agent_jobs")
+        .update({ status: "canceled" })
+        .eq("workspace_id", workspaceId)
+        .eq("idempotency_key", `publish-${workspaceId}-${post_id}`)
+        .in("status", ["queued", "failed_retryable", "waiting_for_approval"]);
+
       const { data: reverted, error: revertErr } = await supabase
         .from("content_posts")
         .update({
-          status: "draft",
-          scheduled_for: null,
+          status: "approved",
+          scheduled_at: null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", post_id)
+        .eq("workspace_id", workspaceId)
         .select()
         .single();
 

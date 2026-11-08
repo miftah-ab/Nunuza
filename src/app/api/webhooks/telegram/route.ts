@@ -61,6 +61,6 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     console.error("[telegram-webhook] Error processing update:", err);
     // Return 200 to prevent Telegram retry spam on application-level error
-    return NextResponse.json({ ok: true, error: err.message });
+    return NextResponse.json({ ok: true });
   }
 }

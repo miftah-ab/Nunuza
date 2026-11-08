@@ -73,11 +73,35 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       pillar?: string;
       source_notes?: string;
       status?: PostStatus;
-      scheduled_at?: string | null;
     }>(request);
 
     if (!body) {
       return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    }
+
+    // The UI re-sends the current status on every save; an unchanged status is not a transition.
+    if (body.status === post.status) {
+      delete body.status;
+    }
+
+    // Published / in-flight posts are immutable
+    if (post.status === "published" || post.status === "publishing") {
+      throw new ForbiddenError(
+        "Published posts cannot be edited. Create a new draft."
+      );
+    }
+
+    // Scheduling, publishing and cancel-of-schedule have dedicated flows
+    // (/api/posts/[id]/schedule and the publishing job); PATCH never sets them.
+    if (
+      body.status &&
+      (body.status === "scheduled" ||
+        body.status === "publishing" ||
+        body.status === "published")
+    ) {
+      throw new ForbiddenError(
+        "Use the schedule endpoint to schedule a post; publishing is performed by the publishing job."
+      );
     }
 
     // Validate status transition
@@ -94,7 +118,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
         );
       }
 
-      // Require publishing entitlement to approve/schedule
+      // Require publishing entitlement to approve
       if (
         PUBLISH_REQUIRED_STATUSES.includes(targetStatus) &&
         !canPublish(workspace)
@@ -103,16 +127,44 @@ export async function PATCH(request: Request, { params }: RouteParams) {
           "Your workspace entitlement does not permit approving posts for publishing."
         );
       }
+    }
 
-      // Cannot edit a post that has already been published
-      if (post.status === "published" || post.status === "publishing") {
-        throw new ForbiddenError(
-          "Published posts cannot be edited. Create a new draft."
-        );
+    const textChanged = body.text !== undefined && body.text !== post.text;
+
+    // A scheduled post has a queued publish job; its text must not change underneath it.
+    if (textChanged && post.status === "scheduled") {
+      throw new ForbiddenError(
+        "Cancel the scheduled post before editing its text."
+      );
+    }
+
+    // Editing an approved post invalidates the approval (Spec §11): back to draft
+    // unless the caller explicitly sets another allowed status.
+    const nextStatus: PostStatus | undefined =
+      textChanged && post.status === "approved" &&
+      (body.status === undefined || body.status === "approved")
+        ? "draft"
+        : body.status;
+
+    const supabase = await createClient();
+
+    // Snapshot the pre-edit text in content_post_versions (same row shape as MCP edit_draft)
+    if (textChanged) {
+      const { error: versionErr } = await supabase
+        .from("content_post_versions")
+        .insert({
+          workspace_id: workspace.id,
+          post_id: id,
+          version_number: post.version,
+          text: post.text,
+          change_source: "user_edit",
+          changed_by: workspace.owner_user_id,
+        });
+      if (versionErr) {
+        console.error(`[posts] version snapshot failed: ${versionErr.message}`);
       }
     }
 
-    const supabase = await createClient();
     const { data, error } = await supabase
       .from("content_posts")
       .update({
@@ -120,8 +172,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
         ...(body.internal_title !== undefined && { internal_title: body.internal_title }),
         ...(body.pillar !== undefined && { pillar: body.pillar }),
         ...(body.source_notes !== undefined && { source_notes: body.source_notes }),
-        ...(body.status !== undefined && { status: body.status }),
-        ...(body.scheduled_at !== undefined && { scheduled_at: body.scheduled_at }),
+        ...(nextStatus !== undefined && { status: nextStatus }),
         version: post.version + 1,
         updated_at: new Date().toISOString(),
       })

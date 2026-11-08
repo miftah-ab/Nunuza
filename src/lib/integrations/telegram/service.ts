@@ -312,7 +312,7 @@ export async function handleTelegramMessage(
   // Fetch workspace details
   const { data: workspace } = await supabase
     .from("workspaces")
-    .select("id, name, entitlement_type, status")
+    .select("id, name, entitlement_type, state, operating_mode")
     .eq("id", workspaceId)
     .single();
 
@@ -348,7 +348,7 @@ export async function handleTelegramMessage(
       .eq("workspace_id", workspaceId)
       .eq("status", "scheduled");
 
-    const isPaused = workspace?.status === "paused";
+    const isPaused = workspace?.state === "paused";
 
     return {
       replyText:
@@ -367,7 +367,7 @@ export async function handleTelegramMessage(
   if (text === "/pause") {
     await supabase
       .from("workspaces")
-      .update({ status: "paused" })
+      .update({ paused_at: new Date().toISOString(), state: "paused" })
       .eq("id", workspaceId);
 
     await supabase.from("audit_events").insert({
@@ -387,7 +387,10 @@ export async function handleTelegramMessage(
   if (text === "/resume") {
     await supabase
       .from("workspaces")
-      .update({ status: "active" })
+      .update({
+        paused_at: null,
+        state: workspace?.operating_mode === "autopilot" ? "active_autopilot" : "active_approval_required",
+      })
       .eq("id", workspaceId);
 
     await supabase.from("audit_events").insert({
@@ -407,7 +410,7 @@ export async function handleTelegramMessage(
   if (text === "/drafts") {
     const { data: drafts } = await supabase
       .from("content_posts")
-      .select("id, prompt, text, hook, created_at")
+      .select("id, internal_title, text, created_at")
       .eq("workspace_id", workspaceId)
       .eq("status", "draft")
       .order("created_at", { ascending: false })
@@ -421,7 +424,7 @@ export async function handleTelegramMessage(
 
     let response = "📝 **Drafts Awaiting Review (Top 5):**\n\n";
     drafts.forEach((d: any, idx: number) => {
-      const excerpt = (d.hook || d.text || "").slice(0, 100).replace(/\n/g, " ");
+      const excerpt = (d.internal_title || d.text || "").slice(0, 100).replace(/\n/g, " ");
       response += `${idx + 1}. **Draft \`${d.id.slice(0, 8)}\`**\n   "${excerpt}..."\n   Approve: \`/approve ${d.id.slice(0, 8)}\` | Reject: \`/reject ${d.id.slice(0, 8)}\`\n\n`;
     });
 
