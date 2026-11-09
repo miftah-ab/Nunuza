@@ -82,7 +82,7 @@ export class PolarClient {
 
     if (!this.isSellerEligible()) {
       throw new Error(
-        "SELLER_INELIGIBLE: Live Polar checkout is disabled pending legally eligible seller onboarding (BED-08)."
+        "SELLER_INELIGIBLE: Live checkout is currently disabled."
       );
     }
 

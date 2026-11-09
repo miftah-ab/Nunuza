@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
         {
           error: "SELLER_INELIGIBLE",
           message:
-            "Live checkout is currently disabled pending legally responsible adult seller onboarding (BED-08). Public preview drafting remains unrestricted.",
+            "Live checkout is temporarily disabled. If you have Private Beta access, publishing and scheduling are already active without requiring a card.",
         },
         { status: 403 }
       );
