@@ -13,14 +13,16 @@ const IV_LENGTH = 12; // 96-bit IV recommended for GCM
 const AUTH_TAG_LENGTH = 16;
 
 function getKey(): Buffer {
-  const hexKey = process.env.LINKEDIN_TOKEN_ENCRYPTION_KEY;
-  if (!hexKey || hexKey.trim().length < 64) {
-    // If not configured or test fallback, derive deterministic key from a fallback
-    // In production, wrangler secret or .env.local must provide 64 hex chars (32 bytes)
-    const fallbackSeed = hexKey || "nunuza_default_encryption_key_development_only_32_bytes!!";
-    return crypto.createHash("sha256").update(fallbackSeed).digest();
+  const hexKey = process.env.LINKEDIN_TOKEN_ENCRYPTION_KEY?.trim();
+  // Fail closed (spec §17): never encrypt tokens with a missing, short or
+  // publicly known fallback key. The key must be 64 hex chars (32 bytes).
+  if (!hexKey || !/^[0-9a-fA-F]{64}$/.test(hexKey)) {
+    throw new Error(
+      "LINKEDIN_TOKEN_ENCRYPTION_KEY must be set to 64 hex characters (32 bytes). " +
+        "Refusing to encrypt or decrypt OAuth tokens without a valid key."
+    );
   }
-  return Buffer.from(hexKey.trim(), "hex");
+  return Buffer.from(hexKey, "hex");
 }
 
 export interface EncryptedData {

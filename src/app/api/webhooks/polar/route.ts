@@ -50,9 +50,8 @@ export async function POST(req: NextRequest) {
       reason: result.reason,
     });
   } catch (err: any) {
-    return NextResponse.json(
-      { error: "Internal Server Error", message: err.message },
-      { status: 500 }
-    );
+    // Log the detail server-side; never return internal error text to the caller.
+    console.error("[polar-webhook] Error processing event:", err);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

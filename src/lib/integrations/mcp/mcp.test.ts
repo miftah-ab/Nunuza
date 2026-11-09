@@ -11,7 +11,9 @@ class MockMcpDb {
       owner_user_id: "user-aaa",
       name: "Founder Workspace A",
       entitlement_type: "draft_only",
-      status: "active",
+      state: "active_approval_required",
+      operating_mode: "approval_required",
+      paused_at: null,
       created_at: new Date().toISOString(),
     },
     {
@@ -19,7 +21,9 @@ class MockMcpDb {
       owner_user_id: "user-bbb",
       name: "Founder Workspace B (Beta)",
       entitlement_type: "publishing_beta",
-      status: "active",
+      state: "active_approval_required",
+      operating_mode: "approval_required",
+      paused_at: null,
       created_at: new Date().toISOString(),
     },
   ];
@@ -28,7 +32,8 @@ class MockMcpDb {
       id: "post-1",
       workspace_id: "ws-aaa",
       text: "Draft A content",
-      hook: "Hook A",
+      internal_title: "Hook A",
+      version: 1,
       status: "draft",
       created_at: new Date().toISOString(),
     },
@@ -36,13 +41,14 @@ class MockMcpDb {
       id: "post-2",
       workspace_id: "ws-bbb",
       text: "Draft B content (approved)",
-      hook: "Hook B",
+      internal_title: "Hook B",
+      version: 1,
       status: "approved",
-      approved_at: new Date().toISOString(),
       created_at: new Date().toISOString(),
     },
   ];
   contentPostVersions: any[] = [];
+  agentJobs: any[] = [];
   auditEvents: any[] = [];
   usageCounters: any[] = [];
 
@@ -124,6 +130,10 @@ class MockMcpDb {
               },
             };
           },
+          upsert(row: any) {
+            if (table === "agent_jobs") db.agentJobs.push(row);
+            return { then(resolve: any) { return resolve({ data: row, error: null }); } };
+          },
           update(updates: any) {
             let targetRows: any[] = [];
             if (table === "mcp_credentials") targetRows = db.mcpCredentials;
@@ -139,6 +149,9 @@ class MockMcpDb {
               eq(col: string, val: any) {
                 filterCol = col;
                 filterVal = val;
+                return chain;
+              },
+              in(_col: string, _vals: any[]) {
                 return chain;
               },
               is(col: string, val: any) {
@@ -364,6 +377,8 @@ describe("Remote MCP Integration", () => {
 
       expect(res.success).toBe(true);
       expect(mockDb.contentPosts[1].status).toBe("scheduled");
+      expect(mockDb.agentJobs).toHaveLength(1);
+      expect(mockDb.agentJobs[0].idempotency_key).toBe("publish-ws-bbb-post-2");
     });
 
     it("denies access to drafts belonging to another workspace", async () => {

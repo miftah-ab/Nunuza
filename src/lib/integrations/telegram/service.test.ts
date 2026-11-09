@@ -21,14 +21,18 @@ class MockTelegramDb {
       owner_user_id: "user-111",
       name: "Acme Solo",
       entitlement_type: "draft_only",
-      status: "active",
+      state: "active_approval_required",
+      operating_mode: "approval_required",
+      paused_at: null,
     },
     {
       id: "ws-222",
       owner_user_id: "user-222",
       name: "Beta Workspace",
       entitlement_type: "publishing_beta",
-      status: "active",
+      state: "active_approval_required",
+      operating_mode: "approval_required",
+      paused_at: null,
     },
   ];
   contentPosts: any[] = [
@@ -36,7 +40,7 @@ class MockTelegramDb {
       id: "post-aaa-111",
       workspace_id: "ws-111",
       status: "draft",
-      hook: "First draft hook",
+      internal_title: "First draft hook",
       text: "Full draft text 1",
       created_at: new Date().toISOString(),
     },
@@ -44,7 +48,7 @@ class MockTelegramDb {
       id: "post-bbb-222",
       workspace_id: "ws-222",
       status: "draft",
-      hook: "Beta draft hook",
+      internal_title: "Beta draft hook",
       text: "Full draft text 2",
       created_at: new Date().toISOString(),
     },
@@ -283,14 +287,16 @@ describe("Telegram Service", () => {
         client
       );
       expect(pauseRes.replyText).toContain("Agent Paused");
-      expect(mockDb.workspaces[0].status).toBe("paused");
+      expect(mockDb.workspaces[0].state).toBe("paused");
+      expect(mockDb.workspaces[0].paused_at).not.toBeNull();
 
       const resumeRes = await handleTelegramMessage(
         { telegramUserId: 555666, chatId: 777888, text: "/resume" },
         client
       );
       expect(resumeRes.replyText).toContain("Agent Resumed");
-      expect(mockDb.workspaces[0].status).toBe("active");
+      expect(mockDb.workspaces[0].state).toBe("active_approval_required");
+      expect(mockDb.workspaces[0].paused_at).toBeNull();
     });
 
     it("lists drafts via /drafts", async () => {

@@ -102,7 +102,7 @@ export async function POST(request: Request) {
         source_notes: body.source_notes ?? null,
         status: effectiveStatus,
         version: 1,
-        created_by: "user",
+        created_by: workspace.owner_user_id,
       })
       .select()
       .single();
