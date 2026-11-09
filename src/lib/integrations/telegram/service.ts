@@ -247,6 +247,7 @@ export interface CommandContext {
 
 export interface CommandResponse {
   replyText: string;
+  replyMarkup?: any;
 }
 
 export async function handleTelegramMessage(
@@ -292,14 +293,21 @@ export async function handleTelegramMessage(
     .maybeSingle();
 
   if (linkErr || !link) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     return {
       replyText:
+        "👋 **Welcome to Nunuza!**\n\n" +
         "🔒 **Nunuza Account Not Linked**\n\n" +
-        "Your Telegram account is not currently connected to any active Nunuza workspace.\n\n" +
-        "To connect:\n" +
+        "Nunuza is your AI LinkedIn content operations agent. To use this Telegram bot for instant post approvals, scheduling, and real-time proactive alerts, you must connect it from inside the Nunuza web app:\n\n" +
         "1. Open your Nunuza web dashboard.\n" +
         "2. Navigate to **Integrations**.\n" +
-        "3. Click **Connect Telegram** to generate your secure pairing link.",
+        "3. Under **Telegram Bot**, click **Connect Telegram** to generate your secure pairing link.\n\n" +
+        "Tap the button below to open your dashboard:",
+      replyMarkup: {
+        inline_keyboard: [
+          [{ text: "🌐 Open Nunuza Integrations", url: `${appUrl}/app/integrations` }],
+        ],
+      },
     };
   }
 
@@ -352,12 +360,14 @@ export async function handleTelegramMessage(
       .eq("status", "scheduled");
 
     const isPaused = workspace?.state === "paused";
+    const modeLabel = workspace?.operating_mode === "autopilot" ? "Autopilot" : "Approval Required";
 
     return {
       replyText:
         `📊 **Nunuza Workspace Status**\n\n` +
         `• **Workspace:** ${workspace?.name || "Solo"}\n` +
         `• **Agent State:** ${isPaused ? "⏸️ Paused" : "▶️ Active"}\n` +
+        `• **Operating Mode:** ${modeLabel}\n` +
         `• **Entitlement:** \`${entitlement}\`\n` +
         `• **Drafts Awaiting Review:** ${draftCount ?? 0}\n` +
         `• **Scheduled Posts:** ${scheduledCount ?? 0}\n` +
@@ -583,7 +593,8 @@ export async function handleTelegramMessage(
 
 export async function sendTelegramMessage(
   chatId: number,
-  text: string
+  text: string,
+  replyMarkup?: any
 ): Promise<{ ok: boolean; error?: string }> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || token.trim() === "") {
@@ -593,18 +604,43 @@ export async function sendTelegramMessage(
   }
 
   try {
+    const payload: any = {
+      chat_id: chatId,
+      text,
+      parse_mode: "Markdown",
+    };
+    if (replyMarkup) {
+      payload.reply_markup = replyMarkup;
+    }
+
     const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: "Markdown",
-      }),
+      body: JSON.stringify(payload),
     });
 
     const data = (await response.json()) as any;
     if (!data.ok) {
+      // If Telegram rejects due to markdown entity parsing, safely fall back to plain text
+      if (
+        data.description &&
+        typeof data.description === "string" &&
+        data.description.includes("can't parse entities")
+      ) {
+        delete payload.parse_mode;
+        const retryRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const retryData = (await retryRes.json()) as any;
+        if (!retryData.ok) {
+          console.error("[telegram] sendMessage plain text retry error:", retryData);
+          return { ok: false, error: retryData.description };
+        }
+        return { ok: true };
+      }
+
       console.error("[telegram] sendMessage error:", data);
       return { ok: false, error: data.description };
     }
@@ -613,4 +649,75 @@ export async function sendTelegramMessage(
     console.error("[telegram] sendMessage exception:", err);
     return { ok: false, error: err.message };
   }
+}
+
+/**
+ * Proactively notifies a linked workspace's Telegram chat.
+ * Fail-safe: Catches errors so it never disrupts core business operations.
+ */
+export async function notifyWorkspaceTelegram(
+  workspaceId: string,
+  message: { text: string; replyMarkup?: any },
+  supabaseOverride?: any
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const supabase = supabaseOverride || createServiceClient();
+    if (!supabase || typeof supabase.from !== "function") return { ok: false, error: "Database client unavailable" };
+
+    const table = supabase.from("telegram_links");
+    if (!table || typeof table.select !== "function") {
+      return { ok: false, error: "telegram_links table not available in current client" };
+    }
+
+    const { data: link, error } = await table
+      .select("chat_id")
+      .eq("workspace_id", workspaceId)
+      .is("revoked_at", null)
+      .maybeSingle();
+
+    if (error || !link || !link.chat_id) {
+      return { ok: false, error: "No active Telegram link for workspace" };
+    }
+
+    return await sendTelegramMessage(link.chat_id, message.text, message.replyMarkup);
+  } catch (err: any) {
+    console.warn(`[telegram] notifyWorkspaceTelegram error for workspace ${workspaceId}:`, err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+// ─── Webhook Management ───────────────────────────────────────────────────────
+
+export async function registerTelegramWebhook(
+  webhookUrl: string,
+  secretToken?: string
+): Promise<{ ok: boolean; description?: string }> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
+
+  const secret = secretToken || process.env.TELEGRAM_WEBHOOK_SECRET;
+  const url = new URL(`https://api.telegram.org/bot${token}/setWebhook`);
+  url.searchParams.set("url", webhookUrl);
+  if (secret) {
+    url.searchParams.set("secret_token", secret);
+  }
+
+  const res = await fetch(url.toString());
+  return await res.json();
+}
+
+export async function deleteTelegramWebhook(): Promise<{ ok: boolean; description?: string }> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
+
+  const res = await fetch(`https://api.telegram.org/bot${token}/deleteWebhook`);
+  return await res.json();
+}
+
+export async function getTelegramWebhookInfo(): Promise<any> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
+
+  const res = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`);
+  return await res.json();
 }

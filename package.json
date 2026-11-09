@@ -13,7 +13,8 @@
     "wrangler:dev": "wrangler dev",
     "wrangler:deploy": "opennextjs-cloudflare build && wrangler deploy",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "telegram:poll": "node scripts/telegram-poller.mjs"
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.0.0",

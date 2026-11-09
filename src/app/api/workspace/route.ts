@@ -14,6 +14,7 @@ import {
 } from "@/lib/auth/workspace";
 import { ok, apiError, parseBody } from "@/lib/api/respond";
 import { createClient } from "@/lib/supabase/server";
+import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
 import type { OperatingMode } from "@/types/database";
 
 export async function GET() {
@@ -119,6 +120,14 @@ export async function PATCH(request: Request) {
         );
       }
       updatedWorkspace = updated;
+
+      if (typeof body.paused === "boolean") {
+        notifyWorkspaceTelegram(workspace.id, {
+          text: body.paused
+            ? "⏸️ **Agent Paused**\nAutonomous drafting and operations are paused via web dashboard. Send `/resume` to reactivate."
+            : "▶️ **Agent Resumed**\nAutonomous operations are active.",
+        }).catch(() => {});
+      }
     }
 
     const { data: profile } = await supabase

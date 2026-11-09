@@ -116,7 +116,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
       // Directly open Telegram bot in a new tab/window
       window.open(botUrl, "_blank", "noopener,noreferrer");
 
-      setSuccessMsg("Opening @Linker_Studio_Bot in Telegram. Tap Start in the bot to connect.");
+      setSuccessMsg("Opening Telegram. Tap Start in the bot to connect.");
     } catch (err: any) {
       setErrorMsg(err.message);
     } finally {
@@ -371,7 +371,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
                   <div className="flex items-center gap-2">
                     <Send className="w-4 h-4 text-[#229ED9]" />
                     <span className="text-xs font-semibold text-ink">
-                      Pairing with @Linker_Studio_Bot
+                      Connecting to Telegram Bot
                     </span>
                   </div>
                   <span className="badge-active text-[10px] px-2 py-0.5 rounded-full font-medium">

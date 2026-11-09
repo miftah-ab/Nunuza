@@ -18,6 +18,7 @@ import { checkDraftLimit, incrementDraftCounter } from "@/lib/db/usage";
 import { createPost } from "@/lib/db/posts";
 import { getVoiceProfile, getContentStrategy, logAuditEvent } from "@/lib/db/workspace";
 import { createClient } from "@/lib/supabase/server";
+import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
 
 interface GenerateDraftBody {
   topic: string;
@@ -114,6 +115,23 @@ export async function POST(request: Request) {
         estimatedTokens: generationResult.estimatedTokens,
       },
     });
+
+    // 7. Proactive notification to linked Telegram chat (BED-09)
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const snippet = (post.text || "").slice(0, 140).replace(/\n/g, " ");
+    notifyWorkspaceTelegram(workspace.id, {
+      text:
+        `🔔 **New Draft Ready for Review**\n\n` +
+        `**${post.internal_title || "LinkedIn Draft"}**\n\n` +
+        `"${snippet}..."\n\n` +
+        `• Quick Approve: \`/approve ${post.id.slice(0, 8)}\`\n` +
+        `• Reject: \`/reject ${post.id.slice(0, 8)}\``,
+      replyMarkup: {
+        inline_keyboard: [
+          [{ text: "📝 Review in Nunuza", url: `${appUrl}/app/content` }],
+        ],
+      },
+    }).catch(() => {});
 
     return ok({
       post,

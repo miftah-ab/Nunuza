@@ -20,6 +20,7 @@ import {
 import { getPost } from "@/lib/db/posts";
 import { logAuditEvent } from "@/lib/db/workspace";
 import { publishPostToLinkedIn } from "@/lib/integrations/linkedin/client";
+import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
 import type { AgentJob, ContentPost } from "@/types/database";
 import type { JobExecutionResult, PublishPostPayload } from "./types";
 
@@ -450,6 +451,14 @@ export async function executePublishJob(
       },
     });
 
+    notifyWorkspaceTelegram(job.workspace_id, {
+      text:
+        `🚀 **Post Published to LinkedIn!**\n\n` +
+        `Your scheduled post is now live:\n` +
+        `**${post.internal_title || "LinkedIn Post"}**\n\n` +
+        `🔗 Post URN: \`${result.linkedinPostId}\``,
+    }, supabase).catch(() => {});
+
     return {
       jobId: job.id,
       success: true,
@@ -507,6 +516,14 @@ export async function executePublishJob(
         status: "failed",
       })
       .eq("id", payload.postId);
+
+    notifyWorkspaceTelegram(job.workspace_id, {
+      text:
+        `⚠️ **Publishing Failed**\n\n` +
+        `Post: **${post.internal_title || "LinkedIn Post"}**\n` +
+        `Error: ${errorMsg}\n\n` +
+        `Visit your Nunuza dashboard to review and reschedule.`,
+    }, supabase).catch(() => {});
 
     return {
       jobId: job.id,

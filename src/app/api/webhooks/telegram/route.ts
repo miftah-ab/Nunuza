@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
 
       // Dispatch reply back to the Telegram chat
       if (result.replyText) {
-        await sendTelegramMessage(message.chat.id, result.replyText);
+        await sendTelegramMessage(message.chat.id, result.replyText, result.replyMarkup);
       }
     }
 
