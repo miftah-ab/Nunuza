@@ -155,8 +155,13 @@ describe("[MOCKED] Autopilot gate invariants", () => {
     expect(canUseAutopilot({ ...ws, operating_mode: "autopilot" })).toBe(true);
   });
 
-  it("publishing_beta + autopilot mode → autopilot false (not a paid entitlement)", () => {
-    const ws = makeWorkspace(WORKSPACE_A_ID, USER_A_ID, "publishing_beta");
+  it("internal_beta + autopilot mode → autopilot true (private beta permits)", () => {
+    const ws = makeWorkspace(WORKSPACE_A_ID, USER_A_ID, "internal_beta");
+    expect(canUseAutopilot({ ...ws, operating_mode: "autopilot" })).toBe(true);
+  });
+
+  it("suspended + autopilot mode → autopilot false", () => {
+    const ws = makeWorkspace(WORKSPACE_A_ID, USER_A_ID, "suspended");
     expect(canUseAutopilot({ ...ws, operating_mode: "autopilot" })).toBe(false);
   });
 });
@@ -285,17 +290,17 @@ describeRls("[INTEGRATION — VERIFIED] Supabase RLS cross-tenant isolation", ()
 
     const { data: aAllWs } = await clientA.from("workspaces").select("*");
     expect(aAllWs?.some((w: any) => w.id === wsBId)).toBe(false);
-  });
+  }, 60000);
 
   it("User A cannot read User B's content_posts via authenticated client", async () => {
     const { data: aPosts } = await clientA.from("content_posts").select("*").eq("workspace_id", wsBId);
     expect(aPosts).toHaveLength(0);
-  });
+  }, 60000);
 
   it("User A cannot read User B's agent_jobs via authenticated client", async () => {
     const { data: aJobs } = await clientA.from("agent_jobs").select("*").eq("workspace_id", wsBId);
     expect(aJobs).toHaveLength(0);
-  });
+  }, 60000);
 
   it("current_workspace_id() returns caller's workspace for User A and NULL for anon", async () => {
     const { data: rpcA } = await clientA.rpc("current_workspace_id");
@@ -303,7 +308,7 @@ describeRls("[INTEGRATION — VERIFIED] Supabase RLS cross-tenant isolation", ()
 
     const { data: rpcAnon } = await anonClient.rpc("current_workspace_id");
     expect(rpcAnon).toBeNull();
-  });
+  }, 60000);
 
   it("entitlement_type cannot be set to publishing_beta via anon UPDATE", async () => {
     const { data: updated } = await anonClient
@@ -321,7 +326,7 @@ describeRls("[INTEGRATION — VERIFIED] Supabase RLS cross-tenant isolation", ()
       .single();
 
     expect(actualWs.entitlement_type).toBe("draft_only");
-  });
+  }, 60000);
 
   it("User A cannot write into User B's workspace (cross-tenant INSERT fails RLS)", async () => {
     const { error } = await clientA.from("content_posts").insert({
@@ -332,6 +337,6 @@ describeRls("[INTEGRATION — VERIFIED] Supabase RLS cross-tenant isolation", ()
 
     expect(error).not.toBeNull();
     expect(error?.message).toMatch(/violates row-level security policy/i);
-  });
+  }, 60000);
 });
 

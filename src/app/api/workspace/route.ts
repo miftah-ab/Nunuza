@@ -83,7 +83,7 @@ export async function PATCH(request: Request) {
       if (body.operating_mode === "autopilot") {
         if (!canUseAutopilot({ entitlement_type: workspace.entitlement_type, operating_mode: "autopilot" })) {
           throw new EntitlementError(
-            "paid_active with autopilot clearance",
+            "paid subscription or private beta",
             workspace.entitlement_type
           );
         }

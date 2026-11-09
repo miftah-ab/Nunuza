@@ -6,13 +6,13 @@ import { CheckCircle2, Circle, AlertCircle, Loader2 } from "lucide-react";
 import { Logo } from "@/components/layout/Logo";
 
 const ONBOARDING_STEPS = [
-  { key: "welcome",   label: "Welcome" },
-  { key: "profile",   label: "Professional profile" },
-  { key: "audience",  label: "Audience" },
-  { key: "strategy",  label: "Content strategy" },
-  { key: "voice",     label: "Voice profile" },
-  { key: "cadence",   label: "Cadence & schedule" },
-  { key: "linkedin",  label: "LinkedIn connection" },
+  { key: "welcome", label: "Welcome" },
+  { key: "profile", label: "Professional profile" },
+  { key: "audience", label: "Audience" },
+  { key: "strategy", label: "Content strategy" },
+  { key: "voice", label: "Voice profile" },
+  { key: "cadence", label: "Cadence & schedule" },
+  { key: "linkedin", label: "LinkedIn connection" },
 ] as const;
 
 type StepKey = typeof ONBOARDING_STEPS[number]["key"];
@@ -171,9 +171,8 @@ export function OnboardingClient({
                         if (i <= currentIndex) goToStep(step.key);
                       }}
                       disabled={i > currentIndex}
-                      className={`w-full flex items-center gap-2.5 py-1.5 text-left transition-colors ${
-                        i <= currentIndex ? "cursor-pointer" : "cursor-not-allowed opacity-60"
-                      }`}
+                      className={`w-full flex items-center gap-2.5 py-1.5 text-left transition-colors ${i <= currentIndex ? "cursor-pointer" : "cursor-not-allowed opacity-60"
+                        }`}
                     >
                       {done ? (
                         <CheckCircle2 size={16} className="text-success flex-shrink-0" aria-hidden="true" />
@@ -228,9 +227,10 @@ export function OnboardingClient({
                 </ul>
               </div>
               <div className="rounded-lg bg-forest-light border border-forest-muted p-4 text-sm text-ink-secondary">
-                <strong className="text-ink">Draft-only preview:</strong> This setup supports
-                drafting, review, and export. Publishing and scheduling are unavailable in this
-                release. LinkedIn connection is optional during the preview.
+                <strong className="text-ink">Full v1.0.0 Content Operations:</strong> This setup configures
+                your AI draft engine, audience targeting, and writing voice. Once completed, your workspace can
+                generate tailored drafts, manage review cycles, and publish directly to LinkedIn according to your
+                commercial subscription or private beta access.
               </div>
               <div className="mt-8 flex justify-end">
                 <button
@@ -614,13 +614,12 @@ export function OnboardingClient({
             <div>
               <h1 className="text-xl font-bold text-ink mb-1">LinkedIn connection</h1>
               <p className="text-sm text-ink-secondary mb-6">
-                Connecting LinkedIn allows Nunuza to check your profile. Publishing is not
-                available in this draft-only preview.
+                Connect your personal LinkedIn profile for automated drafting and direct-to-feed publishing.
               </p>
               <div className="card border-forest-muted bg-forest-light/40 p-4 mb-6 text-sm text-ink-secondary">
-                <strong className="text-ink">Draft-only preview:</strong> LinkedIn connection
-                is optional here. Publishing requires a separate beta provisioning step and is
-                not available to draft-only workspaces.
+                <strong className="text-ink">Direct Publishing Integration:</strong> Connecting your personal
+                profile grants secure publishing permissions via LinkedIn OAuth. You can connect now or link
+                your profile anytime from Workspace Integrations.
               </div>
               <div className="card p-5 text-center">
                 <p className="text-sm font-medium text-ink mb-1">LinkedIn OAuth Available</p>

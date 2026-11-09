@@ -51,7 +51,7 @@ export async function schedulePost(
   // 1. Strict entitlement gate (draft_only cannot schedule, BED-02)
   if (!canSchedule(workspace)) {
     throw new EntitlementError(
-      "publishing_beta or paid",
+      "internal_beta or paid",
       workspace.entitlement_type
     );
   }
@@ -76,7 +76,12 @@ export async function schedulePost(
     throw new Error("Scheduled time must be a valid future timestamp.");
   }
 
-  const supabase = await createClient();
+  let supabase: any;
+  try {
+    supabase = createServiceClient();
+  } catch {
+    supabase = await createClient();
+  }
 
   // 4. Rate-limit checks: 1 post/day cap & 7 posts/rolling 7 days (BED-02)
   const dayStart = new Date(Date.UTC(targetDate.getUTCFullYear(), targetDate.getUTCMonth(), targetDate.getUTCDate()));
@@ -209,7 +214,12 @@ export async function cancelScheduledPost(
     throw new Error(`Post is not in scheduled status (current: ${post.status}).`);
   }
 
-  const supabase = await createClient();
+  let supabase: any;
+  try {
+    supabase = createServiceClient();
+  } catch {
+    supabase = await createClient();
+  }
 
   // Cancel any queued or retryable jobs for this post
   await supabase

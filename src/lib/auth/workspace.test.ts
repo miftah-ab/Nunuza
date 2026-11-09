@@ -121,6 +121,9 @@ describe("canPublish()", () => {
   const cases: [EntitlementType, boolean][] = [
     ["draft_only",       false],  // NEVER — core spec rule
     ["inactive",         false],
+    ["suspended",        false],
+    ["expired",          false],
+    ["internal_beta",    true],
     ["publishing_beta",  true],
     ["internal_test",    true],   // only for acceptance-test post
     ["paid_trial",       true],
@@ -146,6 +149,10 @@ describe("canPublish()", () => {
 describe("canSchedule()", () => {
   it("draft_only cannot schedule", () => {
     expect(canSchedule({ entitlement_type: "draft_only" })).toBe(false);
+  });
+
+  it("internal_beta can schedule", () => {
+    expect(canSchedule({ entitlement_type: "internal_beta" })).toBe(true);
   });
 
   it("paid_active can schedule", () => {
@@ -174,11 +181,20 @@ describe("canUseAutopilot()", () => {
     ).toBe(false);
   });
 
-  it("publishing_beta cannot use Autopilot even with autopilot mode", () => {
+  it("internal_beta with autopilot mode can use Autopilot (v1.0.0 private beta)", () => {
     expect(
       canUseAutopilot({
-        entitlement_type: "publishing_beta",
+        entitlement_type: "internal_beta",
         operating_mode: "autopilot",
+      })
+    ).toBe(true);
+  });
+
+  it("internal_beta with approval_required mode cannot use Autopilot", () => {
+    expect(
+      canUseAutopilot({
+        entitlement_type: "internal_beta",
+        operating_mode: "approval_required",
       })
     ).toBe(false);
   });
@@ -187,6 +203,24 @@ describe("canUseAutopilot()", () => {
     expect(
       canUseAutopilot({
         entitlement_type: "draft_only",
+        operating_mode: "autopilot",
+      })
+    ).toBe(false);
+  });
+
+  it("suspended cannot use Autopilot", () => {
+    expect(
+      canUseAutopilot({
+        entitlement_type: "suspended",
+        operating_mode: "autopilot",
+      })
+    ).toBe(false);
+  });
+
+  it("expired cannot use Autopilot", () => {
+    expect(
+      canUseAutopilot({
+        entitlement_type: "expired",
         operating_mode: "autopilot",
       })
     ).toBe(false);

@@ -10,12 +10,13 @@ import {
   Lock,
   Info,
   ChevronDown,
+  Sparkles,
 } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "Nunuza — LinkedIn content operations for founders",
+  title: "Nunuza — Autonomous LinkedIn content operations for founders",
   description:
-    "Your LinkedIn strategy, voice, and drafts in one workflow. Plan and refine LinkedIn posts in a reviewable dashboard. Draft-only preview — no subscription required.",
+    "Your LinkedIn strategy, voice, drafts, and automated publishing in one workflow. Start with a 14-day free trial ($29/mo) or private beta access.",
 };
 
 // ─── Data ──────────────────────────────────────────────────────────────────────
@@ -86,28 +87,28 @@ const featureCards = [
 
 const faqItems = [
   {
-    q: "Do I need a payment card for the draft-only preview?",
-    a: "No. The draft-only preview is free and requires no payment card. You sign up with Google and immediately get a workspace. Checkout and subscription are not enabled in this release.",
+    q: "How does the commercial trial work?",
+    a: "Commercial customers receive a 14-day free trial with full feature access across AI drafting, LinkedIn publishing, durable scheduling, and Bounded Autopilot. A payment card is collected at checkout, and the subscription automatically renews at $29/month after 14 days unless canceled.",
   },
   {
-    q: "Can I publish to LinkedIn from the draft-only preview?",
-    a: "No. This release supports drafting, reviewing, and exporting only. Publishing and scheduling are not available to draft-only workspaces. LinkedIn publishing will be enabled as a separate, limited beta after the required LinkedIn API access and acceptance-test gates pass.",
+    q: "Can I publish to my personal LinkedIn profile?",
+    a: "Yes. Both commercial customers (during trial and active subscription) and authorized private beta testers can connect their personal LinkedIn profile via official OAuth and publish human-approved posts or utilize bounded scheduling.",
   },
   {
-    q: "How much does it cost?",
-    a: "The draft-only preview is free with no subscription. The future paid plan (Nunuza Solo) will be $29/month with a 14-day card-required trial, enabled only after all paid-launch gates pass. No checkout is available in this preview.",
+    q: "What is the Private Beta?",
+    a: "Private Beta access is reserved for authorized design partners, internal testing, and product validation. Beta workspaces are provisioned directly by an administrator and receive full v1.0.0 capabilities without requiring a credit card or subscription.",
   },
   {
-    q: "What happens to my drafts if I stop using Nunuza?",
-    a: "Your drafts can be exported in a portable format at any time, including after any future cancellation or expiration. Your content is yours.",
+    q: "Is there a permanent free customer plan?",
+    a: "No. Nunuza is a professional SaaS product offering a 14-day trial followed by $29/month. There is no permanent free customer tier.",
   },
   {
-    q: "Does Nunuza post automatically?",
-    a: "Not in this preview. Every draft requires your explicit approval. Autopilot is a future v1.0.0 feature that will be available only for paid workspaces after its own release gates pass, and only after you explicitly enable it.",
+    q: "What happens to my drafts if I cancel?",
+    a: "Your drafts and content versions can be exported in portable JSON format at any time, including after cancellation or trial expiration. Your content is yours.",
   },
   {
-    q: "How do I share feedback or request updates?",
-    a: "Use the feedback link in the dashboard or email the product team. Early feedback directly shapes which capabilities are prioritized.",
+    q: "How does Autopilot work safely?",
+    a: "Autopilot requires explicit user opt-in and is constrained by strict safety bounds: maximum 1 post per calendar day, maximum 7 posts per rolling 7-day period, quiet hours, and an instant pause/emergency stop control.",
   },
 ];
 
@@ -123,23 +124,21 @@ export default function HomePage() {
         className="bg-offwhite border-b border-border"
       >
         <div className="container-page py-20 md:py-28 text-center">
-          {/* Stage label — honest about what this release is */}
+          {/* Stage label */}
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-forest-light border border-forest-muted text-forest text-xs font-semibold mb-6">
             <span className="w-1.5 h-1.5 rounded-full bg-forest inline-block" aria-hidden="true" />
-            Draft-only preview — no subscription required
+            14-Day Free Trial · Card Required · Private Beta
           </div>
 
           <h1
             id="hero-headline"
             className="text-4xl md:text-5xl font-bold text-ink leading-tight tracking-tight max-w-3xl mx-auto"
           >
-            Your LinkedIn strategy, voice, and drafts in one workflow.
+            Your LinkedIn strategy, voice, drafts, and publishing in one workflow.
           </h1>
 
           <p className="mt-6 text-lg text-ink-secondary max-w-2xl mx-auto leading-relaxed">
-            Plan and refine LinkedIn posts in a reviewable dashboard. This
-            preview supports drafting and review. Publishing and scheduling are
-            unavailable to draft-only workspaces.
+            Plan, generate, schedule, and publish high-impact LinkedIn content. Full v1.0.0 capabilities available through our 14-day commercial trial or private partner beta.
           </p>
 
           {/* CTAs */}
@@ -149,7 +148,7 @@ export default function HomePage() {
               id="hero-primary-cta"
               className="btn-primary text-base px-6 py-3"
             >
-              Try the draft-only preview
+              Start 14-Day Free Trial
               <ArrowRight size={18} aria-hidden="true" />
             </Link>
             <a
@@ -161,9 +160,8 @@ export default function HomePage() {
             </a>
           </div>
 
-          {/* 3. Disclosure — shown only because live checkout is NOT enabled */}
           <p className="mt-6 text-xs text-ink-secondary">
-            Free preview · No payment card · No publishing
+            14 days free · $29/month after · Cancel anytime
           </p>
         </div>
       </section>
@@ -176,15 +174,15 @@ export default function HomePage() {
       >
         <div className="container-page">
           <div className="text-center mb-14">
-            <p className="section-label mb-3">Draft-only preview workflow</p>
+            <p className="section-label mb-3">Complete operations workflow</p>
             <h2
               id="workflow-heading"
               className="text-3xl md:text-4xl font-bold text-ink tracking-tight"
             >
-              From strategy to polished draft.
+              From strategy to LinkedIn publication.
             </h2>
             <p className="mt-4 text-ink-secondary max-w-xl mx-auto">
-              A controlled workflow that keeps your voice and strategy
+              A seamless workflow that keeps your voice, strategy, and publication schedule
               connected — without the manual coordination.
             </p>
           </div>
@@ -223,12 +221,12 @@ export default function HomePage() {
       >
         <div className="container-page">
           <div className="text-center mb-14">
-            <p className="section-label mb-3">What&apos;s included in the preview</p>
+            <p className="section-label mb-3">Complete v1.0.0 Features</p>
             <h2
               id="features-heading"
               className="text-3xl md:text-4xl font-bold text-ink tracking-tight"
             >
-              Everything you need to draft well.
+              Autonomous content operations, built for founders.
             </h2>
           </div>
 
@@ -249,27 +247,6 @@ export default function HomePage() {
               </article>
             ))}
           </div>
-
-          {/* What's NOT in the preview — honest */}
-          <div className="mt-8 card border-warning-light bg-warning-light/40 p-5 flex gap-3">
-            <Info
-              size={18}
-              className="text-warning flex-shrink-0 mt-0.5"
-              aria-hidden="true"
-            />
-            <div>
-              <p className="text-sm font-semibold text-ink mb-1">
-                Not available in the draft-only preview
-              </p>
-              <p className="text-sm text-ink-secondary">
-                Publishing, scheduling, Autopilot, and Telegram/MCP controls are
-                not available in this release. Publishing will be enabled as a
-                separate, limited beta after the required LinkedIn API access
-                gates pass. Autopilot requires a paid subscription and additional
-                release gates.
-              </p>
-            </div>
-          </div>
         </div>
       </section>
 
@@ -281,20 +258,51 @@ export default function HomePage() {
       >
         <div className="container-page max-w-3xl">
           <div className="text-center mb-10">
-            <p className="section-label mb-3">How permissions work</p>
+            <p className="section-label mb-3">Access &amp; Permissions</p>
             <h2
               id="permissions-heading"
               className="text-3xl font-bold text-ink tracking-tight"
             >
-              You are always in control.
+              Two access pathways. You are always in control.
             </h2>
             <p className="mt-4 text-ink-secondary">
-              Nunuza never publishes without your explicit approval. Here&apos;s how
-              each release stage works.
+              Nunuza provides full v1.0.0 feature access through commercial trials or private partner beta.
             </p>
           </div>
 
           <div className="space-y-4">
+            <div className="card p-5 flex gap-4">
+              <CheckCircle2
+                size={18}
+                className="text-forest flex-shrink-0 mt-0.5"
+                aria-hidden="true"
+              />
+              <div>
+                <p className="text-sm font-semibold text-ink mb-1">
+                  Commercial Access (14-Day Free Trial)
+                </p>
+                <p className="text-sm text-ink-secondary">
+                  Start with a 14-day free trial (credit card required). Full v1.0.0 access across AI drafting, LinkedIn personal-profile publishing, scheduling, and Autopilot. Renews at $29/month unless canceled.
+                </p>
+              </div>
+            </div>
+
+            <div className="card p-5 flex gap-4">
+              <Sparkles
+                size={18}
+                className="text-forest flex-shrink-0 mt-0.5"
+                aria-hidden="true"
+              />
+              <div>
+                <p className="text-sm font-semibold text-ink mb-1">
+                  Private Beta Access
+                </p>
+                <p className="text-sm text-ink-secondary">
+                  Authorized design partners and internal testers receive complete v1.0.0 capabilities directly from an administrator, with no subscription or payment card required.
+                </p>
+              </div>
+            </div>
+
             <div className="card p-5 flex gap-4">
               <Lock
                 size={18}
@@ -303,53 +311,10 @@ export default function HomePage() {
               />
               <div>
                 <p className="text-sm font-semibold text-ink mb-1">
-                  Draft-only preview (current)
+                  Bounded Safety &amp; Control
                 </p>
                 <p className="text-sm text-ink-secondary">
-                  Every public Google signup creates a workspace with{" "}
-                  <strong>draft-only</strong> access. You can create, review,
-                  revise, and export drafts. Scheduling and publishing are not
-                  available. No payment card required.
-                </p>
-              </div>
-            </div>
-
-            <div className="card p-5 flex gap-4 opacity-70">
-              <Lock
-                size={18}
-                className="text-ink-secondary flex-shrink-0 mt-0.5"
-                aria-hidden="true"
-              />
-              <div>
-                <p className="text-sm font-semibold text-ink mb-1">
-                  LinkedIn publishing beta{" "}
-                  <span className="badge-beta ml-1">Coming later</span>
-                </p>
-                <p className="text-sm text-ink-secondary">
-                  A limited cohort of explicitly provisioned workspaces will be
-                  able to publish human-approved posts after LinkedIn API access
-                  and acceptance-test gates pass. This stage is not available to
-                  all users and is not the same as the paid plan.
-                </p>
-              </div>
-            </div>
-
-            <div className="card p-5 flex gap-4 opacity-70">
-              <Lock
-                size={18}
-                className="text-ink-secondary flex-shrink-0 mt-0.5"
-                aria-hidden="true"
-              />
-              <div>
-                <p className="text-sm font-semibold text-ink mb-1">
-                  Nunuza Solo — paid plan{" "}
-                  <span className="badge-beta ml-1">After all gates pass</span>
-                </p>
-                <p className="text-sm text-ink-secondary">
-                  Full publishing, scheduling, Telegram, MCP controls, and
-                  bounded Autopilot — enabled only after every required
-                  capability gate passes. $29/month, 14-day card-required trial,
-                  with clear renewal and cancellation terms before checkout.
+                  Every post requires your explicit confirmation by default. When you choose to enable Autopilot, hard rate caps (1 post/day, 7 posts/week) and quiet hours ensure your profile remains safe and authentic.
                 </p>
               </div>
             </div>
@@ -369,11 +334,10 @@ export default function HomePage() {
             id="pricing-heading"
             className="text-3xl md:text-4xl font-bold text-ink tracking-tight"
           >
-            Start free. Pay only when publishing is ready.
+            One simple plan. 14-day trial.
           </h2>
           <p className="mt-4 text-ink-secondary">
-            The draft-only preview is free with no payment card. Checkout will
-            be enabled after all required capability and paid-launch gates pass.
+            Full autonomous LinkedIn content operations agent for solo founders.
           </p>
 
           <div className="mt-10 card p-8 text-left">
@@ -394,7 +358,7 @@ export default function HomePage() {
                 "One active content strategy",
                 "Up to 30 new draft items per billing month",
                 "Dashboard + Telegram + remote MCP controls",
-                "Bounded Autopilot (paid workspaces only, after all gates pass)",
+                "Bounded Autopilot (with strict safety caps)",
                 "Full version history and draft export",
               ].map((item) => (
                 <li key={item} className="flex items-center gap-2.5 text-sm text-ink">
@@ -404,18 +368,15 @@ export default function HomePage() {
               ))}
             </ul>
 
-            {/* Checkout is disabled — honest label */}
-            <div className="rounded-lg bg-offwhite border border-border px-4 py-3 text-sm text-ink-secondary text-center">
-              Checkout not available in this release. Currently in draft-only preview.{" "}
-              <Link href="/pricing" className="text-forest underline underline-offset-2">
-                See full pricing details →
+            <div className="pt-2 text-center">
+              <Link href="/login" className="btn-primary w-full py-3 inline-block text-center font-semibold text-sm">
+                Start 14-Day Free Trial
               </Link>
             </div>
           </div>
 
           <p className="mt-6 text-xs text-ink-secondary">
-            14-day card-required trial after paid launch. Then $29/month unless
-            canceled. Renewal amount and cancellation path shown before checkout.
+            14-day card-required trial. Then $29/month unless canceled. Cancel anytime in your dashboard.
           </p>
         </div>
       </section>
@@ -464,11 +425,10 @@ export default function HomePage() {
             id="final-cta-heading"
             className="text-3xl md:text-4xl font-bold text-white tracking-tight"
           >
-            Start with a strategy and a draft.
+            Launch your LinkedIn content operations.
           </h2>
           <p className="mt-4 text-forest-muted max-w-lg mx-auto">
-            No payment card. No publishing in this preview. Just your strategy,
-            voice, and drafts — organized in one place.
+            Experience autonomous content operations tailored to your voice and strategy. Start your 14-day free trial today.
           </p>
           <div className="mt-8">
             <Link
@@ -476,7 +436,7 @@ export default function HomePage() {
               id="final-cta-button"
               className="inline-flex items-center gap-2 bg-white text-forest px-6 py-3 rounded-lg text-base font-semibold hover:bg-offwhite transition-colors"
             >
-              Try the draft-only preview
+              Start 14-Day Free Trial
               <ArrowRight size={18} aria-hidden="true" />
             </Link>
           </div>

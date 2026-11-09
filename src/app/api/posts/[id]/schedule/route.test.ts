@@ -88,7 +88,7 @@ describe("POST /api/posts/[id]/schedule", () => {
   it("returns 403 when workspace entitlement is draft_only", async () => {
     vi.mocked(requireWorkspace).mockResolvedValueOnce(draftOnlyWorkspace);
     vi.mocked(schedulingService.schedulePost).mockRejectedValueOnce(
-      new EntitlementError("publishing_beta or paid", "draft_only")
+      new EntitlementError("internal_beta or paid", "draft_only")
     );
 
     const req = new Request("http://localhost/api/posts/post-1/schedule", {
@@ -100,7 +100,7 @@ describe("POST /api/posts/[id]/schedule", () => {
     const res = await scheduleRoute(req, { params: Promise.resolve({ id: "post-1" }) });
     expect(res.status).toBe(403);
     const json = (await res.json()) as any;
-    expect(json.error).toContain("requires publishing_beta or paid entitlement");
+    expect(json.error).toContain("requires internal_beta or paid entitlement");
   });
 
   it("succeeds when workspace entitlement is publishing_beta", async () => {

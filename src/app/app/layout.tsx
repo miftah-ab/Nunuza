@@ -4,8 +4,6 @@
  * Verifies server-side that the user is authenticated.
  * Unauthenticated requests are caught by middleware first,
  * but this is an additional server-side check (defense in depth).
- *
- * Does NOT check entitlement — each page/route does that independently.
  */
 
 import { redirect } from "next/navigation";
@@ -20,8 +18,7 @@ export default async function AppLayout({
 }) {
   const supabase = await createClient();
 
-  // Server-side auth check — middleware handles redirect for most cases,
-  // but this guard protects against middleware bypass.
+  // Server-side auth check
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -37,14 +34,26 @@ export default async function AppLayout({
     .eq("owner_user_id", user.id)
     .single();
 
+  // If user is in onboarding wizard (setup_required), render full-page onboarding
+  if (!workspace || workspace.state === "setup_required") {
+    return (
+      <div className="min-h-screen bg-offwhite">
+        <main id="main-content" className="p-4 sm:p-6 lg:p-8">
+          {children}
+        </main>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex min-h-screen bg-offwhite">
+    <div className="flex flex-col md:flex-row min-h-screen bg-offwhite">
       <AppSidebar workspace={workspace as Workspace | null} />
-      <div className="flex-1 flex flex-col min-w-0">
-        <main id="main-content" className="flex-1 p-6">
+      <div className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
+        <main id="main-content" className="flex-1 p-4 sm:p-6 lg:p-8">
           {children}
         </main>
       </div>
     </div>
   );
 }
+

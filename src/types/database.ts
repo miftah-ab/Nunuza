@@ -1,3 +1,4 @@
+
 /**
  * TypeScript types generated from the Supabase database schema.
  *
@@ -11,12 +12,17 @@
  * DO NOT add types here that don't have corresponding DB columns.
  */
 
+export type AccessMode = "private_beta" | "commercial";
+
 export type EntitlementType =
-  | "draft_only"
-  | "internal_test"
-  | "publishing_beta"
+  | "internal_beta"
   | "paid_trial"
   | "paid_active"
+  | "suspended"
+  | "expired"
+  | "publishing_beta"
+  | "internal_test"
+  | "draft_only"
   | "inactive";
 
 export type AgentState =
@@ -76,8 +82,13 @@ export interface Workspace {
   name: string;
   state: AgentState;
   entitlement_type: EntitlementType;
+  access_mode?: AccessMode;
   operating_mode: OperatingMode;
   paused_at: string | null;
+  beta_expires_at?: string | null;
+  beta_notes?: string | null;
+  beta_granted_at?: string | null;
+  beta_revoked_at?: string | null;
   created_at: string;
   updated_at: string;
 }

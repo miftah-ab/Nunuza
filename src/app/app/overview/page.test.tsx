@@ -108,7 +108,7 @@ describe("OverviewPage (Dashboard)", () => {
     expect(rendered).toContain(">0<");
     expect(rendered).toContain("Ready for your first draft?");
     expect(rendered).toContain("Create First Draft");
-    expect(rendered).toContain("Draft-Only Preview Release");
+    expect(rendered).toContain("Start Your 14-Day Free Trial");
     expect(rendered).toContain("Active — review needed");
   });
 
@@ -241,13 +241,13 @@ describe("OverviewPage (Dashboard)", () => {
     expect(rendered).toContain("Content generation and agent jobs are paused.");
   });
 
-  it("renders publishing_beta badge and active notice for provisioned beta workspaces", async () => {
+  it("renders Private Beta badge and active notice for provisioned beta workspaces", async () => {
     const { requireWorkspace } = await import("@/lib/auth/workspace");
     const { createClient } = await import("@/lib/supabase/server");
 
     vi.mocked(requireWorkspace).mockResolvedValue({
       ...baseWorkspace,
-      entitlement_type: "publishing_beta",
+      entitlement_type: "internal_beta",
     });
 
     const mockSupabase = {
@@ -270,8 +270,7 @@ describe("OverviewPage (Dashboard)", () => {
     const jsx = await OverviewPage();
     const rendered = renderToStaticMarkup(jsx);
 
-    expect(rendered).toContain("LinkedIn publishing beta — no subscription required");
-    expect(rendered).toContain("LinkedIn Publishing Beta Active");
+    expect(rendered).toContain("Private Beta — Full Access");
     expect(rendered).not.toContain("Draft-Only Preview Release");
   });
 });

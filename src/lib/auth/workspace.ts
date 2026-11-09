@@ -13,7 +13,7 @@
  * requireWorkspaceAccess() or requireWorkspaceEntitlement().
  */
 
-import type { EntitlementType, Workspace } from "@/types/database";
+import type { AccessMode, EntitlementType, Workspace } from "@/types/database";
 import { createClient } from "@/lib/supabase/server";
 
 // ─── Error types ──────────────────────────────────────────────────────────────
@@ -158,13 +158,30 @@ export async function requireWorkspaceAccess(
   return workspace;
 }
 
-// ─── Entitlement checks ───────────────────────────────────────────────────────
+// ─── Access mode & Entitlement checks ─────────────────────────────────────────
+
+export function getAccessMode(
+  workspace: Pick<Workspace, "entitlement_type"> & { access_mode?: AccessMode }
+): AccessMode {
+  if (workspace.access_mode) return workspace.access_mode;
+  if (
+    workspace.entitlement_type === "internal_beta" ||
+    workspace.entitlement_type === "publishing_beta" ||
+    workspace.entitlement_type === "internal_test"
+  ) {
+    return "private_beta";
+  }
+  return "commercial";
+}
 
 const ENTITLEMENT_LEVELS: Record<EntitlementType, number> = {
   inactive:         0,
+  suspended:        0,
+  expired:          0,
   draft_only:       1,
   publishing_beta:  2,
-  internal_test:    2,  // same level as beta; limited to acceptance-test publish only
+  internal_test:    2,
+  internal_beta:    3,
   paid_trial:       3,
   paid_active:      3,
 };
@@ -211,41 +228,105 @@ export function assertEntitlementIn(
 
 /**
  * Checks whether publishing is permitted for this workspace.
- * draft_only NEVER gets true — regardless of operating mode or agent state.
- *
- * NOTE: publishing_beta still requires explicit human approval per post;
- * this function only checks the entitlement gate, not approval state.
+ * Requires internal_beta, paid_trial, paid_active, or legacy publishing_beta/internal_test.
+ * draft_only, suspended, expired, and inactive cannot publish.
  */
 export function canPublish(workspace: Pick<Workspace, "entitlement_type">): boolean {
   return (
-    workspace.entitlement_type === "publishing_beta" ||
-    workspace.entitlement_type === "internal_test" ||
+    workspace.entitlement_type === "internal_beta" ||
     workspace.entitlement_type === "paid_trial" ||
-    workspace.entitlement_type === "paid_active"
+    workspace.entitlement_type === "paid_active" ||
+    workspace.entitlement_type === "publishing_beta" ||
+    workspace.entitlement_type === "internal_test"
   );
 }
 
 /**
  * Checks whether Autopilot is permitted for this workspace.
- * Only paid workspaces with all autopilot gates passed may use it.
- * Always false during preview/beta.
+ * Permitted for paid customers (paid_trial, paid_active) AND private beta (internal_beta)
+ * when operating_mode is explicitly set to autopilot.
  */
 export function canUseAutopilot(
   workspace: Pick<Workspace, "entitlement_type" | "operating_mode">
 ): boolean {
   return (
-    (workspace.entitlement_type === "paid_trial" ||
-      workspace.entitlement_type === "paid_active") &&
+    canPublish(workspace) &&
     workspace.operating_mode === "autopilot"
   );
 }
 
 /**
  * Checks whether scheduling is permitted.
- * Same gate as publishing — draft_only workspaces cannot schedule.
+ * Same entitlement gate as publishing.
  */
 export function canSchedule(workspace: Pick<Workspace, "entitlement_type">): boolean {
   return canPublish(workspace);
+}
+
+// ─── Capability Evaluation Layer (§7) ─────────────────────────────────────────
+
+export interface CapabilityEvaluation {
+  eligible: boolean;
+  integrationReady: boolean;
+  safetyReady: boolean;
+  allowed: boolean;
+  blockerCode?: "SUBSCRIPTION_REQUIRED" | "INTEGRATION_DISCONNECTED" | "SAFETY_PAUSED" | "RATE_LIMITED";
+  blockerReason?: string;
+}
+
+/**
+ * Evaluates publishing readiness across feature eligibility, integration, and safety gates.
+ */
+export function evaluatePublishCapability(
+  workspace: Pick<Workspace, "entitlement_type" | "paused_at">,
+  integrationStatus?: "connected" | "disconnected" | "expired" | "error" | null,
+  isRateLimited: boolean = false
+): CapabilityEvaluation {
+  const eligible = canPublish(workspace);
+  const integrationReady = integrationStatus === "connected";
+  const safetyReady = !workspace.paused_at && !isRateLimited;
+
+  if (!eligible) {
+    return {
+      eligible: false,
+      integrationReady,
+      safetyReady,
+      allowed: false,
+      blockerCode: "SUBSCRIPTION_REQUIRED",
+      blockerReason: "Publishing requires an active trial, subscription, or authorized private beta access.",
+    };
+  }
+
+  if (!integrationReady) {
+    return {
+      eligible: true,
+      integrationReady: false,
+      safetyReady,
+      allowed: false,
+      blockerCode: "INTEGRATION_DISCONNECTED",
+      blockerReason: "LinkedIn account is not connected. Connect your LinkedIn profile to publish.",
+    };
+  }
+
+  if (!safetyReady) {
+    return {
+      eligible: true,
+      integrationReady: true,
+      safetyReady: false,
+      allowed: false,
+      blockerCode: workspace.paused_at ? "SAFETY_PAUSED" : "RATE_LIMITED",
+      blockerReason: workspace.paused_at
+        ? "Agent is paused. Resume agent before publishing."
+        : "Posting limit reached for today.",
+    };
+  }
+
+  return {
+    eligible: true,
+    integrationReady: true,
+    safetyReady: true,
+    allowed: true,
+  };
 }
 
 /**
@@ -255,7 +336,7 @@ export function canSchedule(workspace: Pick<Workspace, "entitlement_type">): boo
 export async function requirePublishingAccess(): Promise<Workspace> {
   const workspace = await requireWorkspace();
   if (!canPublish(workspace)) {
-    throw new EntitlementError("publishing_beta or paid", workspace.entitlement_type);
+    throw new EntitlementError("internal_beta or paid", workspace.entitlement_type);
   }
   if (workspace.paused_at) {
     throw new ForbiddenError("Agent is paused. Resume before publishing.");

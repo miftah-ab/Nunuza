@@ -323,7 +323,7 @@ describe("Telegram Service", () => {
         client
       );
 
-      expect(res.replyText).toContain("Action Restricted in Draft-Only Preview");
+      expect(res.replyText).toContain("Action Restricted: Subscription or Beta Required");
       expect(res.replyText).toContain("draft_only");
       // Must not approve in DB
       expect(mockDb.contentPosts[0].status).toBe("draft");

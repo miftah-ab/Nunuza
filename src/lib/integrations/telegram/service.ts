@@ -90,8 +90,11 @@ export async function generateTelegramPairingToken(
     throw new Error(`Failed to create pairing token: ${error.message}`);
   }
 
-  const botUsername = process.env.TELEGRAM_BOT_USERNAME || process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME;
-  const botUrl = botUsername ? `https://t.me/${botUsername}?start=${rawToken}` : null;
+  const botUsername =
+    process.env.TELEGRAM_BOT_USERNAME ||
+    process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ||
+    "Linker_Studio_Bot";
+  const botUrl = `https://t.me/${botUsername}?start=${rawToken}`;
 
   return {
     token: rawToken,
@@ -358,8 +361,8 @@ export async function handleTelegramMessage(
         `• **Entitlement:** \`${entitlement}\`\n` +
         `• **Drafts Awaiting Review:** ${draftCount ?? 0}\n` +
         `• **Scheduled Posts:** ${scheduledCount ?? 0}\n` +
-        (entitlement === "draft_only"
-          ? "\n⚠️ *Draft-only preview mode: scheduling & publishing are disabled.*"
+        (!["internal_beta", "publishing_beta", "paid_trial", "paid_active"].includes(entitlement)
+          ? "\n⚠️ *Subscription or Beta Required: scheduling & publishing are disabled.*"
           : ""),
     };
   }
@@ -441,12 +444,18 @@ export async function handleTelegramMessage(
 
     const shortId = parts[1].trim();
 
-    // BED-01 / BED-02 / Spec §10: Check entitlement before approving for publishing
-    if (entitlement === "draft_only") {
+    // Check entitlement before approving for publishing
+    const canPublishEntitlement =
+      entitlement === "internal_beta" ||
+      entitlement === "publishing_beta" ||
+      entitlement === "paid_trial" ||
+      entitlement === "paid_active";
+
+    if (!canPublishEntitlement) {
       return {
         replyText:
-          `⛔ **Action Restricted in Draft-Only Preview**\n\n` +
-          `Your workspace entitlement is \`draft_only\`. Posts cannot be approved for live scheduling or publishing in this preview stage.\n\n` +
+          `⛔ **Action Restricted: Subscription or Beta Required**\n\n` +
+          `Your workspace entitlement is \`${entitlement}\`. Posts cannot be approved for live scheduling or publishing without an active trial, subscription, or private beta access.\n\n` +
           `You can continue editing and reviewing drafts in your web dashboard.`,
       };
     }

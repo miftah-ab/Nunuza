@@ -339,7 +339,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
     expect(ws?.entitlement_type).toBe("paid_active");
   });
 
-  it("handles subscription.revoked -> transitions entitlement to inactive", async () => {
+  it("handles subscription.revoked -> transitions entitlement to suspended", async () => {
     const event: PolarWebhookEvent = {
       id: "evt_revoked_005",
       type: "subscription.revoked",
@@ -368,6 +368,52 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
     expect(result.status).toBe("processed");
 
     const ws = dbTables.workspaces.find((w) => w.id === WORKSPACE_ID);
-    expect(ws?.entitlement_type).toBe("inactive");
+    expect(ws?.entitlement_type).toBe("suspended");
+  });
+
+  it("does not downgrade or overwrite a private beta tester workspace via Polar webhook", async () => {
+    const BETA_WS_ID = "beta-workspace-uuid-1";
+    dbTables.workspaces.push({
+      id: BETA_WS_ID,
+      owner_user_id: "user-beta-1",
+      name: "Beta Tester Workspace",
+      state: "active_approval_required",
+      entitlement_type: "internal_beta",
+      access_mode: "private_beta",
+      operating_mode: "approval_required",
+      paused_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    const event: PolarWebhookEvent = {
+      id: "evt_polar_beta_safe_006",
+      type: "subscription.canceled",
+      created_at: new Date().toISOString(),
+      data: {
+        id: "sub_polar_999",
+        status: "canceled",
+        product_id: "prod_nunuza_solo",
+        price_id: "price_29_mo",
+        customer_id: "cust_polar_beta",
+        customer: { id: "cust_polar_beta", email: "beta@nunuza.test" },
+        current_period_start: new Date().toISOString(),
+        current_period_end: new Date().toISOString(),
+        trial_start: null,
+        trial_end: null,
+        cancel_at_period_end: false,
+        canceled_at: new Date().toISOString(),
+        ended_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        metadata: { workspace_id: BETA_WS_ID },
+      },
+    };
+
+    const result = await service.processWebhookEvent(event, mockSupabase);
+    expect(result.status).toBe("processed");
+
+    const ws = dbTables.workspaces.find((w) => w.id === BETA_WS_ID);
+    expect(ws?.entitlement_type).toBe("internal_beta");
   });
 });

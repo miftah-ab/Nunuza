@@ -552,9 +552,16 @@ export async function executeMcpTool(
         throw new Error("Agent is paused. Resume before scheduling posts.");
       }
 
-      if (!ws || ws.entitlement_type === "draft_only" || ws.entitlement_type === "inactive") {
+      const canScheduleEntitlement =
+        ws &&
+        (ws.entitlement_type === "internal_beta" ||
+          ws.entitlement_type === "publishing_beta" ||
+          ws.entitlement_type === "paid_trial" ||
+          ws.entitlement_type === "paid_active");
+
+      if (!canScheduleEntitlement) {
         throw new Error(
-          `ENTITLEMENT_RESTRICTED: Workspace entitlement "${ws?.entitlement_type || "draft_only"}" cannot schedule posts. Public signup is limited to draft-only preview.`
+          `ENTITLEMENT_RESTRICTED: Workspace entitlement "${ws?.entitlement_type || "suspended"}" cannot schedule posts. Requires active trial, subscription, or private beta access.`
         );
       }
 

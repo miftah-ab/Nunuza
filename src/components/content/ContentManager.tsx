@@ -281,10 +281,13 @@ export function ContentManager({
     }
   };
 
-  const isDraftOnly = workspace.entitlement_type === "draft_only";
-  const canPublishPosts =
+  const isPrivateBeta =
+    workspace.entitlement_type === "internal_beta" ||
     workspace.entitlement_type === "publishing_beta" ||
-    workspace.entitlement_type === "internal_test" ||
+    workspace.entitlement_type === "internal_test";
+
+  const canPublishPosts =
+    isPrivateBeta ||
     workspace.entitlement_type === "paid_trial" ||
     workspace.entitlement_type === "paid_active";
 
@@ -330,20 +333,20 @@ export function ContentManager({
             {usageCount} of {usageLimit} workflow items used this month.
           </span>
         </div>
-        {isDraftOnly ? (
-          <div className="flex items-center gap-1.5 text-ink-secondary">
-            <Lock size={12} className="text-amber-600" />
-            <span>Draft-only preview active. Scheduling & publishing require verified beta access.</span>
-          </div>
-        ) : workspace.entitlement_type === "publishing_beta" ? (
+        {isPrivateBeta ? (
           <div className="flex items-center gap-1.5 text-forest font-medium">
             <Sparkles size={12} className="text-forest" />
-            <span>LinkedIn publishing beta active. Explicit human approval required before scheduling.</span>
+            <span>Private Beta — Full Access. Human approval required before publishing.</span>
           </div>
-        ) : (
+        ) : canPublishPosts ? (
           <div className="flex items-center gap-1.5 text-forest font-medium">
             <CheckCircle2 size={12} className="text-forest" />
-            <span>Publishing enabled.</span>
+            <span>Publishing & scheduling active ({workspace.entitlement_type === "paid_trial" ? "14-Day Trial" : "Nunuza Solo"}).</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 text-ink-secondary">
+            <Lock size={12} className="text-amber-600" />
+            <span>Publishing & scheduling require an active 14-day free trial ($29/mo) or private beta access.</span>
           </div>
         )}
       </div>
@@ -453,9 +456,9 @@ export function ContentManager({
                     ) : (
                       <span
                         className="text-ink-secondary flex items-center gap-1 cursor-not-allowed"
-                        title="Approval for publishing requires verified publishing beta access"
+                        title="Approval for publishing requires an active trial, subscription, or private beta access"
                       >
-                        <Lock size={11} /> Approval (Beta only)
+                        <Lock size={11} /> Approval Gated
                       </span>
                     )
                   )}
@@ -470,7 +473,7 @@ export function ContentManager({
                     ) : (
                       <span
                         className="text-ink-secondary flex items-center gap-1 cursor-not-allowed"
-                        title="Scheduling is disabled for draft_only preview"
+                        title="Scheduling requires an active trial, subscription, or private beta access"
                       >
                         <Lock size={11} /> Scheduling Gated
                       </span>

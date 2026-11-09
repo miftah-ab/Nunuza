@@ -5,7 +5,7 @@ import { CheckCircle2, Info } from "lucide-react";
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "Nunuza Solo — one plan at $29/month with a 14-day trial. Available after all paid-launch gates pass. Currently in draft-only preview at no charge.",
+    "Nunuza Solo — $29/month with a 14-day free trial. Full LinkedIn content operations SaaS. Private beta available for authorized partners.",
 };
 
 const includedFeatures = [
@@ -16,9 +16,9 @@ const includedFeatures = [
   "Content version history",
   "Draft export in portable format",
   "Dashboard controls",
-  "Telegram controls (after Telegram gate passes)",
-  "Remote MCP read and control tools (after MCP gate passes)",
-  "Bounded Autopilot — paid workspaces only, after all gates pass",
+  "Telegram bot controls & notifications",
+  "Remote MCP read and control tools",
+  "Bounded Autopilot — with strict safety limits",
   "Activity log with job audit trail",
 ];
 
@@ -37,28 +37,25 @@ export default function PricingPage() {
       <div className="container-page max-w-3xl">
         {/* Header */}
         <div className="text-center mb-14">
-          <p className="section-label mb-3">Pricing</p>
+          <p className="section-label mb-3">Pricing &amp; Access</p>
           <h1 className="text-4xl font-bold text-ink tracking-tight">
-            One plan. No surprises.
+            One simple plan. 14-day free trial.
           </h1>
           <p className="mt-4 text-lg text-ink-secondary max-w-xl mx-auto">
-            The draft-only preview is free with no payment card. The Nunuza
-            Solo paid plan becomes available after all required capability and
-            paid-launch gates pass.
+            Get full access to autonomous LinkedIn content operations for $29/month. Start with a 14-day card-required trial. Cancel anytime.
           </p>
         </div>
 
-        {/* Current state banner */}
+        {/* Access Pathways Banner */}
         <div className="card border-forest-muted bg-forest-light p-5 flex gap-3 mb-8">
           <Info size={18} className="text-forest flex-shrink-0 mt-0.5" aria-hidden="true" />
           <div>
             <p className="text-sm font-semibold text-ink mb-1">
-              Currently in draft-only preview
+              Dual Access Pathways
             </p>
             <p className="text-sm text-ink-secondary">
-              Checkout is not available. Sign up with Google for free draft
-              access — no payment card required. Paid launch will be enabled
-              when every required gate passes.
+              <strong>Commercial Customers:</strong> Start with a 14-day trial (card required at checkout), then $29/month with automatic renewal. Full v1.0.0 features throughout the trial.<br />
+              <strong>Private Beta Testers:</strong> Authorized partners provisioned directly by an administrator receive full access with zero payment required.
             </p>
           </div>
         </div>
@@ -70,7 +67,7 @@ export default function PricingPage() {
             <div>
               <h2 className="text-xl font-bold text-ink">Nunuza Solo</h2>
               <p className="text-sm text-ink-secondary mt-1">
-                Everything you need to run a LinkedIn content workflow.
+                Everything you need to run a high-impact LinkedIn content workflow.
               </p>
             </div>
             <div className="sm:text-right">
@@ -79,7 +76,7 @@ export default function PricingPage() {
                 <span className="text-sm text-ink-secondary pb-1">/ month</span>
               </div>
               <p className="text-xs text-ink-secondary mt-1">
-                14-day trial · card required · then $29/month
+                14-day trial · card required · renews at $29/mo
               </p>
             </div>
           </div>
@@ -87,7 +84,7 @@ export default function PricingPage() {
           {/* Included */}
           <div className="pt-6">
             <h3 className="text-xs font-semibold text-ink-secondary uppercase tracking-widest mb-4">
-              Included
+              Included Features
             </h3>
             <ul className="space-y-2.5" role="list">
               {includedFeatures.map((feature) => (
@@ -122,17 +119,17 @@ export default function PricingPage() {
           <div className="mt-8 pt-6 border-t border-border">
             <div className="rounded-lg bg-offwhite border border-border px-4 py-4 text-center">
               <p className="text-sm font-medium text-ink mb-1">
-                Checkout not available — draft-only preview
+                Ready to elevate your LinkedIn presence?
               </p>
               <p className="text-xs text-ink-secondary mb-3">
-                Sign up free with Google to access the draft-only preview.
+                Sign in to launch your workspace and start your 14-day free trial.
               </p>
               <Link
                 href="/login"
                 id="pricing-cta"
                 className="btn-primary text-sm"
               >
-                Try the draft-only preview — free
+                Start 14-Day Free Trial
               </Link>
             </div>
           </div>
@@ -141,24 +138,23 @@ export default function PricingPage() {
         {/* Trial and billing terms */}
         <div className="card p-6 bg-offwhite">
           <h3 className="text-sm font-semibold text-ink mb-3">
-            Trial and billing terms (applies after paid launch)
+            Trial and billing terms
           </h3>
           <ul className="space-y-2 text-sm text-ink-secondary" role="list">
             <li>
               <strong className="text-ink">Trial:</strong> 14 days. A payment
               card is required at trial start. You will not be charged during
-              the trial period.
+              the 14-day trial period.
             </li>
             <li>
               <strong className="text-ink">Renewal:</strong> $29/month,
               automatically billed after the trial unless canceled. Renewal
-              amount and first charge date are shown before checkout
-              confirmation.
+              amount and first charge date are clearly shown before checkout.
             </li>
             <li>
               <strong className="text-ink">Cancellation:</strong> Cancel any
               time before renewal from the billing page. Access continues
-              through the paid-through period.
+              through the trial or paid period.
             </li>
             <li>
               <strong className="text-ink">Failed payment:</strong> Nunuza
@@ -173,10 +169,6 @@ export default function PricingPage() {
               raise these caps.
             </li>
           </ul>
-          <p className="mt-4 text-xs text-ink-secondary">
-            These terms describe the future paid plan, not the current free
-            draft-only preview. No charges apply during the preview.
-          </p>
         </div>
       </div>
     </div>

@@ -17,17 +17,8 @@ export default function TermsPage() {
             Terms of Service
           </h1>
           <p className="mt-3 text-sm text-ink-secondary">
-            Last updated: October 2026 · Effective for the draft-only preview.
+            Last updated: November 2026 · Nunuza v1.0.0.
           </p>
-        </div>
-
-        {/* Review notice */}
-        <div className="card border-warning-light bg-warning-light/40 p-4 mb-8 text-sm text-ink-secondary">
-          <strong className="text-ink">Notice:</strong> These Terms of Service
-          are a working draft for the draft-only preview. They have not been
-          reviewed by a lawyer or the legally responsible business owner. They
-          must be reviewed and approved before any public paid launch. Do not
-          rely on this as legal advice.
         </div>
 
         <div className="prose-like space-y-8 text-sm text-ink-secondary leading-relaxed">
@@ -46,10 +37,11 @@ export default function TermsPage() {
               The service
             </h2>
             <p>
-              Nunuza is a LinkedIn content workflow tool. The current release is
-              a draft-only preview. It supports creating, reviewing, revising, and
-              exporting text drafts. Publishing and scheduling are not available in
-              this release.
+              Nunuza is an autonomous LinkedIn content operations agent. It supports
+              strategic planning, AI content drafting, human review, background scheduling,
+              and direct personal-profile publishing via official LinkedIn APIs. Access is
+              available through commercial 14-day free trials ($29/month) or authorized
+              private beta access.
             </p>
           </section>
 
@@ -78,13 +70,14 @@ export default function TermsPage() {
 
           <section aria-labelledby="terms-billing">
             <h2 id="terms-billing" className="text-base font-semibold text-ink mb-3">
-              Billing (not active in this preview)
+              Billing &amp; Access
             </h2>
             <p>
-              The draft-only preview is free. No payment card is required. Paid
-              subscriptions are not available in this release. When paid plans
-              become available, the recurring amount, first charge date, and
-              cancellation method will be displayed before checkout confirmation.
+              Commercial subscriptions start with a 14-day free trial. A valid payment card
+              is required at checkout. The trial converts automatically to $29.00 USD/month
+              after 14 days unless canceled. You may cancel at any time from your billing dashboard
+              without penalty. Authorized private beta testers access the service without payment
+              cards or fees under terms established with administrators.
             </p>
           </section>
 

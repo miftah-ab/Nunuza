@@ -9,7 +9,7 @@
  */
 
 import { encryptToken, decryptToken } from "./crypto";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/server";
 import { logAuditEvent } from "@/lib/db/workspace";
 import type { IntegrationConnection } from "@/types/database";
 
@@ -107,7 +107,7 @@ export async function saveLinkedInConnection(
 ): Promise<IntegrationConnection> {
   const encryptedRef = encryptToken(data.accessToken);
   const expiresAt = new Date(Date.now() + data.expiresIn * 1000).toISOString();
-  const supabase = await createClient();
+  const supabase = createServiceClient();
 
   const { data: connection, error } = await supabase
     .from("integration_connections")
@@ -156,7 +156,7 @@ export async function disconnectLinkedIn(
   workspaceId: string,
   userId: string
 ): Promise<void> {
-  const supabase = await createClient();
+  const supabase = createServiceClient();
 
   const { error } = await supabase
     .from("integration_connections")
@@ -205,7 +205,7 @@ export interface PublishLinkedInResult {
 export async function publishPostToLinkedIn(
   options: PublishLinkedInOptions
 ): Promise<PublishLinkedInResult> {
-  const supabase = options.supabaseOverride || (await createClient());
+  const supabase = options.supabaseOverride || createServiceClient();
 
   // 1. Fetch active LinkedIn connection
   const { data: connection, error } = await supabase

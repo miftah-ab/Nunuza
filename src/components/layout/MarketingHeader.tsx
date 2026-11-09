@@ -47,7 +47,7 @@ export function MarketingHeader() {
               id="header-cta"
               className="btn-primary text-sm px-4 py-2"
             >
-              Try the draft-only preview
+              Get Started
             </Link>
           </div>
 
@@ -102,7 +102,7 @@ export function MarketingHeader() {
                 onClick={() => setMenuOpen(false)}
                 className="btn-primary text-sm text-center"
               >
-                Try the draft-only preview
+                Get Started
               </Link>
             </div>
           </div>

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { requireWorkspace, AuthError, ForbiddenError } from "@/lib/auth/workspace";
+import { requireWorkspace, AuthError } from "@/lib/auth/workspace";
 import type { Workspace, AgentState } from "@/types/database";
 import {
   CheckCircle2,
@@ -15,10 +15,18 @@ import {
   ArrowRight,
   Activity as ActivityIcon,
   Calendar,
-  Target,
-  Mic2,
   Lock,
+  Plus,
+  Linkedin,
+  Send,
+  Cpu,
+  Clock,
+  ExternalLink,
+  ShieldCheck,
+  CheckCircle,
 } from "lucide-react";
+import { getTelegramLinkStatus } from "@/lib/integrations/telegram/service";
+import { getMcpCredentialStatus } from "@/lib/integrations/mcp/tokens";
 
 export const metadata: Metadata = {
   title: "Overview — Nunuza",
@@ -29,7 +37,6 @@ interface StateDisplay {
   label: string;
   icon: typeof CheckCircle2;
   color: string;
-  badgeClass: string;
   description: string;
 }
 
@@ -38,66 +45,72 @@ const STATE_CONFIG: Record<AgentState, StateDisplay> = {
     label: "Setup required",
     icon: AlertCircle,
     color: "text-amber-600",
-    badgeClass: "badge-draft-only",
     description: "Initial setup is incomplete. Complete onboarding to activate your workspace.",
   },
   active_approval_required: {
     label: "Active — review needed",
     icon: CheckCircle2,
     color: "text-forest",
-    badgeClass: "badge-active",
-    description: "Content drafting is active. All generated posts require your manual review and approval before scheduling or export.",
+    description: "Content drafting is active. Generated posts require manual review before scheduling or export.",
   },
   active_autopilot: {
     label: "Active — autopilot",
     icon: CheckCircle2,
     color: "text-forest",
-    badgeClass: "badge-active",
-    description: "Autopilot is active. Posts are scheduled automatically according to your cadence.",
+    description: "Autopilot is active. Posts are scheduled automatically according to your cadence bounds.",
   },
   paused: {
     label: "Paused",
     icon: PauseCircle,
     color: "text-ink-secondary",
-    badgeClass: "badge-draft-only",
     description: "Content generation and agent jobs are paused. Resume to continue.",
   },
   blocked_integration: {
     label: "Integration issue",
     icon: WifiOff,
     color: "text-error",
-    badgeClass: "badge-error",
     description: "Integration connection issue requires your attention in Integrations.",
   },
   attention_required: {
     label: "Attention required",
     icon: AlertTriangle,
     color: "text-warning",
-    badgeClass: "badge-warning",
     description: "Workspace configuration or content pipeline requires review.",
   },
 };
 
 const ENTITLEMENT_BADGES: Record<string, { label: string; className: string }> = {
-  draft_only: {
-    label: "Draft-only preview — no subscription required",
-    className: "badge-draft-only",
+  internal_beta: {
+    label: "Private Beta — Full Access",
+    className: "badge-beta",
   },
   publishing_beta: {
-    label: "LinkedIn publishing beta — no subscription required",
+    label: "Private Beta — Full Access",
     className: "badge-beta",
   },
   internal_test: {
-    label: "Internal acceptance test",
-    className: "badge-error",
+    label: "Internal Beta — Full Access",
+    className: "badge-beta",
   },
   paid_trial: {
-    label: "14-day trial",
+    label: "14-Day Free Trial",
     className: "badge-active",
   },
   paid_active: {
-    label: "Active subscription ($29/mo)",
+    label: "Active Subscription ($29/mo)",
     className: "badge-active",
+  },
+  suspended: {
+    label: "Subscription Suspended",
+    className: "badge-error",
+  },
+  expired: {
+    label: "Trial Expired",
+    className: "badge-error",
+  },
+  draft_only: {
+    label: "Commercial Onboarding",
+    className: "badge-draft-only",
   },
   inactive: {
     label: "Inactive",
@@ -114,6 +127,16 @@ interface RecentActivityItem {
   statusBadge?: { label: string; className: string };
 }
 
+interface PostSummary {
+  id: string;
+  title: string | null;
+  pillar: string | null;
+  status: string;
+  scheduled_for?: string | null;
+  updated_at?: string;
+  created_at?: string;
+}
+
 export default async function OverviewPage() {
   let workspace: Workspace;
 
@@ -123,7 +146,6 @@ export default async function OverviewPage() {
     if (err instanceof AuthError) {
       redirect("/login");
     }
-    // If not found or forbidden, send to onboarding
     redirect("/app/onboarding");
   }
 
@@ -134,14 +156,16 @@ export default async function OverviewPage() {
 
   const supabase = await createClient();
 
-  // ─── 1. Query Draft Counts (isolated strictly by workspace_id) ───────────────
+  // ─── 1. Query Real Metrics (isolated strictly by workspace_id) ───────────────
   let draftsAwaitingReview: number | null = null;
   let approvedDrafts: number | null = null;
+  let scheduledDrafts: number | null = null;
+  let publishedDrafts: number | null = null;
   let totalDrafts: number | null = null;
   let draftsError: string | null = null;
 
   try {
-    const [awaitingRes, approvedRes, totalRes] = await Promise.all([
+    const [awaitingRes, approvedRes, scheduledRes, publishedRes, totalRes] = await Promise.all([
       supabase
         .from("content_posts")
         .select("id", { count: "exact", head: true })
@@ -155,21 +179,116 @@ export default async function OverviewPage() {
       supabase
         .from("content_posts")
         .select("id", { count: "exact", head: true })
+        .eq("workspace_id", workspace.id)
+        .eq("status", "scheduled"),
+      supabase
+        .from("content_posts")
+        .select("id", { count: "exact", head: true })
+        .eq("workspace_id", workspace.id)
+        .eq("status", "published"),
+      supabase
+        .from("content_posts")
+        .select("id", { count: "exact", head: true })
         .eq("workspace_id", workspace.id),
     ]);
 
     if (awaitingRes.error) throw new Error(awaitingRes.error.message);
     if (approvedRes.error) throw new Error(approvedRes.error.message);
-    if (totalRes.error) throw new Error(totalRes.error.message);
 
     draftsAwaitingReview = awaitingRes.count ?? 0;
     approvedDrafts = approvedRes.count ?? 0;
+    scheduledDrafts = scheduledRes.count ?? 0;
+    publishedDrafts = publishedRes.count ?? 0;
     totalDrafts = totalRes.count ?? 0;
   } catch (err: unknown) {
     draftsError = err instanceof Error ? err.message : "Unable to query content drafts.";
   }
 
-  // ─── 2. Query Recent Activity (audit_events & agent_jobs) ────────────────────
+  // ─── 2. Query Operational Posts (Upcoming Scheduled & Drafts Needing Review) ───
+  let upcomingPosts: PostSummary[] = [];
+  let pendingReviewPosts: PostSummary[] = [];
+
+  try {
+    const [upcomingRes, pendingRes] = await Promise.all([
+      supabase
+        .from("content_posts")
+        .select("id, title, pillar, status, scheduled_for, created_at")
+        .eq("workspace_id", workspace.id)
+        .eq("status", "scheduled")
+        .order("scheduled_for", { ascending: true })
+        .limit(3),
+      supabase
+        .from("content_posts")
+        .select("id, title, pillar, status, updated_at, created_at")
+        .eq("workspace_id", workspace.id)
+        .in("status", ["draft", "needs_review"])
+        .order("updated_at", { ascending: false })
+        .limit(3),
+    ]);
+
+    if (!upcomingRes.error && upcomingRes.data) {
+      upcomingPosts = upcomingRes.data as PostSummary[];
+    }
+    if (!pendingRes.error && pendingRes.data) {
+      pendingReviewPosts = pendingRes.data as PostSummary[];
+    }
+  } catch {
+    // Non-fatal query fallback
+  }
+
+  // ─── 3. Query Integration Health & Cadence ──────────────────────────────────
+  let linkedinConnected = false;
+  let linkedinProfileName: string | null = null;
+  let telegramConnected = false;
+  let mcpActive = false;
+  let weeklyCadenceTarget = 3;
+
+  try {
+    const [linkedinData, telegramStatus, mcpStatus, strategyData] = await Promise.all([
+      (async () => {
+        try {
+          const res = await supabase
+            .from("integration_connections")
+            .select("status, metadata")
+            .eq("workspace_id", workspace.id)
+            .eq("provider", "linkedin")
+            .eq("status", "connected")
+            .maybeSingle();
+          return res.data;
+        } catch {
+          return null;
+        }
+      })(),
+      getTelegramLinkStatus(workspace.id, supabase).catch(() => ({ linked: false })),
+      getMcpCredentialStatus(workspace.id, supabase).catch(() => ({ active: false })),
+      (async () => {
+        try {
+          const res = await supabase
+            .from("content_strategies")
+            .select("cadence_per_week")
+            .eq("workspace_id", workspace.id)
+            .maybeSingle();
+          return res.data;
+        } catch {
+          return null;
+        }
+      })(),
+    ]);
+
+    if (linkedinData) {
+      linkedinConnected = true;
+      linkedinProfileName = (linkedinData.metadata as any)?.name || null;
+    }
+    telegramConnected = telegramStatus?.linked ?? false;
+    mcpActive = mcpStatus?.active ?? false;
+    if (strategyData?.cadence_per_week) {
+      weeklyCadenceTarget = strategyData.cadence_per_week;
+    }
+  } catch {
+    // Non-fatal integration health query
+  }
+
+  // ─── 4. Query Recent Activity (audit_events & agent_jobs) ────────────────────
   let recentActivities: RecentActivityItem[] = [];
   let activityError: string | null = null;
 
@@ -223,12 +342,12 @@ export default async function OverviewPage() {
 
     recentActivities = [...auditItems, ...jobItems]
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .slice(0, 5);
+      .slice(0, 4);
   } catch (err: unknown) {
     activityError = err instanceof Error ? err.message : "Unable to query activity log.";
   }
 
-  // ─── 3. State & Entitlement Badges ───────────────────────────────────────────
+  // ─── 5. State & Entitlement Badges ───────────────────────────────────────────
   const effectiveState: AgentState = workspace.paused_at ? "paused" : workspace.state;
   const stateConfig = STATE_CONFIG[effectiveState] ?? STATE_CONFIG.setup_required;
   const StateIcon = stateConfig.icon;
@@ -237,252 +356,489 @@ export default async function OverviewPage() {
     className: "badge-draft-only",
   };
 
-  const isDraftOnly = workspace.entitlement_type === "draft_only";
-
   return (
-    <div className="max-w-4xl mx-auto space-y-6 animate-fade-in pb-12">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div className="max-w-6xl mx-auto space-y-6 animate-fade-in pb-12">
+      {/* ─── Top Operational Header ─── */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-border">
         <div>
-          <h1 className="text-2xl font-bold text-ink">Overview</h1>
-          <p className="text-sm text-ink-secondary mt-0.5">
-            {workspace.name}
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold text-ink">Overview</h1>
+            <span className={entitlementBadge.className}>{entitlementBadge.label}</span>
+          </div>
+          <p className="text-xs text-ink-secondary mt-1">
+            {workspace.name} &bull; Operating Mode:{" "}
+            <span className="font-semibold text-ink">
+              {workspace.operating_mode === "approval_required" ? "Approval Required" : "Autopilot"}
+            </span>
           </p>
         </div>
-        <span className={entitlementBadge.className}>{entitlementBadge.label}</span>
-      </div>
 
-      {/* Agent Status Card */}
-      <div className="card p-5">
-        <div className="flex items-start gap-4">
-          <div className="p-2.5 rounded-lg bg-surface border border-border">
-            <StateIcon size={22} className={stateConfig.color} aria-hidden="true" />
-          </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <p className="text-xs text-ink-secondary font-medium uppercase tracking-wider">
-                Agent Status
-              </p>
-              <span className="text-[11px] px-2 py-0.5 rounded font-mono bg-surface-alt text-ink-secondary border border-border">
-                {workspace.operating_mode === "approval_required" ? "Approval Required" : "Autopilot"}
-              </span>
-            </div>
-            <p className="text-base font-semibold text-ink mt-0.5">
-              {stateConfig.label}
-            </p>
-            <p className="text-sm text-ink-secondary mt-1">
-              {stateConfig.description}
-            </p>
-          </div>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <Link
+            href="/app/content"
+            className="btn-primary text-xs flex items-center gap-1.5 shadow-xs"
+          >
+            <Plus size={15} />
+            <span>Create Draft</span>
+          </Link>
         </div>
       </div>
 
-      {/* Draft-Only Preview Restrictions Notice */}
-      {isDraftOnly && (
-        <div className="card border-forest-muted bg-forest-light/40 p-5">
+      {/* ─── Private Beta Full-Access Notice ─── */}
+      {(workspace.entitlement_type === "internal_beta" || workspace.entitlement_type === "publishing_beta") && (
+        <div className="card border-forest-muted bg-forest-light/40 p-4">
           <div className="flex items-start gap-3">
-            <div className="p-2 rounded bg-white/70 border border-forest-muted text-forest">
-              <Lock size={18} />
+            <div className="p-2 rounded bg-white/80 border border-forest-muted text-forest shrink-0">
+              <Sparkles size={17} />
             </div>
             <div>
-              <p className="text-sm font-semibold text-ink">
-                Draft-Only Preview Release
+              <p className="text-xs font-semibold text-ink">
+                Private Beta — Full Access
               </p>
-              <p className="text-sm text-ink-secondary mt-1">
-                You can create, review, and export LinkedIn drafts. Automated publishing, background scheduling,
-                and Autopilot are locked until official release approval.
+              <p className="text-xs text-ink-secondary mt-0.5 leading-relaxed">
+                Your workspace is authorized for private beta testing with complete v1.0.0 features. You can generate drafts, schedule and publish to LinkedIn, use Telegram and MCP channels, and exercise Bounded Autopilot. No subscription required.
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Publishing Beta Notice */}
-      {workspace.entitlement_type === "publishing_beta" && (
-        <div className="card border-forest-muted bg-forest-light/40 p-5">
+      {/* ─── Paid Trial Notice ─── */}
+      {workspace.entitlement_type === "paid_trial" && (
+        <div className="card border-forest-muted bg-forest-light/40 p-4">
           <div className="flex items-start gap-3">
-            <div className="p-2 rounded bg-white/70 border border-forest-muted text-forest">
-              <Sparkles size={18} />
+            <div className="p-2 rounded bg-white/80 border border-forest-muted text-forest shrink-0">
+              <Sparkles size={17} />
             </div>
             <div>
-              <p className="text-sm font-semibold text-ink">
-                LinkedIn Publishing Beta Active
+              <p className="text-xs font-semibold text-ink">
+                14-Day Free Trial — Full Access
               </p>
-              <p className="text-sm text-ink-secondary mt-1">
-                Your workspace is enrolled in the LinkedIn publishing beta. Human-approved posts can be scheduled and published to your connected LinkedIn profile. Autopilot remains disabled.
+              <p className="text-xs text-ink-secondary mt-0.5 leading-relaxed">
+                You have full v1.0.0 access across all publishing, scheduling, and automation tools during your 14-day trial. Automatic renewal at $29/month unless cancelled.
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* First-Draft Callout when Workspace has 0 Posts */}
-      {!draftsError && totalDrafts === 0 && (
-        <div className="card border-forest-muted bg-white p-6 shadow-sm">
+      {/* ─── Commercial Trial Activation Callout ─── */}
+      {(workspace.entitlement_type === "suspended" || workspace.entitlement_type === "expired" || workspace.entitlement_type === "draft_only") && (
+        <div className="card border-amber-200 bg-amber-50/50 p-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <Sparkles size={18} className="text-forest" />
-                <h3 className="text-base font-semibold text-ink">Ready for your first draft?</h3>
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded bg-white border border-amber-200 text-amber-700 shrink-0">
+                <Lock size={17} />
               </div>
-              <p className="text-sm text-ink-secondary mt-1 max-w-xl">
-                Your workspace strategy and voice settings are saved. Generate a post with AI using your pillars, or compose your own draft.
-              </p>
+              <div>
+                <p className="text-xs font-semibold text-ink">
+                  {workspace.entitlement_type === "expired" ? "Trial Expired" : "Start Your 14-Day Free Trial"}
+                </p>
+                <p className="text-xs text-ink-secondary mt-0.5 leading-relaxed max-w-xl">
+                  Unlock LinkedIn personal-profile publishing, durable scheduling, Telegram/MCP controls, and Autopilot for $29/month (card required, cancel anytime).
+                </p>
+              </div>
             </div>
             <Link
-              href="/app/content"
-              className="btn-primary flex items-center justify-center gap-2 whitespace-nowrap"
+              href="/app/billing"
+              className="btn-primary text-xs whitespace-nowrap self-start sm:self-auto"
             >
-              <Sparkles size={16} />
-              Create First Draft
+              Start Free Trial
             </Link>
           </div>
         </div>
       )}
 
-      {/* Metrics & Activity Grid */}
-      <div className="grid sm:grid-cols-2 gap-4">
-        {/* Drafts awaiting review */}
-        <div className="card p-5 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <p className="section-label">Drafts awaiting review</p>
-              <FileText size={16} className="text-ink-secondary" />
+      {/* ─── First-Draft Callout when Workspace has 0 Posts ─── */}
+      {!draftsError && totalDrafts === 0 && (
+        <div className="card border-forest-muted bg-white p-5 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <Sparkles size={17} className="text-forest" />
+                <h3 className="text-sm font-semibold text-ink">Ready for your first draft?</h3>
+              </div>
+              <p className="text-xs text-ink-secondary mt-1 max-w-xl">
+                Your workspace strategy and voice settings are saved. Generate a post with AI using your pillars, or compose your own draft.
+              </p>
             </div>
+            <Link
+              href="/app/content"
+              className="btn-primary text-xs flex items-center justify-center gap-1.5 whitespace-nowrap"
+            >
+              <Sparkles size={14} />
+              <span>Create First Draft</span>
+            </Link>
+          </div>
+        </div>
+      )}
 
+      {/* ─── 4-Metric Operational Grid ─── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Metric 1: Drafts Awaiting Review */}
+        <Link
+          href="/app/content"
+          className="card p-4 hover:border-forest/40 transition-colors flex flex-col justify-between group"
+        >
+          <div>
+            <div className="flex items-center justify-between text-ink-secondary mb-2">
+              <span className="text-xs font-semibold uppercase tracking-wider">Awaiting Review</span>
+              <FileText size={16} className="text-forest group-hover:scale-105 transition-transform" />
+            </div>
             {draftsError ? (
-              <div className="p-3 rounded bg-error-light/50 border border-error-light text-error text-xs">
+              <div className="text-xs text-error">
                 <p className="font-semibold">Query error</p>
                 <p className="mt-0.5">{draftsError}</p>
               </div>
             ) : (
               <div>
-                <p className="text-3xl font-bold text-ink">
+                <p className="text-2xl font-bold text-ink">
                   {draftsAwaitingReview}
                 </p>
-                <p className="text-xs text-ink-secondary mt-1.5">
+                <p className="text-[11px] text-ink-secondary mt-1">
                   {draftsAwaitingReview === 0
                     ? "0 drafts currently waiting for review."
                     : `${draftsAwaitingReview} ${draftsAwaitingReview === 1 ? "draft" : "drafts"} ready for review & approval.`}
                 </p>
                 {approvedDrafts !== null && approvedDrafts > 0 && (
-                  <p className="text-xs text-forest mt-1 font-medium">
+                  <p className="text-[11px] text-forest mt-0.5 font-medium">
                     {approvedDrafts} approved {approvedDrafts === 1 ? "draft" : "drafts"} available to export.
                   </p>
                 )}
               </div>
             )}
           </div>
-
-          <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
-            <span className="text-xs text-ink-secondary">
-              Total drafts: {draftsError ? "—" : totalDrafts}
-            </span>
-            <Link
-              href="/app/content"
-              className="text-xs font-semibold text-forest hover:text-forest-hover flex items-center gap-1"
-            >
-              Go to Content <ArrowRight size={14} />
-            </Link>
+          <div className="mt-3 pt-2 border-t border-border/60 flex items-center justify-between text-[11px] text-ink-secondary font-medium">
+            <span>Review drafts</span>
+            <ArrowRight size={13} className="text-forest group-hover:translate-x-0.5 transition-transform" />
           </div>
-        </div>
+        </Link>
 
-        {/* Recent activity */}
-        <div className="card p-5 flex flex-col justify-between">
+        {/* Metric 2: Scheduled Posts */}
+        <Link
+          href="/app/calendar"
+          className="card p-4 hover:border-forest/40 transition-colors flex flex-col justify-between group"
+        >
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <p className="section-label">Recent activity</p>
-              <ActivityIcon size={16} className="text-ink-secondary" />
+            <div className="flex items-center justify-between text-ink-secondary mb-2">
+              <span className="text-xs font-semibold uppercase tracking-wider">Scheduled Posts</span>
+              <Calendar size={16} className="text-forest group-hover:scale-105 transition-transform" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-ink">
+                {draftsError ? "—" : scheduledDrafts}
+              </p>
+              <p className="text-[11px] text-ink-secondary mt-1">
+                {scheduledDrafts === 0
+                  ? "No posts currently queued in calendar."
+                  : `${scheduledDrafts} queued for automated publication.`}
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 pt-2 border-t border-border/60 flex items-center justify-between text-[11px] text-ink-secondary font-medium">
+            <span>View calendar</span>
+            <ArrowRight size={13} className="text-forest group-hover:translate-x-0.5 transition-transform" />
+          </div>
+        </Link>
+
+        {/* Metric 3: Published Posts */}
+        <Link
+          href="/app/performance"
+          className="card p-4 hover:border-forest/40 transition-colors flex flex-col justify-between group"
+        >
+          <div>
+            <div className="flex items-center justify-between text-ink-secondary mb-2">
+              <span className="text-xs font-semibold uppercase tracking-wider">Published to Date</span>
+              <CheckCircle2 size={16} className="text-forest group-hover:scale-105 transition-transform" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-ink">
+                {draftsError ? "—" : publishedDrafts}
+              </p>
+              <p className="text-[11px] text-ink-secondary mt-1">
+                Live LinkedIn posts via personal profile.
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 pt-2 border-t border-border/60 flex items-center justify-between text-[11px] text-ink-secondary font-medium">
+            <span>View performance</span>
+            <ArrowRight size={13} className="text-forest group-hover:translate-x-0.5 transition-transform" />
+          </div>
+        </Link>
+
+        {/* Metric 4: Total Pipeline Posts */}
+        <Link
+          href="/app/content"
+          className="card p-4 hover:border-forest/40 transition-colors flex flex-col justify-between group"
+        >
+          <div>
+            <div className="flex items-center justify-between text-ink-secondary mb-2">
+              <span className="text-xs font-semibold uppercase tracking-wider">Total Pipeline</span>
+              <ActivityIcon size={16} className="text-forest group-hover:scale-105 transition-transform" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-ink">
+                {draftsError ? "—" : totalDrafts}
+              </p>
+              <p className="text-[11px] text-ink-secondary mt-1">
+                Across all draft, review, and live stages.
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 pt-2 border-t border-border/60 flex items-center justify-between text-[11px] text-ink-secondary font-medium">
+            <span>Open content studio</span>
+            <ArrowRight size={13} className="text-forest group-hover:translate-x-0.5 transition-transform" />
+          </div>
+        </Link>
+      </div>
+
+      {/* ─── Two-Column Operational Layout ─── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column (2 cols): Content Operations */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Upcoming Scheduled Posts */}
+          <div className="card p-5">
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <Clock size={16} className="text-forest" />
+                <h2 className="text-sm font-semibold text-ink">Upcoming Scheduled Publications</h2>
+              </div>
+              <Link href="/app/calendar" className="text-xs font-semibold text-forest hover:text-forest-hover flex items-center gap-1">
+                Calendar <ArrowRight size={13} />
+              </Link>
             </div>
 
-            {activityError ? (
-              <div className="p-3 rounded bg-error-light/50 border border-error-light text-error text-xs">
-                <p className="font-semibold">Query error</p>
-                <p className="mt-0.5">{activityError}</p>
-              </div>
-            ) : recentActivities.length === 0 ? (
-              <div>
-                <p className="text-3xl font-bold text-ink">0</p>
-                <p className="text-xs text-ink-secondary mt-1.5">
-                  No activity recorded yet. Events will appear as you create, edit, or approve drafts.
+            {upcomingPosts.length === 0 ? (
+              <div className="py-6 text-center text-xs text-ink-secondary">
+                <p>No upcoming publications scheduled at this time.</p>
+                <p className="text-[11px] mt-1 text-ink-secondary/70">
+                  Approve drafts in Content to schedule them onto your publishing calendar.
                 </p>
               </div>
             ) : (
-              <div className="space-y-2 mt-2">
-                {recentActivities.slice(0, 3).map((item) => (
+              <div className="space-y-2.5">
+                {upcomingPosts.map((post) => (
                   <div
-                    key={item.id}
-                    className="flex items-center justify-between text-xs py-1 border-b border-border/50 last:border-0"
+                    key={post.id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-lg bg-surface border border-border gap-2"
                   >
-                    <div className="truncate mr-2">
-                      <p className="font-medium text-ink truncate">{item.title}</p>
-                      <p className="text-[11px] text-ink-secondary truncate">{item.detail}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-ink truncate">
+                        {post.title || "Untitled draft"}
+                      </p>
+                      <div className="flex items-center gap-2 mt-0.5 text-[11px] text-ink-secondary">
+                        <span className="font-medium text-forest">{post.pillar || "General"}</span>
+                        <span>&bull;</span>
+                        <span>
+                          {post.scheduled_for
+                            ? new Date(post.scheduled_for).toLocaleDateString(undefined, {
+                              weekday: "short",
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                            : "Scheduled"}
+                        </span>
+                      </div>
                     </div>
-                    {item.statusBadge && (
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 ${item.statusBadge.className}`}>
-                        {item.statusBadge.label}
-                      </span>
-                    )}
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-forest-light text-forest border border-forest-muted self-start sm:self-auto">
+                      Scheduled
+                    </span>
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
-            <span className="text-xs text-ink-secondary">
-              Logged events: {activityError ? "—" : recentActivities.length}
-            </span>
-            <Link
-              href="/app/activity"
-              className="text-xs font-semibold text-forest hover:text-forest-hover flex items-center gap-1"
-            >
-              View activity log <ArrowRight size={14} />
-            </Link>
+          {/* Drafts Needing Review & Attention */}
+          <div className="card p-5">
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <FileText size={16} className="text-forest" />
+                <h2 className="text-sm font-semibold text-ink">Drafts Awaiting Attention</h2>
+              </div>
+              <Link href="/app/content" className="text-xs font-semibold text-forest hover:text-forest-hover flex items-center gap-1">
+                Review all <ArrowRight size={13} />
+              </Link>
+            </div>
+
+            {pendingReviewPosts.length === 0 ? (
+              <div className="py-6 text-center text-xs text-ink-secondary">
+                <CheckCircle2 size={24} className="mx-auto text-forest/50 mb-2" />
+                <p>All content drafts are reviewed.</p>
+                <p className="text-[11px] mt-1 text-ink-secondary/70">
+                  Generate new drafts from your Content Strategy or write a new piece.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {pendingReviewPosts.map((post) => (
+                  <div
+                    key={post.id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-lg bg-surface border border-border gap-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-ink truncate">
+                        {post.title || "Untitled draft"}
+                      </p>
+                      <div className="flex items-center gap-2 mt-0.5 text-[11px] text-ink-secondary">
+                        <span className="font-medium text-forest">{post.pillar || "General"}</span>
+                        <span>&bull;</span>
+                        <span>Status: {post.status.replace(/_/g, " ")}</span>
+                      </div>
+                    </div>
+                    <Link
+                      href={`/app/content?post=${post.id}`}
+                      className="btn-secondary text-[11px] py-1 px-2.5 self-start sm:self-auto whitespace-nowrap"
+                    >
+                      Review Draft
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
-      </div>
 
-      {/* Quick Navigation Cards */}
-      <div className="grid sm:grid-cols-3 gap-3">
-        <Link
-          href="/app/strategy"
-          className="card p-4 hover:border-forest/40 transition-colors flex items-center gap-3 group"
-        >
-          <div className="p-2 rounded bg-surface border border-border group-hover:border-forest/30">
-            <Target size={18} className="text-forest" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-ink">Content Strategy</p>
-            <p className="text-xs text-ink-secondary">Pillars, goals, and cadence</p>
-          </div>
-        </Link>
+        {/* Right Column (1 col): Integrations & Automation Health */}
+        <div className="space-y-6">
+          {/* Integrations Health Panel */}
+          <div className="card p-5">
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-border">
+              <h2 className="text-sm font-semibold text-ink">Channel Health</h2>
+              <Link href="/app/integrations" className="text-xs font-semibold text-forest hover:text-forest-hover flex items-center gap-1">
+                Manage <ArrowRight size={13} />
+              </Link>
+            </div>
 
-        <Link
-          href="/app/voice"
-          className="card p-4 hover:border-forest/40 transition-colors flex items-center gap-3 group"
-        >
-          <div className="p-2 rounded bg-surface border border-border group-hover:border-forest/30">
-            <Mic2 size={18} className="text-forest" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-ink">Voice Profile</p>
-            <p className="text-xs text-ink-secondary">Tone, style, and vocabulary</p>
-          </div>
-        </Link>
+            <div className="space-y-3 text-xs">
+              {/* LinkedIn */}
+              <div className="flex items-center justify-between p-2.5 rounded-lg bg-surface border border-border">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Linkedin size={16} className="text-[#0A66C2] shrink-0" />
+                  <div className="truncate">
+                    <p className="font-semibold text-ink">LinkedIn Profile</p>
+                    <p className="text-[11px] text-ink-secondary truncate">
+                      {linkedinConnected ? (linkedinProfileName ? `Connected (${linkedinProfileName})` : "Connected") : "Not connected"}
+                    </p>
+                  </div>
+                </div>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0 ${linkedinConnected ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-amber-50 text-amber-800 border border-amber-200"}`}>
+                  {linkedinConnected ? "Active" : "Disconnected"}
+                </span>
+              </div>
 
-        <Link
-          href="/app/calendar"
-          className="card p-4 hover:border-forest/40 transition-colors flex items-center gap-3 group"
-        >
-          <div className="p-2 rounded bg-surface border border-border group-hover:border-forest/30">
-            <Calendar size={18} className="text-forest" />
+              {/* Telegram */}
+              <div className="flex items-center justify-between p-2.5 rounded-lg bg-surface border border-border">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Send size={16} className="text-[#229ED9] shrink-0" />
+                  <div className="truncate">
+                    <p className="font-semibold text-ink">Telegram Bot</p>
+                    <p className="text-[11px] text-ink-secondary truncate">
+                      {telegramConnected ? "Bot paired & active" : "Pairing token ready"}
+                    </p>
+                  </div>
+                </div>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0 ${telegramConnected ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-surface-alt text-ink-secondary border border-border"}`}>
+                  {telegramConnected ? "Linked" : "Unlinked"}
+                </span>
+              </div>
+
+              {/* MCP */}
+              <div className="flex items-center justify-between p-2.5 rounded-lg bg-surface border border-border">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Cpu size={16} className="text-forest shrink-0" />
+                  <div className="truncate">
+                    <p className="font-semibold text-ink">Remote MCP Server</p>
+                    <p className="text-[11px] text-ink-secondary truncate">
+                      {mcpActive ? "API endpoint active" : "Key provision ready"}
+                    </p>
+                  </div>
+                </div>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0 ${mcpActive ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-surface-alt text-ink-secondary border border-border"}`}>
+                  {mcpActive ? "Active" : "Inactive"}
+                </span>
+              </div>
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-semibold text-ink">Planning Calendar</p>
-            <p className="text-xs text-ink-secondary">Cadence and draft schedule</p>
+
+          {/* Automation & Cadence Guardrails */}
+          <div className="card p-5">
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-border">
+              <h2 className="text-sm font-semibold text-ink">Automation Guardrails</h2>
+              <Link href="/app/permissions" className="text-xs font-semibold text-forest hover:text-forest-hover flex items-center gap-1">
+                Configure <ArrowRight size={13} />
+              </Link>
+            </div>
+
+            <div className="space-y-2.5 text-xs">
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-ink-secondary">Agent State:</span>
+                  <span className="font-semibold text-ink flex items-center gap-1.5">
+                    <StateIcon size={14} className={stateConfig.color} />
+                    {stateConfig.label}
+                  </span>
+                </div>
+                <p className="text-[11px] text-ink-secondary mt-1">
+                  {stateConfig.description}
+                </p>
+              </div>
+              <div className="flex items-center justify-between pt-1.5 border-t border-border/50">
+                <span className="text-ink-secondary">Operating Mode:</span>
+                <span className="font-semibold text-ink">
+                  {workspace.operating_mode === "approval_required" ? "Approval Required" : "Autopilot"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-ink-secondary">Daily Publishing Cap:</span>
+                <span className="font-semibold text-ink">1 post / day (Hard limit)</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-ink-secondary">Weekly Target Cadence:</span>
+                <span className="font-semibold text-ink">
+                  {weeklyCadenceTarget} posts / week
+                </span>
+              </div>
+            </div>
           </div>
-        </Link>
+
+          {/* Recent Activity Mini-Feed */}
+          <div className="card p-5">
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-border">
+              <h2 className="text-sm font-semibold text-ink">Recent Activity</h2>
+              <Link href="/app/activity" className="text-xs font-semibold text-forest hover:text-forest-hover flex items-center gap-1">
+                All logs <ArrowRight size={13} />
+              </Link>
+            </div>
+
+            {activityError ? (
+              <p className="text-xs text-error">{activityError}</p>
+            ) : recentActivities.length === 0 ? (
+              <div className="py-4 text-center text-xs text-ink-secondary">
+                <p className="text-2xl font-bold text-ink mb-1">0</p>
+                <p>No activity recorded yet.</p>
+              </div>
+            ) : (
+              <div className="space-y-2.5 text-xs">
+                {recentActivities.map((item) => (
+                  <div key={item.id} className="pb-2 border-b border-border/50 last:border-0 last:pb-0">
+                    <div className="flex items-center justify-between">
+                      <p className="font-semibold text-ink truncate mr-2">{item.title}</p>
+                      {item.statusBadge && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 ${item.statusBadge.className}`}>
+                          {item.statusBadge.label}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-ink-secondary mt-0.5 truncate">{item.detail}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

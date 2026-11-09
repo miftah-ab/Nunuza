@@ -62,17 +62,27 @@ export default async function ActivityPage() {
     if (auditRes.error) throw new Error(auditRes.error.message);
     if (jobsRes.error) throw new Error(jobsRes.error.message);
 
-    const auditItems: CombinedActivityItem[] = (auditRes.data ?? []).map((a: any) => ({
-      id: `audit-${a.id}`,
-      source: "audit",
-      action: a.action.replace(/_/g, " "),
-      actor: a.actor_type,
-      resource: a.resource_type,
-      timestamp: a.created_at,
-      details: a.safe_metadata && Object.keys(a.safe_metadata).length > 0
-        ? JSON.stringify(a.safe_metadata)
-        : undefined,
-    }));
+    const auditItems: CombinedActivityItem[] = (auditRes.data ?? []).map((a: any) => {
+      let detailsString: string | undefined = undefined;
+      if (a.safe_metadata && typeof a.safe_metadata === "object") {
+        const pairs = Object.entries(a.safe_metadata)
+          .filter(([_, v]) => v !== undefined && v !== null && typeof v !== "object")
+          .map(([k, v]) => `${k}: ${v}`);
+        if (pairs.length > 0) {
+          detailsString = pairs.join(" · ");
+        }
+      }
+
+      return {
+        id: `audit-${a.id}`,
+        source: "audit",
+        action: a.action.replace(/_/g, " "),
+        actor: a.actor_type,
+        resource: a.resource_type,
+        timestamp: a.created_at,
+        details: detailsString,
+      };
+    });
 
     const jobItems: CombinedActivityItem[] = (jobsRes.data ?? []).map((j: any) => ({
       id: `job-${j.id}`,

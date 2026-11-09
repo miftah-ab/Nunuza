@@ -26,7 +26,9 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
   const [showAutopilotConfirm, setShowAutopilotConfirm] = useState(false);
 
   const isPaused = Boolean(workspace.paused_at);
-  const isPaid =
+  const isAutopilotEligible =
+    workspace.entitlement_type === "internal_beta" ||
+    workspace.entitlement_type === "publishing_beta" ||
     workspace.entitlement_type === "paid_trial" ||
     workspace.entitlement_type === "paid_active";
 
@@ -61,9 +63,9 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
     if (mode === workspace.operating_mode) return;
 
     if (mode === "autopilot") {
-      if (!isPaid) {
+      if (!isAutopilotEligible) {
         setError(
-          "Autopilot requires an active Nunuza Solo subscription ($29/mo). It is unavailable in draft-only preview and publishing beta."
+          "Autopilot requires an active 14-day free trial ($29/mo) or authorized private beta access."
         );
         return;
       }
@@ -127,9 +129,8 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
               <Shield size={18} className="text-forest" />
               <h2 className="text-base font-semibold text-ink">Master Agent Switch</h2>
               <span
-                className={`text-xs px-2 py-0.5 rounded-full font-mono ${
-                  isPaused ? "badge-inactive" : "badge-active"
-                }`}
+                className={`text-xs px-2 py-0.5 rounded-full font-mono ${isPaused ? "badge-inactive" : "badge-active"
+                  }`}
               >
                 {isPaused ? "Paused" : "Active"}
               </span>
@@ -144,11 +145,10 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
           <button
             onClick={handleTogglePause}
             disabled={loading}
-            className={`text-xs px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors ${
-              isPaused
-                ? "bg-forest text-white hover:bg-forest/90"
-                : "bg-danger/10 text-danger hover:bg-danger/20 border border-danger/30"
-            }`}
+            className={`text-xs px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors ${isPaused
+              ? "bg-forest text-white hover:bg-forest/90"
+              : "bg-danger/10 text-danger hover:bg-danger/20 border border-danger/30"
+              }`}
           >
             {isPaused ? (
               <>
@@ -176,11 +176,10 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
           {/* Approval Required */}
           <div
             onClick={() => handleSelectMode("approval_required")}
-            className={`p-4 rounded-xl border cursor-pointer transition-colors ${
-              workspace.operating_mode === "approval_required"
-                ? "border-forest bg-forest-light/40"
-                : "border-border hover:bg-surface-raised"
-            }`}
+            className={`p-4 rounded-xl border cursor-pointer transition-colors ${workspace.operating_mode === "approval_required"
+              ? "border-forest bg-forest-light/40"
+              : "border-border hover:bg-surface-raised"
+              }`}
           >
             <div className="flex items-start justify-between">
               <div>
@@ -209,13 +208,12 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
           {/* Autopilot */}
           <div
             onClick={() => handleSelectMode("autopilot")}
-            className={`p-4 rounded-xl border transition-colors ${
-              !isPaid
-                ? "opacity-60 cursor-not-allowed border-border bg-surface/30"
-                : workspace.operating_mode === "autopilot"
+            className={`p-4 rounded-xl border transition-colors ${!isAutopilotEligible
+              ? "opacity-60 cursor-not-allowed border-border bg-surface/30"
+              : workspace.operating_mode === "autopilot"
                 ? "border-forest bg-forest-light/40 cursor-pointer"
                 : "border-border hover:bg-surface-raised cursor-pointer"
-            }`}
+              }`}
           >
             <div className="flex items-start justify-between">
               <div>
@@ -223,9 +221,9 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
                   <span className="font-semibold text-ink text-sm">
                     Bounded Autopilot
                   </span>
-                  {!isPaid && (
+                  {!isAutopilotEligible && (
                     <span className="badge-draft-only text-[10px] flex items-center gap-1">
-                      <Lock size={10} /> Paid Solo Only ($29/mo)
+                      <Lock size={10} /> Subscription or Beta Required
                     </span>
                   )}
                   {workspace.operating_mode === "autopilot" && (
@@ -235,16 +233,16 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
                 <p className="text-xs text-ink-secondary mt-1">
                   Automatically drafts and queues posts matching your content strategy and target cadence. Constrained by strict daily/weekly safety caps.
                 </p>
-                {!isPaid && (
+                {!isAutopilotEligible && (
                   <p className="text-[11px] text-amber-600 mt-2 font-medium">
-                    Autopilot is locked during the free preview and LinkedIn publishing beta. Upgrade to Nunuza Solo to enable.
+                    Start your 14-day free trial ($29/mo) or contact your administrator for private beta access to enable Autopilot.
                   </p>
                 )}
               </div>
               <input
                 type="radio"
                 name="operating_mode"
-                disabled={!isPaid}
+                disabled={!isAutopilotEligible}
                 checked={workspace.operating_mode === "autopilot"}
                 onChange={() => handleSelectMode("autopilot")}
                 className="mt-1"

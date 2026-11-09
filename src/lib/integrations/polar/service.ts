@@ -51,17 +51,17 @@ export class PolarService {
         if (cancelAtPeriodEnd && currentPeriodEnd && new Date(currentPeriodEnd) > now) {
           return "paid_active";
         }
-        return "inactive";
+        return "expired";
       }
 
       case "incomplete_expired":
       case "unpaid":
       case "revoked":
-        return "inactive";
+        return "suspended";
 
       case "incomplete":
       default:
-        return "draft_only";
+        return "suspended";
     }
   }
 
@@ -210,7 +210,31 @@ export class PolarService {
       );
     }
 
-    // 7. Update Subscriptions table
+    // 7. Check if workspace is an authorized private beta tester
+    const { data: currentWs } = await supabase
+      .from("workspaces")
+      .select("id, entitlement_type, access_mode")
+      .eq("id", workspaceId)
+      .maybeSingle();
+
+    if (
+      currentWs &&
+      (currentWs.access_mode === "private_beta" ||
+        currentWs.entitlement_type === "internal_beta" ||
+        currentWs.entitlement_type === "publishing_beta")
+    ) {
+      // Do not alter or downgrade private beta tester workspace
+      await supabase
+        .from("billing_webhook_events")
+        .update({
+          processing_status: "processed",
+          processed_at: new Date().toISOString(),
+        })
+        .eq("provider_event_id", eventId);
+      return { status: "processed" };
+    }
+
+    // 8. Update Subscriptions table
     const subscriptionRecord: Partial<Subscription> = {
       workspace_id: workspaceId,
       polar_subscription_id: subData.id,
@@ -242,8 +266,9 @@ export class PolarService {
       return { status: "failed", reason: subErr.message };
     }
 
-    // 8. Reconcile Workspace Entitlement
-    const { error: wsErr } = await supabase
+    // 9. Reconcile Workspace Entitlement
+    let wsUpdateError: any = null;
+    const { error: primaryErr } = await supabase
       .from("workspaces")
       .update({
         entitlement_type: newEntitlement,
@@ -251,7 +276,23 @@ export class PolarService {
       })
       .eq("id", workspaceId);
 
-    if (wsErr) {
+    if (primaryErr) {
+      // Cloud database enum transition fallback: if suspended/expired not yet in Postgres enum, fall back to inactive
+      if (primaryErr.code === "22P02" && (newEntitlement === "suspended" || newEntitlement === "expired")) {
+        const { error: fallbackErr } = await supabase
+          .from("workspaces")
+          .update({
+            entitlement_type: "inactive",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", workspaceId);
+        wsUpdateError = fallbackErr;
+      } else {
+        wsUpdateError = primaryErr;
+      }
+    }
+
+    if (wsUpdateError) {
       await supabase
         .from("billing_webhook_events")
         .update({
@@ -260,7 +301,7 @@ export class PolarService {
           processed_at: new Date().toISOString(),
         })
         .eq("provider_event_id", eventId);
-      return { status: "failed", reason: wsErr.message };
+      return { status: "failed", reason: wsUpdateError.message };
     }
 
     // 9. Audit Event
@@ -310,6 +351,13 @@ export class PolarService {
       .eq("workspace_id", workspaceId)
       .maybeSingle();
 
+    const entitlement = (workspace?.entitlement_type as EntitlementType) ?? "suspended";
+    const accessMode = (
+      entitlement === "internal_beta" ||
+      entitlement === "publishing_beta" ||
+      entitlement === "internal_test"
+    ) ? "private_beta" : "commercial";
+
     return {
       planName: "Nunuza Solo",
       amount: 29,
@@ -317,15 +365,16 @@ export class PolarService {
       interval: "month",
       trialDays: 14,
       isTrialRequired: true,
-      entitlement: workspace?.entitlement_type ?? "draft_only",
+      accessMode,
+      entitlement,
       subscription: subscription
         ? {
-            id: subscription.polar_subscription_id,
-            status: subscription.status,
-            trialEnd: subscription.trial_end,
-            currentPeriodEnd: subscription.current_period_end,
-            cancelAtPeriodEnd: subscription.cancel_at_period_end,
-          }
+          id: subscription.polar_subscription_id,
+          status: subscription.status,
+          trialEnd: subscription.trial_end,
+          currentPeriodEnd: subscription.current_period_end,
+          cancelAtPeriodEnd: subscription.cancel_at_period_end,
+        }
         : null,
       isConfigured: this.polarClient.isConfigured(),
       isSellerEligible: this.polarClient.isSellerEligible(),

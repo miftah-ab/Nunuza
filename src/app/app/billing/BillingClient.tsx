@@ -35,23 +35,19 @@ export function BillingClient({ details }: BillingClientProps) {
 
   const getBadge = () => {
     switch (details.entitlement) {
-      case "draft_only":
-        return {
-          title: "Draft-only preview — no subscription required",
-          variant: "bg-surface text-ink-secondary border-border",
-          desc: "You have free access to draft planning, AI generation, and export. No payment card is required.",
-        };
+      case "internal_beta":
       case "publishing_beta":
-        return {
-          title: "LinkedIn publishing beta — no subscription required",
-          variant: "bg-brand/10 text-brand border-brand/20",
-          desc: "You are part of the exclusive test cohort with authorized human-approved publishing.",
-        };
       case "internal_test":
         return {
-          title: "Internal acceptance test",
-          variant: "bg-amber-500/10 text-amber-600 border-amber-500/20",
-          desc: "Restricted administrative acceptance testing workspace.",
+          title: "Private Beta — Full Access",
+          variant: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
+          desc: "This workspace is authorized for private beta testing with full v1.0.0 features. No subscription or payment card required.",
+        };
+      case "draft_only":
+        return {
+          title: "Commercial Workspace — Trial Not Started",
+          variant: "bg-surface text-ink-secondary border-border",
+          desc: "Start your 14-day free trial (credit card required) to activate full LinkedIn publishing, scheduling, and Autopilot.",
         };
       case "paid_trial":
         return {
@@ -64,6 +60,18 @@ export function BillingClient({ details }: BillingClientProps) {
           title: "Nunuza Solo — Active ($29/mo)",
           variant: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
           desc: `Subscribed. Next billing date: ${details.subscription?.currentPeriodEnd ? new Date(details.subscription.currentPeriodEnd).toLocaleDateString() : "Next month"}.`,
+        };
+      case "suspended":
+        return {
+          title: "Subscription Suspended",
+          variant: "bg-rose-500/10 text-rose-600 border-rose-500/20",
+          desc: "Your subscription is suspended. Update your payment method to restore publishing and automation.",
+        };
+      case "expired":
+        return {
+          title: "Trial Expired",
+          variant: "bg-rose-500/10 text-rose-600 border-rose-500/20",
+          desc: "Your 14-day free trial has expired. Subscribe to Nunuza Solo ($29/mo) to reactivate publishing and automation.",
         };
       case "inactive":
         return {
@@ -81,6 +89,11 @@ export function BillingClient({ details }: BillingClientProps) {
   };
 
   const badge = getBadge();
+  const isPrivateBeta =
+    details.accessMode === "private_beta" ||
+    details.entitlement === "internal_beta" ||
+    details.entitlement === "publishing_beta" ||
+    details.entitlement === "internal_test";
   const isPaid = details.entitlement === "paid_trial" || details.entitlement === "paid_active";
 
   return (
@@ -170,7 +183,17 @@ export function BillingClient({ details }: BillingClientProps) {
           </div>
         )}
 
-        {!isPaid && (
+        {isPrivateBeta ? (
+          <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-400 space-y-1">
+            <div className="flex items-center gap-1.5 font-semibold text-emerald-700 dark:text-emerald-300">
+              <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <span>Private Beta Access Active</span>
+            </div>
+            <p>
+              Your workspace is enrolled in the private beta with full v1.0.0 capabilities. You do not need a payment card or checkout.
+            </p>
+          </div>
+        ) : !isPaid ? (
           <div>
             <button
               onClick={handleStartTrial}
@@ -188,11 +211,11 @@ export function BillingClient({ details }: BillingClientProps) {
             </button>
             {!details.isSellerEligible && (
               <p className="mt-2 text-xs text-center text-ink-muted">
-                Note: Live checkout is currently disabled pending seller onboarding (BED-08). Free draft preview is fully enabled.
+                Note: Live checkout is currently in test mode pending seller onboarding (BED-08).
               </p>
             )}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

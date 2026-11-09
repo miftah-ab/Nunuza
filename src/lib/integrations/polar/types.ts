@@ -83,6 +83,7 @@ export interface BillingDetails {
   interval: "month";
   trialDays: 14;
   isTrialRequired: boolean;
+  accessMode?: "private_beta" | "commercial";
   entitlement: EntitlementType;
   subscription: {
     id: string;

@@ -94,14 +94,13 @@ export default async function LoginPage({
               </button>
             </form>
 
-            {/* Integration status — honest about blocked state */}
+            {/* Access mode information */}
             <div className="mt-5 rounded-lg bg-offwhite border border-border px-4 py-3 text-left">
               <p className="text-xs text-ink-secondary">
-                <strong className="text-ink">Integration status:</strong>{" "}
-                Google sign-in requires Supabase configuration (Phase 2).
-                The button UI is complete; the backend will be wired in the
-                next increment. This page will not be deployed until the
-                auth integration is verified.
+                <strong className="text-ink">Access mode:</strong> Sign in to
+                access your workspace. Commercial accounts start with a 14-day
+                card-required free trial ($29/month). Private beta access is
+                managed directly by authorized administrators.
               </p>
             </div>
 
@@ -120,7 +119,7 @@ export default async function LoginPage({
           </div>
 
           <p className="mt-6 text-center text-sm text-ink-secondary">
-            Draft-only preview · No payment card required
+            14-day free trial · $29/mo after · Private beta by invite
           </p>
 
           <div className="mt-4 text-center">

@@ -102,12 +102,20 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
       const json = (await res.json()) as any;
       if (!res.ok) throw new Error(json.error || "Failed to generate pairing link");
       const dataPayload = json.data || json;
+      const botUrl =
+        dataPayload.botUrl ||
+        `https://t.me/Linker_Studio_Bot?start=${dataPayload.token}`;
+
       setTelegramPairing({
         token: dataPayload.token,
-        botUrl: dataPayload.botUrl,
+        botUrl,
         expiresAt: dataPayload.expiresAt,
       });
-      setSuccessMsg("Telegram pairing link generated. Valid for 15 minutes.");
+
+      // Directly open Telegram bot in a new tab/window
+      window.open(botUrl, "_blank", "noopener,noreferrer");
+
+      setSuccessMsg("Opening @Linker_Studio_Bot in Telegram. Tap Start in the bot to connect.");
     } catch (err: any) {
       setErrorMsg(err.message);
     } finally {
@@ -271,19 +279,26 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
           </div>
         </div>
 
-        {/* Notice on draft-only preview vs publishing beta */}
-        {data.workspaceEntitlement === "publishing_beta" || data.workspaceEntitlement === "internal_test" ? (
-          <div className="mt-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-400 flex items-start gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
+        {/* Notice on Private Beta vs Commercial access */}
+        {data.workspaceEntitlement === "internal_beta" || data.workspaceEntitlement === "publishing_beta" || data.workspaceEntitlement === "internal_test" ? (
+          <div className="mt-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-400 flex items-start gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
             <div>
-              <span className="font-semibold">Publishing Beta Active:</span> This workspace has verified beta access. Once your LinkedIn profile is connected, human-approved drafts can be scheduled and published directly to your personal profile.
+              <span className="font-semibold">Private Beta Active:</span> This workspace has authorized private beta access. Once your LinkedIn profile is connected, human-approved drafts can be scheduled and published directly to your personal profile.
+            </div>
+          </div>
+        ) : data.workspaceEntitlement === "paid_trial" || data.workspaceEntitlement === "paid_active" ? (
+          <div className="mt-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-400 flex items-start gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
+            <div>
+              <span className="font-semibold">Commercial Subscription Active:</span> Full LinkedIn publishing and background scheduling enabled for your workspace.
             </div>
           </div>
         ) : (
-          <div className="mt-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 flex items-start gap-2">
-            <Info className="w-4 h-4 shrink-0 mt-0.5" />
+          <div className="mt-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
+            <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-300" />
             <div>
-              <span className="font-semibold">Draft-Only Preview Notice:</span> Automatic publishing is disabled for public preview accounts (`draft_only`). Workspaces can plan, generate, and review drafts safely. Live publishing requires verified beta access and LinkedIn developer app scopes (`w_member_social`).
+              <span className="font-semibold">Subscription Required:</span> You can connect LinkedIn now. Live publishing and background scheduling become active upon starting your 14-day free trial ($29/month) or receiving private beta access.
             </div>
           </div>
         )}
@@ -344,33 +359,69 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
           </div>
         ) : (
           <div className="mt-4 space-y-3">
-            {/* Pairing Modal / Banner */}
-            {telegramPairing && (
-              <div className="p-4 rounded-lg bg-accent/5 border border-accent/20 space-y-2">
-                <p className="text-xs font-semibold text-accent flex items-center gap-1.5">
-                  <Key className="w-3.5 h-3.5" /> One-Time Pairing Token (Valid for 15 mins)
-                </p>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    readOnly
-                    value={telegramPairing.token}
-                    className="input-field text-xs font-mono py-1.5 px-2.5 flex-1 select-all"
-                  />
-                  {telegramPairing.botUrl && (
-                    <a
-                      href={telegramPairing.botUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn-primary text-xs px-3 py-1.5 flex items-center gap-1.5 bg-[#229ED9] hover:bg-[#1b80b0] text-white"
-                    >
-                      Open Bot <ExternalLink className="w-3 h-3" />
-                    </a>
-                  )}
+            {/* Pairing Direct Link & Status */}
+            {telegramPairing && !data.telegram.connected && (
+              <div className="p-4 rounded-lg bg-surface border border-forest-muted bg-forest-light/40 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Send className="w-4 h-4 text-[#229ED9]" />
+                    <span className="text-xs font-semibold text-ink">
+                      Pairing with @Linker_Studio_Bot
+                    </span>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-emerald-50 text-emerald-800 border border-emerald-200">
+                    Pairing Active
+                  </span>
                 </div>
-                <p className="text-[11px] text-ink-secondary">
-                  Click &ldquo;Open Bot&rdquo; or start the bot and send: <code className="text-ink font-mono">/start {telegramPairing.token}</code>
+
+                <p className="text-xs text-ink-secondary leading-relaxed">
+                  We opened Telegram in a new window. Tap <strong>Start</strong> in the chat to link your workspace automatically.
                 </p>
+
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <a
+                    href={telegramPairing.botUrl || `https://t.me/Linker_Studio_Bot?start=${telegramPairing.token}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-primary text-xs px-3.5 py-1.5 flex items-center gap-1.5 bg-[#229ED9] hover:bg-[#1b80b0] text-white"
+                  >
+                    <span>Open in Telegram</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const res = await fetch("/api/integrations/telegram/link");
+                        const json = (await res.json()) as any;
+                        const status = json?.data?.status || json?.status;
+                        if (status?.linked) {
+                          setData((prev) => ({
+                            ...prev,
+                            telegram: {
+                              ...prev.telegram,
+                              connected: true,
+                              telegramUserId: status.telegramUserId,
+                              chatId: status.chatId,
+                              linkedAt: status.linkedAt,
+                            },
+                          }));
+                          setTelegramPairing(null);
+                          setSuccessMsg("Telegram connected successfully!");
+                        } else {
+                          setErrorMsg("Waiting for confirmation. Make sure you tapped Start in Telegram.");
+                        }
+                      } catch {
+                        // ignore
+                      }
+                    }}
+                    className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Check Connection</span>
+                  </button>
+                </div>
               </div>
             )}
 

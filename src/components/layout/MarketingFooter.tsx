@@ -21,7 +21,7 @@ export function MarketingFooter() {
               LinkedIn content operations for solo founders.
             </p>
             <p className="text-xs text-ink-secondary">
-              Draft-only preview — no subscription required.
+              Commercial 14-day trial &amp; Private Beta.
             </p>
           </div>
 
@@ -44,8 +44,7 @@ export function MarketingFooter() {
 
         <div className="mt-8 pt-6 border-t border-border">
           <p className="text-xs text-ink-secondary">
-            © {year} Nunuza. This is a draft-only preview. Publishing and
-            scheduling are not available in this release.
+            © {year} Nunuza. Autonomous LinkedIn content operations agent.
           </p>
         </div>
       </div>

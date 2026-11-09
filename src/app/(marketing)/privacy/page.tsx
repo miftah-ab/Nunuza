@@ -18,17 +18,8 @@ export default function PrivacyPage() {
             Privacy Policy
           </h1>
           <p className="mt-3 text-sm text-ink-secondary">
-            Last updated: October 2026 · Effective for the draft-only preview.
+            Last updated: November 2026 · Nunuza v1.0.0.
           </p>
-        </div>
-
-        {/* Review notice */}
-        <div className="card border-warning-light bg-warning-light/40 p-4 mb-8 text-sm text-ink-secondary">
-          <strong className="text-ink">Notice:</strong> This Privacy Policy is a
-          working draft for the draft-only preview. It has not yet been reviewed
-          by a lawyer or the legally responsible business owner. It must be
-          reviewed and approved before any public paid launch. Do not rely on
-          this as legal advice.
         </div>
 
         <div className="prose-like space-y-8 text-sm text-ink-secondary leading-relaxed">
@@ -37,13 +28,9 @@ export default function PrivacyPage() {
               Overview
             </h2>
             <p>
-              Nunuza (&ldquo;we&rdquo;, &ldquo;our&rdquo;, &ldquo;the service&rdquo;) is a LinkedIn
-              content workflow tool for solo founders. This policy explains what
-              data we collect, why we collect it, and how it is handled.
-            </p>
-            <p className="mt-3">
-              This is a draft-only preview. No payment processing or subscription
-              billing occurs in this release.
+              Nunuza (&ldquo;we&rdquo;, &ldquo;our&rdquo;, &ldquo;the service&rdquo;) is an autonomous LinkedIn
+              content operations SaaS for solo founders. This policy explains what
+              data we collect, why we collect it, and how it is securely handled.
             </p>
           </section>
 
@@ -96,9 +83,13 @@ export default function PrivacyPage() {
               </li>
               <li>
                 <strong className="text-ink">LinkedIn:</strong> When you connect
-                your LinkedIn account (future feature), we store an encrypted
-                OAuth token server-side. We never send your LinkedIn token to
-                the browser.
+                your LinkedIn account, OAuth tokens are encrypted at rest using
+                AES-256-GCM. We never send your LinkedIn token to the browser.
+              </li>
+              <li>
+                <strong className="text-ink">Polar:</strong> Merchant of Record
+                for commercial billing and payment card processing. Payment card
+                details are handled directly by Polar and never enter our servers.
               </li>
             </ul>
           </section>
