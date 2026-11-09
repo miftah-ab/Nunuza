@@ -534,3 +534,226 @@ export async function executePublishJob(
     };
   }
 }
+
+export interface PublishNowResult {
+  job: AgentJob;
+  post: ContentPost;
+  execution: JobExecutionResult;
+}
+
+/**
+ * Publishes an approved post immediately.
+ * Enqueues into agent_jobs and executes via executePublishJob.
+ * Enforces:
+ *   - Entitlement gate (draft_only workspaces strictly rejected)
+ *   - Agent pause check
+ *   - Approval check (post must be approved)
+ *   - Daily cap (max 1 post/calendar day)
+ *   - Weekly cap (max 7 posts/rolling 7 days)
+ *   - Idempotency key per post / duplicate prevention
+ */
+export async function publishPostNow(
+  claimedWorkspaceId: string,
+  postId: string
+): Promise<PublishNowResult> {
+  const workspace = await requireWorkspace();
+
+  if (workspace.id !== claimedWorkspaceId) {
+    throw new ForbiddenError("You do not have access to this workspace.");
+  }
+
+  // 1. Strict entitlement gate (draft_only cannot publish, BED-02)
+  if (!canPublish(workspace)) {
+    throw new EntitlementError(
+      "internal_beta or paid",
+      workspace.entitlement_type
+    );
+  }
+
+  // 2. Pause check
+  if (workspace.paused_at) {
+    throw new ForbiddenError("Agent is paused. Resume before publishing posts.");
+  }
+
+  // 3. Post verification: MUST be approved
+  const post = await getPost(workspace.id, postId);
+  if (!post) {
+    throw new Error(`Post ${postId} not found.`);
+  }
+
+  if (post.status === "published") {
+    throw new Error("This post has already been published to LinkedIn.");
+  }
+
+  if (post.status !== "approved") {
+    throw new Error(`Only approved posts can be published immediately. Current status: '${post.status}'.`);
+  }
+
+  let supabase: any;
+  try {
+    supabase = createServiceClient();
+  } catch {
+    // fallback
+  }
+  if (!supabase) {
+    supabase = await createClient();
+  }
+
+  const now = new Date();
+
+  // 4. Rate-limit checks: 1 post/day cap & 7 posts/rolling 7 days (BED-02)
+  const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const dayEnd = new Date(dayStart);
+  dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+
+  const { data: sameDayScheduled, error: schedErr } = await supabase
+    .from("content_posts")
+    .select("id")
+    .eq("workspace_id", workspace.id)
+    .eq("status", "scheduled")
+    .neq("id", postId)
+    .gte("scheduled_at", dayStart.toISOString())
+    .lt("scheduled_at", dayEnd.toISOString());
+
+  if (schedErr) throw new Error(`[publisher] Day cap check failed: ${schedErr.message}`);
+
+  const { data: sameDayPublished, error: pubErr } = await supabase
+    .from("content_posts")
+    .select("id")
+    .eq("workspace_id", workspace.id)
+    .eq("status", "published")
+    .neq("id", postId)
+    .gte("published_at", dayStart.toISOString())
+    .lt("published_at", dayEnd.toISOString());
+
+  if (pubErr) throw new Error(`[publisher] Day cap check failed: ${pubErr.message}`);
+
+  const totalSameDay = (sameDayScheduled?.length || 0) + (sameDayPublished?.length || 0);
+  if (totalSameDay >= 1) {
+    throw new Error("Cap reached: Maximum 1 post per calendar day.");
+  }
+
+  // Rolling 7-day window check
+  const windowStart = new Date(now.getTime() - 7 * 86400000);
+  const { data: rollingScheduled, error: rollSchedErr } = await supabase
+    .from("content_posts")
+    .select("id")
+    .eq("workspace_id", workspace.id)
+    .eq("status", "scheduled")
+    .neq("id", postId)
+    .gte("scheduled_at", windowStart.toISOString())
+    .lte("scheduled_at", now.toISOString());
+
+  if (rollSchedErr) throw new Error(`[publisher] Rolling cap check failed: ${rollSchedErr.message}`);
+
+  const { data: rollingPublished, error: rollPubErr } = await supabase
+    .from("content_posts")
+    .select("id")
+    .eq("workspace_id", workspace.id)
+    .eq("status", "published")
+    .neq("id", postId)
+    .gte("published_at", windowStart.toISOString())
+    .lte("published_at", now.toISOString());
+
+  if (rollPubErr) throw new Error(`[publisher] Rolling cap check failed: ${rollPubErr.message}`);
+
+  const totalRolling = (rollingScheduled?.length || 0) + (rollingPublished?.length || 0);
+  if (totalRolling >= 7) {
+    throw new Error("Cap reached: Maximum 7 posts per rolling 7-day period.");
+  }
+
+  // 5. Stable idempotency key & duplicate prevention
+  const idempotencyKey = `publish-${workspace.id}-${postId}`;
+
+  const { data: existingJob } = await supabase
+    .from("agent_jobs")
+    .select()
+    .eq("idempotency_key", idempotencyKey)
+    .maybeSingle();
+
+  if (existingJob) {
+    if (existingJob.status === "running") {
+      throw new Error("This post is currently being published. Please wait.");
+    }
+    if (existingJob.status === "succeeded") {
+      throw new Error("This post has already been published to LinkedIn.");
+    }
+  }
+
+  // 6. Enqueue job into agent_jobs
+  const payload: PublishPostPayload = {
+    postId,
+    workspaceId: workspace.id,
+    userId: workspace.owner_user_id,
+    targetProvider: "linkedin",
+    scheduledFor: now.toISOString(),
+  };
+
+  let job: AgentJob;
+
+  if (existingJob) {
+    const { data: updatedJob, error: updateErr } = await supabase
+      .from("agent_jobs")
+      .update({
+        status: "queued",
+        payload: payload as unknown as Record<string, unknown>,
+        scheduled_for: now.toISOString(),
+        attempt_count: 0,
+        safe_error_message: null,
+      })
+      .eq("id", existingJob.id)
+      .select()
+      .single();
+
+    if (updateErr) throw new Error(`[publisher] Failed to update publishing job: ${updateErr.message}`);
+    job = updatedJob as AgentJob;
+  } else {
+    const { data: newJob, error: jobErr } = await supabase
+      .from("agent_jobs")
+      .insert({
+        workspace_id: workspace.id,
+        job_type: "publish_post",
+        status: "queued",
+        idempotency_key: idempotencyKey,
+        payload: payload as unknown as Record<string, unknown>,
+        scheduled_for: now.toISOString(),
+        attempt_count: 0,
+        max_attempts: 3,
+        safe_error_message: null,
+      })
+      .select()
+      .single();
+
+    if (jobErr) throw new Error(`[publisher] Failed to enqueue publishing job: ${jobErr.message}`);
+    job = newJob as AgentJob;
+  }
+
+  // 7. Audit logging
+  await logAuditEvent({
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: workspace.owner_user_id,
+    action: "publish_post_now",
+    resourceType: "content_post",
+    resourceId: postId,
+    safeMetadata: {
+      jobId: job.id,
+      idempotencyKey,
+    },
+  });
+
+  // 8. Execute immediately via existing publishing architecture
+  const execution = await executePublishJob(job, supabase);
+
+  const updatedPost = (await getPost(workspace.id, postId)) || post;
+
+  if (!execution.success) {
+    throw new Error(execution.error || "LinkedIn publishing failed.");
+  }
+
+  return {
+    job,
+    post: updatedPost,
+    execution,
+  };
+}

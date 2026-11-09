@@ -7,6 +7,7 @@
  * - Daily cap (max 1 post/day) and weekly cap (max 7 posts/week)
  * - Cancel scheduled post returns post to approved status
  * - executePublishJob fails closed safely without faking LinkedIn posts (BED-03)
+ * - publishPostNow safety gates: entitlement, pause, approval, caps, idempotency
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -14,8 +15,10 @@ import {
   schedulePost,
   cancelScheduledPost,
   executePublishJob,
+  publishPostNow,
 } from "./scheduling";
-import { EntitlementError, ForbiddenError } from "@/lib/auth/workspace";
+import { EntitlementError, ForbiddenError, requireWorkspace } from "@/lib/auth/workspace";
+import { createServiceClient } from "@/lib/supabase/server";
 import type { Workspace, ContentPost, AgentJob } from "@/types/database";
 
 vi.mock("@/lib/auth/workspace", async (importOriginal) => {
@@ -122,7 +125,7 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
               neq: vi.fn().mockReturnValue({
                 gte: vi.fn().mockReturnValue({
                   lt: vi.fn().mockResolvedValue({
-                    data: [{ id: "post-existing-same-day" }],
+                    data: [{ id: "existing-scheduled-post" }],
                     error: null,
                   }),
                 }),
@@ -135,14 +138,14 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
 
     vi.mocked(createClient).mockResolvedValue(mockSupabase as any);
 
-    const targetDate = new Date(Date.now() + 86400000).toISOString();
+    const futureDate = new Date(Date.now() + 3600000).toISOString();
 
     await expect(
-      schedulePost("ws-beta", "post-101", targetDate)
-    ).rejects.toThrow("Maximum 1 scheduled post per calendar day");
+      schedulePost("ws-beta", "post-101", futureDate)
+    ).rejects.toThrow("Cap reached: Maximum 1 scheduled post per calendar day.");
   });
 
-  it("cancels a scheduled post and sets status back to approved", async () => {
+  it("cancelScheduledPost returns post to approved status", async () => {
     const { requireWorkspace } = await import("@/lib/auth/workspace");
     const { getPost } = await import("@/lib/db/posts");
     const { createClient } = await import("@/lib/supabase/server");
@@ -274,5 +277,169 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
     expect(outcome.status).toBe("failed_terminal");
     expect(outcome.error).toContain("LinkedIn is not connected");
     expect(outcome.postUrn).toBeUndefined();
+  });
+
+  // ─── publishPostNow Safety Gates ────────────────────────────────────────────
+
+  describe("publishPostNow (Immediate Publishing Feature)", () => {
+    it("rejects unauthorized workspace access", async () => {
+      vi.mocked(requireWorkspace).mockResolvedValue(betaWorkspace);
+      await expect(
+        publishPostNow("wrong-workspace-id", sampleApprovedPost.id)
+      ).rejects.toThrow(ForbiddenError);
+    });
+
+    it("strictly prohibits draft_only workspaces from publishing now", async () => {
+      vi.mocked(requireWorkspace).mockResolvedValue(draftOnlyWorkspace);
+      await expect(
+        publishPostNow(draftOnlyWorkspace.id, sampleApprovedPost.id)
+      ).rejects.toThrow(EntitlementError);
+    });
+
+    it("blocks publishing when workspace agent is paused", async () => {
+      const pausedWorkspace: Workspace = {
+        ...betaWorkspace,
+        paused_at: new Date().toISOString(),
+      };
+      vi.mocked(requireWorkspace).mockResolvedValue(pausedWorkspace);
+
+      await expect(
+        publishPostNow(pausedWorkspace.id, sampleApprovedPost.id)
+      ).rejects.toThrow("Agent is paused. Resume before publishing posts.");
+    });
+
+    it("rejects unapproved posts (draft)", async () => {
+      const { getPost } = await import("@/lib/db/posts");
+      vi.mocked(requireWorkspace).mockResolvedValue(betaWorkspace);
+      vi.mocked(getPost).mockResolvedValue({ ...sampleApprovedPost, status: "draft" });
+
+      await expect(
+        publishPostNow(betaWorkspace.id, sampleApprovedPost.id)
+      ).rejects.toThrow("Only approved posts can be published immediately.");
+    });
+
+    it("enforces daily posting limit (max 1 post per day)", async () => {
+      const { getPost } = await import("@/lib/db/posts");
+      vi.mocked(requireWorkspace).mockResolvedValue(betaWorkspace);
+      vi.mocked(getPost).mockResolvedValue(sampleApprovedPost);
+
+      // cap query returns 1 existing post today
+      const mockSupabase = {
+        from: vi.fn().mockReturnValue({
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                neq: vi.fn().mockReturnValue({
+                  gte: vi.fn().mockReturnValue({
+                    lt: vi.fn().mockResolvedValue({
+                      data: [{ id: "existing-today" }],
+                      error: null,
+                    }),
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      };
+      vi.mocked(createServiceClient).mockReturnValue(mockSupabase as any);
+
+      await expect(
+        publishPostNow(betaWorkspace.id, sampleApprovedPost.id)
+      ).rejects.toThrow("Cap reached: Maximum 1 post per calendar day.");
+    });
+
+    it("prevents duplicate publishing when job is already running", async () => {
+      const { getPost } = await import("@/lib/db/posts");
+      vi.mocked(requireWorkspace).mockResolvedValue(betaWorkspace);
+      vi.mocked(getPost).mockResolvedValue(sampleApprovedPost);
+
+      const emptyCap = vi.fn().mockResolvedValue({ data: [], error: null });
+      const mockSupabase = {
+        from: vi.fn((table: string) => {
+          if (table === "content_posts") {
+            // All 4 cap queries (day: .lt, rolling: .lte) return empty to pass through
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  eq: vi.fn().mockReturnValue({
+                    neq: vi.fn().mockReturnValue({
+                      gte: vi.fn().mockReturnValue({
+                        lt: emptyCap,
+                        lte: emptyCap,
+                      }),
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          if (table === "agent_jobs") {
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  maybeSingle: vi.fn().mockResolvedValue({
+                    data: { id: "existing-job", status: "running" },
+                    error: null,
+                  }),
+                }),
+              }),
+            };
+          }
+          return { select: vi.fn() };
+        }),
+      };
+      vi.mocked(createServiceClient).mockReturnValue(mockSupabase as any);
+
+      await expect(
+        publishPostNow(betaWorkspace.id, sampleApprovedPost.id)
+      ).rejects.toThrow("This post is currently being published. Please wait.");
+    });
+
+    it("prevents duplicate publishing when job already succeeded", async () => {
+      const { getPost } = await import("@/lib/db/posts");
+      vi.mocked(requireWorkspace).mockResolvedValue(betaWorkspace);
+      vi.mocked(getPost).mockResolvedValue(sampleApprovedPost);
+
+      const emptyCap = vi.fn().mockResolvedValue({ data: [], error: null });
+      const mockSupabase = {
+        from: vi.fn((table: string) => {
+          if (table === "content_posts") {
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  eq: vi.fn().mockReturnValue({
+                    neq: vi.fn().mockReturnValue({
+                      gte: vi.fn().mockReturnValue({
+                        lt: emptyCap,
+                        lte: emptyCap,
+                      }),
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          if (table === "agent_jobs") {
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  maybeSingle: vi.fn().mockResolvedValue({
+                    data: { id: "existing-job", status: "succeeded" },
+                    error: null,
+                  }),
+                }),
+              }),
+            };
+          }
+          return { select: vi.fn() };
+        }),
+      };
+      vi.mocked(createServiceClient).mockReturnValue(mockSupabase as any);
+
+      await expect(
+        publishPostNow(betaWorkspace.id, sampleApprovedPost.id)
+      ).rejects.toThrow("This post has already been published to LinkedIn.");
+    });
   });
 });

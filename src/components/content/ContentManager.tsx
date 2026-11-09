@@ -27,6 +27,8 @@ import {
   Calendar,
   Lock,
   X,
+  Send,
+  Loader2,
 } from "lucide-react";
 
 interface ContentManagerProps {
@@ -67,6 +69,14 @@ export function ContentManager({
   const [scheduledDateTime, setScheduledDateTime] = useState("");
   const [isScheduling, setIsScheduling] = useState(false);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
+
+  // Publish Now State
+  const [publishingPostId, setPublishingPostId] = useState<string | null>(null);
+  const [publishFeedback, setPublishFeedback] = useState<{
+    type: "success" | "error";
+    postId?: string;
+    message: string;
+  } | null>(null);
 
   // Filter posts
   const filteredPosts = posts.filter((post) => {
@@ -247,6 +257,47 @@ export function ContentManager({
     }
   };
 
+  // Handle Publish Now (immediate processing through agent_jobs pipeline)
+  const handlePublishNow = async (post: ContentPost) => {
+    if (publishingPostId) return;
+
+    setPublishingPostId(post.id);
+    setPublishFeedback(null);
+
+    try {
+      const res = await fetch(`/api/posts/${post.id}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const json = (await res.json()) as any;
+      if (!res.ok) {
+        throw new Error(json.error ?? "Failed to publish post.");
+      }
+
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === post.id
+            ? { ...p, status: "published" as PostStatus, published_at: new Date().toISOString() }
+            : p
+        )
+      );
+      setPublishFeedback({
+        type: "success",
+        postId: post.id,
+        message: "Published successfully to LinkedIn.",
+      });
+    } catch (err: unknown) {
+      setPublishFeedback({
+        type: "error",
+        postId: post.id,
+        message: err instanceof Error ? err.message : "Publishing failed.",
+      });
+    } finally {
+      setPublishingPostId(null);
+    }
+  };
+
   // Export posts
   const handleExportAll = () => {
     const dataStr =
@@ -375,6 +426,35 @@ export function ContentManager({
         ))}
       </div>
 
+      {/* Action / Publish Feedback Banner */}
+      {publishFeedback && (
+        <div
+          className={`p-3.5 rounded-lg border text-xs flex items-center justify-between transition-all ${
+            publishFeedback.type === "success"
+              ? "bg-forest-light border-forest/30 text-forest"
+              : "bg-error/10 border-error/30 text-error"
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-center gap-2">
+            {publishFeedback.type === "success" ? (
+              <CheckCircle2 size={16} className="shrink-0 text-forest" />
+            ) : (
+              <AlertCircle size={16} className="shrink-0 text-error" />
+            )}
+            <span className="font-medium">{publishFeedback.message}</span>
+          </div>
+          <button
+            onClick={() => setPublishFeedback(null)}
+            className="text-ink-secondary hover:text-ink text-xs font-semibold ml-4 p-1 rounded hover:bg-black/5"
+            aria-label="Dismiss message"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Posts List */}
       {filteredPosts.length === 0 ? (
         <div className="card p-12 text-center text-ink-secondary text-sm">
@@ -465,18 +545,39 @@ export function ContentManager({
                   )}
                   {post.status === "approved" && (
                     canPublishPosts ? (
-                      <button
-                        onClick={() => handleOpenSchedule(post)}
-                        className="btn-secondary text-xs flex items-center gap-1.5 py-1 px-2.5 text-forest hover:bg-forest-light border-forest/30 font-medium"
-                      >
-                        <Calendar size={12} /> Schedule
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => handlePublishNow(post)}
+                          disabled={publishingPostId !== null}
+                          className="btn-primary text-xs flex items-center gap-1.5 py-1 px-2.5 font-medium disabled:opacity-50"
+                          title="Publish immediately to LinkedIn"
+                        >
+                          {publishingPostId === post.id ? (
+                            <>
+                              <Loader2 size={12} className="animate-spin" />
+                              <span>Publishing...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Send size={12} />
+                              <span>Publish Now</span>
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleOpenSchedule(post)}
+                          disabled={publishingPostId !== null}
+                          className="btn-secondary text-xs flex items-center gap-1.5 py-1 px-2.5 text-forest hover:bg-forest-light border-forest/30 font-medium disabled:opacity-50"
+                        >
+                          <Calendar size={12} /> Schedule
+                        </button>
+                      </div>
                     ) : (
                       <span
                         className="text-ink-secondary flex items-center gap-1 cursor-not-allowed"
-                        title="Scheduling requires an active trial or subscription"
+                        title="Publishing and scheduling require an active trial or subscription"
                       >
-                        <Lock size={11} /> Scheduling Gated
+                        <Lock size={11} /> Publishing Gated
                       </span>
                     )
                   )}
