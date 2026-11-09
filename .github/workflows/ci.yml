@@ -14,17 +14,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Install (lockfile is out of sync, so npm ci fails)
-        run: npm install --no-audit --no-fund
-      - uses: actions/upload-artifact@v4
-        with:
-          name: package-lock
-          path: package-lock.json
+      - run: npm ci
       - name: Type check
         run: npm run type-check
-        continue-on-error: true
       - name: Lint
         run: npm run lint
-        continue-on-error: true
       - name: Unit tests
         run: npm test
