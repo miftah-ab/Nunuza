@@ -61,6 +61,12 @@ export function ContentManager({
   const [manualPillar, setManualPillar] = useState("");
   const [isSavingManual, setIsSavingManual] = useState(false);
 
+  // Schedule Modal State
+  const [schedulingPost, setSchedulingPost] = useState<ContentPost | null>(null);
+  const [scheduledDateTime, setScheduledDateTime] = useState("");
+  const [isScheduling, setIsScheduling] = useState(false);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+
   // Filter posts
   const filteredPosts = posts.filter((post) => {
     if (filter === "all") return true;
@@ -137,11 +143,12 @@ export function ContentManager({
   };
 
   // Handle Post Update
-  const handleUpdatePost = async (updatedFields: Partial<ContentPost>) => {
-    if (!editingPost) return;
+  const handleUpdatePost = async (updatedFields: Partial<ContentPost>, targetPost?: ContentPost) => {
+    const postToUpdate = targetPost || editingPost;
+    if (!postToUpdate) return;
 
     try {
-      const res = await fetch(`/api/posts/${editingPost.id}`, {
+      const res = await fetch(`/api/posts/${postToUpdate.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedFields),
@@ -151,9 +158,11 @@ export function ContentManager({
       if (!res.ok) throw new Error(json.error ?? "Failed to update post.");
 
       setPosts((prev) =>
-        prev.map((p) => (p.id === editingPost.id ? json.data : p))
+        prev.map((p) => (p.id === postToUpdate.id ? json.data : p))
       );
-      setEditingPost(null);
+      if (editingPost?.id === postToUpdate.id) {
+        setEditingPost(null);
+      }
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Update failed.");
     }
@@ -172,6 +181,68 @@ export function ContentManager({
       if (editingPost?.id === postId) setEditingPost(null);
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Delete failed.");
+    }
+  };
+
+  // Handle Opening Schedule Modal
+  const handleOpenSchedule = (post: ContentPost) => {
+    setSchedulingPost(post);
+    setScheduleError(null);
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(9, 0, 0, 0);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const localIso = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}T${pad(tomorrow.getHours())}:${pad(tomorrow.getMinutes())}`;
+    setScheduledDateTime(localIso);
+  };
+
+  // Handle Schedule Submit
+  const handleScheduleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!schedulingPost || !scheduledDateTime) return;
+
+    setIsScheduling(true);
+    setScheduleError(null);
+
+    try {
+      const scheduledIso = new Date(scheduledDateTime).toISOString();
+      const res = await fetch(`/api/posts/${schedulingPost.id}/schedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scheduledFor: scheduledIso }),
+      });
+
+      const json = (await res.json()) as any;
+      if (!res.ok) throw new Error(json.error ?? "Failed to schedule post.");
+
+      setPosts((prev) =>
+        prev.map((p) => (p.id === schedulingPost.id ? json.data.post : p))
+      );
+      setSchedulingPost(null);
+    } catch (err: unknown) {
+      setScheduleError(err instanceof Error ? err.message : "Scheduling failed.");
+    } finally {
+      setIsScheduling(false);
+    }
+  };
+
+  // Handle Cancel Schedule
+  const handleCancelSchedule = async (postId: string) => {
+    if (!confirm("Are you sure you want to cancel this scheduled post?")) return;
+
+    try {
+      const res = await fetch(`/api/posts/${postId}/cancel-schedule`, {
+        method: "POST",
+      });
+
+      const json = (await res.json()) as any;
+      if (!res.ok) throw new Error(json.error ?? "Failed to cancel schedule.");
+
+      setPosts((prev) =>
+        prev.map((p) => (p.id === postId ? json.data.post : p))
+      );
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Cancel schedule failed.");
     }
   };
 
@@ -211,6 +282,11 @@ export function ContentManager({
   };
 
   const isDraftOnly = workspace.entitlement_type === "draft_only";
+  const canPublishPosts =
+    workspace.entitlement_type === "publishing_beta" ||
+    workspace.entitlement_type === "internal_test" ||
+    workspace.entitlement_type === "paid_trial" ||
+    workspace.entitlement_type === "paid_active";
 
   return (
     <div className="space-y-6">
@@ -254,10 +330,20 @@ export function ContentManager({
             {usageCount} of {usageLimit} workflow items used this month.
           </span>
         </div>
-        {isDraftOnly && (
+        {isDraftOnly ? (
           <div className="flex items-center gap-1.5 text-ink-secondary">
             <Lock size={12} className="text-amber-600" />
             <span>Draft-only preview active. Scheduling & publishing require verified beta access.</span>
+          </div>
+        ) : workspace.entitlement_type === "publishing_beta" ? (
+          <div className="flex items-center gap-1.5 text-forest font-medium">
+            <Sparkles size={12} className="text-forest" />
+            <span>LinkedIn publishing beta active. Explicit human approval required before scheduling.</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 text-forest font-medium">
+            <CheckCircle2 size={12} className="text-forest" />
+            <span>Publishing enabled.</span>
           </div>
         )}
       </div>
@@ -350,33 +436,64 @@ export function ContentManager({
                 <div className="flex items-center gap-2">
                   {post.status === "draft" && (
                     <button
-                      onClick={() => {
-                        setEditingPost(post);
-                        handleUpdatePost({ status: "needs_review" });
-                      }}
+                      onClick={() => handleUpdatePost({ status: "needs_review" }, post)}
                       className="text-forest hover:underline font-medium text-xs"
                     >
                       Submit for Review
                     </button>
                   )}
                   {post.status === "needs_review" && (
-                    <button
-                      onClick={() => {
-                        setEditingPost(post);
-                        handleUpdatePost({ status: "approved" });
-                      }}
-                      className="text-forest hover:underline font-medium text-xs"
-                    >
-                      Approve
-                    </button>
+                    canPublishPosts ? (
+                      <button
+                        onClick={() => handleUpdatePost({ status: "approved" }, post)}
+                        className="text-forest hover:underline font-medium text-xs font-semibold"
+                      >
+                        Approve
+                      </button>
+                    ) : (
+                      <span
+                        className="text-ink-secondary flex items-center gap-1 cursor-not-allowed"
+                        title="Approval for publishing requires verified publishing beta access"
+                      >
+                        <Lock size={11} /> Approval (Beta only)
+                      </span>
+                    )
                   )}
-                  {post.status === "approved" && isDraftOnly && (
-                    <span
-                      className="text-ink-secondary flex items-center gap-1 cursor-not-allowed"
-                      title="Scheduling is disabled for draft_only preview"
-                    >
-                      <Lock size={11} /> Scheduling Gated
-                    </span>
+                  {post.status === "approved" && (
+                    canPublishPosts ? (
+                      <button
+                        onClick={() => handleOpenSchedule(post)}
+                        className="btn-secondary text-xs flex items-center gap-1.5 py-1 px-2.5 text-forest hover:bg-forest-light border-forest/30 font-medium"
+                      >
+                        <Calendar size={12} /> Schedule
+                      </button>
+                    ) : (
+                      <span
+                        className="text-ink-secondary flex items-center gap-1 cursor-not-allowed"
+                        title="Scheduling is disabled for draft_only preview"
+                      >
+                        <Lock size={11} /> Scheduling Gated
+                      </span>
+                    )
+                  )}
+                  {post.status === "scheduled" && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-ink-secondary text-xs flex items-center gap-1">
+                        <Clock size={11} className="text-forest" />
+                        {post.scheduled_at ? new Date(post.scheduled_at).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "Scheduled"}
+                      </span>
+                      <button
+                        onClick={() => handleCancelSchedule(post.id)}
+                        className="text-danger hover:underline text-xs font-medium"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                  {post.status === "published" && (
+                    <div className="flex items-center gap-1 text-emerald-600 font-medium text-xs">
+                      <CheckCircle2 size={12} /> Published
+                    </div>
                   )}
                 </div>
               </div>
@@ -672,6 +789,75 @@ export function ContentManager({
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Schedule Modal */}
+      {schedulingPost && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="card max-w-md w-full p-6 shadow-xl animate-fade-in">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-ink flex items-center gap-2">
+                <Calendar size={18} className="text-forest" /> Schedule for LinkedIn
+              </h2>
+              <button
+                onClick={() => setSchedulingPost(null)}
+                className="text-ink-secondary hover:text-ink text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            {scheduleError && (
+              <div className="mb-4 p-3 rounded bg-danger/10 border border-danger/20 text-danger text-xs">
+                {scheduleError}
+              </div>
+            )}
+
+            <form onSubmit={handleScheduleSubmit} className="space-y-4">
+              <div>
+                <p className="text-xs font-semibold text-ink mb-1">
+                  Post to schedule:
+                </p>
+                <p className="text-xs text-ink-secondary bg-surface p-2.5 rounded border border-border line-clamp-3">
+                  {schedulingPost.text}
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-ink mb-1">
+                  Publication Date &amp; Time (Local) *
+                </label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={scheduledDateTime}
+                  onChange={(e) => setScheduledDateTime(e.target.value)}
+                  className="input-field text-sm"
+                />
+                <p className="text-[11px] text-ink-secondary mt-1">
+                  Cap: max 1 post per calendar day and 7 posts per rolling 7 days.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSchedulingPost(null)}
+                  className="btn-ghost text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isScheduling || !scheduledDateTime}
+                  className="btn-primary text-xs flex items-center gap-1.5"
+                >
+                  {isScheduling ? "Scheduling..." : "Confirm Schedule"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

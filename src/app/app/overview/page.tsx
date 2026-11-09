@@ -297,6 +297,25 @@ export default async function OverviewPage() {
         </div>
       )}
 
+      {/* Publishing Beta Notice */}
+      {workspace.entitlement_type === "publishing_beta" && (
+        <div className="card border-forest-muted bg-forest-light/40 p-5">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded bg-white/70 border border-forest-muted text-forest">
+              <Sparkles size={18} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-ink">
+                LinkedIn Publishing Beta Active
+              </p>
+              <p className="text-sm text-ink-secondary mt-1">
+                Your workspace is enrolled in the LinkedIn publishing beta. Human-approved posts can be scheduled and published to your connected LinkedIn profile. Autopilot remains disabled.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* First-Draft Callout when Workspace has 0 Posts */}
       {!draftsError && totalDrafts === 0 && (
         <div className="card border-forest-muted bg-white p-6 shadow-sm">

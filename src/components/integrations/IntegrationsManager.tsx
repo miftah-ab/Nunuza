@@ -271,13 +271,22 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
           </div>
         </div>
 
-        {/* Notice on draft-only preview and fail-closed publishing */}
-        <div className="mt-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 flex items-start gap-2">
-          <Info className="w-4 h-4 shrink-0 mt-0.5" />
-          <div>
-            <span className="font-semibold">Draft-Only Preview Notice:</span> Automatic publishing is disabled for public preview accounts (`draft_only`). Workspaces can plan, generate, and review drafts safely. Live publishing requires verified LinkedIn developer app scopes (`w_member_social`).
+        {/* Notice on draft-only preview vs publishing beta */}
+        {data.workspaceEntitlement === "publishing_beta" || data.workspaceEntitlement === "internal_test" ? (
+          <div className="mt-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-400 flex items-start gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
+            <div>
+              <span className="font-semibold">Publishing Beta Active:</span> This workspace has verified beta access. Once your LinkedIn profile is connected, human-approved drafts can be scheduled and published directly to your personal profile.
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="mt-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 flex items-start gap-2">
+            <Info className="w-4 h-4 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-semibold">Draft-Only Preview Notice:</span> Automatic publishing is disabled for public preview accounts (`draft_only`). Workspaces can plan, generate, and review drafts safely. Live publishing requires verified beta access and LinkedIn developer app scopes (`w_member_social`).
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ─── 2. Telegram Bot Integration ─── */}

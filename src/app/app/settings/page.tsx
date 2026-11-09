@@ -1,29 +1,50 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-export const metadata: Metadata = { title: "Settings", robots: { index: false } };
+import { requireWorkspace, AuthError } from "@/lib/auth/workspace";
+import { SettingsClient } from "./SettingsClient";
+
+export const metadata: Metadata = {
+  title: "Settings — Nunuza",
+  robots: { index: false },
+};
+
 export default async function SettingsPage() {
+  let workspace;
+  try {
+    workspace = await requireWorkspace();
+  } catch (err) {
+    if (err instanceof AuthError) redirect("/login");
+    redirect("/app/onboarding");
+  }
+
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   if (!user) redirect("/login");
-  const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single();
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", user.id)
+    .single();
+
   return (
-    <div className="max-w-2xl mx-auto animate-fade-in">
-      <h1 className="text-2xl font-bold text-ink mb-6">Settings</h1>
-      <div className="card p-6 space-y-4">
-        <div><p className="text-xs text-ink-secondary font-medium uppercase tracking-widest mb-1">Email</p><p className="text-sm text-ink">{user.email}</p></div>
-        <div><p className="text-xs text-ink-secondary font-medium uppercase tracking-widest mb-1">Display name</p><p className="text-sm text-ink">{profile?.display_name ?? "—"}</p></div>
-        <div><p className="text-xs text-ink-secondary font-medium uppercase tracking-widest mb-1">Time zone</p><p className="text-sm text-ink">{profile?.timezone ?? "UTC"}</p></div>
-      </div>
-      <div className="mt-6 card p-5 border-border bg-surface/50">
-        <p className="text-sm font-semibold text-ink mb-1">Workspace Deletion</p>
-        <p className="text-xs text-ink-secondary mb-3">
-          Self-serve account and workspace deletion is disabled during the draft-only preview. If you need your data or workspace completely expunged, please export your content first and reach out to support.
+    <div className="max-w-2xl mx-auto animate-fade-in py-2">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-ink">Workspace &amp; Account Settings</h1>
+        <p className="text-sm text-ink-secondary mt-1">
+          Manage your personal profile, workspace preferences, and content export.
         </p>
-        <button disabled className="btn-secondary text-xs opacity-60 cursor-not-allowed">
-          Self-serve deletion disabled in preview
-        </button>
       </div>
+
+      <SettingsClient
+        userEmail={user.email || ""}
+        initialProfile={profile}
+        initialWorkspace={workspace}
+      />
     </div>
   );
 }

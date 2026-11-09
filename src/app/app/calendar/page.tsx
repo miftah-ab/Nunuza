@@ -80,6 +80,23 @@ export default async function CalendarPage() {
         </div>
       )}
 
+      {/* Beta Notice */}
+      {workspace.entitlement_type === "publishing_beta" && (
+        <div className="card border-forest-muted bg-forest-light/40 p-4 mb-6">
+          <div className="flex items-start gap-3">
+            <Clock size={16} className="text-forest mt-0.5" />
+            <div>
+              <p className="text-xs font-semibold text-ink">
+                LinkedIn Publishing Beta Active
+              </p>
+              <p className="text-xs text-ink-secondary mt-0.5">
+                Scheduled drafts are queued for automated publication to your connected LinkedIn profile. Rate limits enforced: max 1 post per calendar day, 7 posts per rolling 7 days.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {queryError ? (
         <div className="card p-6 border-error-light bg-error-light/30">
           <div className="flex items-center gap-2 text-error font-semibold text-sm">

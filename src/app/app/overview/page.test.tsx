@@ -240,4 +240,38 @@ describe("OverviewPage (Dashboard)", () => {
     expect(rendered).toContain("Paused");
     expect(rendered).toContain("Content generation and agent jobs are paused.");
   });
+
+  it("renders publishing_beta badge and active notice for provisioned beta workspaces", async () => {
+    const { requireWorkspace } = await import("@/lib/auth/workspace");
+    const { createClient } = await import("@/lib/supabase/server");
+
+    vi.mocked(requireWorkspace).mockResolvedValue({
+      ...baseWorkspace,
+      entitlement_type: "publishing_beta",
+    });
+
+    const mockSupabase = {
+      from: vi.fn(() => ({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            in: vi.fn().mockResolvedValue({ count: 1, error: null }),
+            eq: vi.fn().mockResolvedValue({ count: 1, error: null }),
+            order: vi.fn().mockReturnValue({
+              limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+            }),
+            then: (resolve: any) => resolve({ count: 2, error: null }),
+          }),
+        }),
+      })),
+    };
+
+    vi.mocked(createClient).mockResolvedValue(mockSupabase as any);
+
+    const jsx = await OverviewPage();
+    const rendered = renderToStaticMarkup(jsx);
+
+    expect(rendered).toContain("LinkedIn publishing beta — no subscription required");
+    expect(rendered).toContain("LinkedIn Publishing Beta Active");
+    expect(rendered).not.toContain("Draft-Only Preview Release");
+  });
 });

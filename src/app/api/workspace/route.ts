@@ -37,6 +37,8 @@ interface UpdateWorkspaceBody {
   name?: string;
   operating_mode?: OperatingMode;
   paused?: boolean;
+  displayName?: string;
+  timezone?: string;
 }
 
 export async function PATCH(request: Request) {
@@ -51,6 +53,26 @@ export async function PATCH(request: Request) {
       );
     }
 
+    const supabase = await createClient();
+
+    // 1. Update Profile if displayName or timezone supplied
+    if (typeof body.displayName === "string" || typeof body.timezone === "string") {
+      const profileUpdates: Record<string, string> = {};
+      if (typeof body.displayName === "string" && body.displayName.trim().length > 0) {
+        profileUpdates.display_name = body.displayName.trim().slice(0, 100);
+      }
+      if (typeof body.timezone === "string" && body.timezone.trim().length > 0) {
+        profileUpdates.timezone = body.timezone.trim();
+      }
+      if (Object.keys(profileUpdates).length > 0) {
+        await supabase
+          .from("profiles")
+          .update(profileUpdates)
+          .eq("id", workspace.owner_user_id);
+      }
+    }
+
+    // 2. Update Workspace
     const updates: Record<string, unknown> = {};
 
     if (typeof body.name === "string" && body.name.trim().length > 0) {
@@ -81,26 +103,31 @@ export async function PATCH(request: Request) {
       }
     }
 
-    if (Object.keys(updates).length === 0) {
-      return ok({ workspace });
+    let updatedWorkspace = workspace;
+    if (Object.keys(updates).length > 0) {
+      const { data: updated, error } = await supabase
+        .from("workspaces")
+        .update(updates)
+        .eq("id", workspace.id)
+        .select()
+        .single();
+
+      if (error) {
+        return NextResponse.json(
+          { error: "Failed to update workspace." },
+          { status: 500 }
+        );
+      }
+      updatedWorkspace = updated;
     }
 
-    const supabase = await createClient();
-    const { data: updated, error } = await supabase
-      .from("workspaces")
-      .update(updates)
-      .eq("id", workspace.id)
-      .select()
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", workspace.owner_user_id)
       .single();
 
-    if (error) {
-      return NextResponse.json(
-        { error: "Failed to update workspace." },
-        { status: 500 }
-      );
-    }
-
-    return ok({ workspace: updated });
+    return ok({ workspace: updatedWorkspace, profile });
   } catch (err) {
     return apiError(err);
   }
