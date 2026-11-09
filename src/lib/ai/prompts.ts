@@ -33,6 +33,7 @@ export function buildDraftPrompt(request: DraftGenerationRequest): {
     "3. Use clean single and double line breaks. Make it easily scannable on mobile screens.",
     "4. Strong opening hook: the first 2 lines must stop the scroll before the 'see more' cutoff.",
     "5. Sound like an experienced practitioner sharing real lessons, not a marketing copywriter.",
+    "6. NEVER use em dashes (— or –). Use commas, colons, or periods instead. Em dashes make writing feel AI-generated and corporate.",
   ];
 
   if (userRole || companyName) {

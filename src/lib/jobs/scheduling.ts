@@ -132,10 +132,39 @@ export async function schedulePost(
     scheduledFor: targetDate.toISOString(),
   };
 
-  const { data: job, error: jobErr } = await supabase
+  // Check for existing job with same idempotency key to implement idempotency
+  // (upsert with onConflict requires a DB unique constraint; use check-then-insert instead)
+  const { data: existingJob } = await supabase
     .from("agent_jobs")
-    .upsert(
-      {
+    .select()
+    .eq("idempotency_key", idempotencyKey)
+    .maybeSingle();
+
+  let job: AgentJob;
+
+  if (existingJob) {
+    // Re-queue the existing job (e.g. if it previously failed or was cancelled)
+    const { data: updatedJob, error: updateErr } = await supabase
+      .from("agent_jobs")
+      .update({
+        status: "queued",
+        payload: payload as unknown as Record<string, unknown>,
+        scheduled_for: targetDate.toISOString(),
+        attempt_count: 0,
+        safe_error_message: null,
+      })
+      .eq("id", existingJob.id)
+      .select()
+      .single();
+
+    if (updateErr) {
+      throw new Error(`[scheduler] Failed to re-queue publishing job: ${updateErr.message}`);
+    }
+    job = updatedJob as AgentJob;
+  } else {
+    const { data: newJob, error: jobErr } = await supabase
+      .from("agent_jobs")
+      .insert({
         workspace_id: workspace.id,
         job_type: "publish_post",
         status: "queued",
@@ -145,14 +174,14 @@ export async function schedulePost(
         attempt_count: 0,
         max_attempts: 3,
         safe_error_message: null,
-      },
-      { onConflict: "idempotency_key" }
-    )
-    .select()
-    .single();
+      })
+      .select()
+      .single();
 
-  if (jobErr) {
-    throw new Error(`[scheduler] Failed to enqueue publishing job: ${jobErr.message}`);
+    if (jobErr) {
+      throw new Error(`[scheduler] Failed to enqueue publishing job: ${jobErr.message}`);
+    }
+    job = newJob as AgentJob;
   }
 
   // 7. Transition post status to scheduled

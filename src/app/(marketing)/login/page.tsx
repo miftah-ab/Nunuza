@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Logo } from "@/components/layout/Logo";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, ArrowLeft } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "Sign in",
+  title: "Sign in — Nunuza",
   description: "Sign in to Nunuza with Google. No password required.",
   robots: { index: false, follow: false },
 };
@@ -16,7 +16,6 @@ export default async function LoginPage({
 }) {
   const params = await searchParams;
   const errorMessage = params.error ? decodeURIComponent(params.error) : null;
-  // Filter out internal error codes from user-visible messages
   const displayError =
     errorMessage && !errorMessage.startsWith("AUTH_NOT_CONFIGURED")
       ? errorMessage
@@ -24,45 +23,43 @@ export default async function LoginPage({
 
   return (
     <div className="min-h-screen bg-offwhite flex flex-col">
-      {/* Minimal header — logo only, no nav */}
-      <header className="flex items-center justify-center h-16 border-b border-border bg-white">
-        <Logo height={28} />
+      {/* Minimal header */}
+      <header className="flex items-center h-16 px-6 border-b border-border bg-white">
+        <Link href="/" aria-label="Back to home" className="flex items-center gap-2 text-ink-secondary hover:text-ink transition-colors text-sm">
+          <ArrowLeft size={16} />
+          <Logo height={22} />
+        </Link>
       </header>
 
       {/* Auth card */}
       <main
         id="main-content"
-        className="flex-1 flex items-center justify-center px-4 py-12"
+        className="flex-1 flex items-center justify-center px-4 py-16"
       >
-        <div className="w-full max-w-sm">
-          <div className="card p-8 text-center">
-            {/* Heading */}
-            <h1 className="text-xl font-bold text-ink mb-2">
+        <div className="w-full max-w-sm animate-fade-in">
+          <div className="text-center mb-8">
+            <h1 className="text-2xl font-bold text-ink tracking-tight">
               Sign in to Nunuza
             </h1>
-            <p className="text-sm text-ink-secondary mb-8">
-              Use your Google account to sign in or create a workspace. No
-              password required.
+            <p className="text-sm text-ink-secondary mt-2">
+              Use your Google account. No password required.
             </p>
+          </div>
 
+          <div className="card p-7">
             {/* OAuth error banner */}
             {displayError && (
-              <div className="mb-6 flex items-start gap-2.5 rounded-lg bg-error-light border border-error/20 px-4 py-3 text-sm text-error text-left">
-                <AlertCircle size={16} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
+              <div className="mb-5 flex items-start gap-2.5 rounded-lg bg-error-light border border-error/20 px-4 py-3 text-sm text-error text-left">
+                <AlertCircle size={16} className="shrink-0 mt-0.5" aria-hidden="true" />
                 <p>{displayError}</p>
               </div>
             )}
 
-            {/* Google sign-in button
-                Phase 2 will wire this to Supabase Auth.
-                For Phase 1, the button is present but the route handler
-                is a BLOCKED stub — Supabase is not yet configured.
-            */}
             <form action="/auth/google" method="POST">
               <button
                 type="submit"
                 id="google-signin-btn"
-                className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-lg border border-border bg-white text-sm font-medium text-ink hover:bg-offwhite transition-colors focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2"
+                className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-lg border border-border bg-white text-sm font-medium text-ink hover:bg-surface transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2"
                 aria-label="Continue with Google"
               >
                 {/* Google "G" icon */}
@@ -94,42 +91,28 @@ export default async function LoginPage({
               </button>
             </form>
 
-            {/* Access mode information */}
-            <div className="mt-5 rounded-lg bg-offwhite border border-border px-4 py-3 text-left">
-              <p className="text-xs text-ink-secondary">
-                <strong className="text-ink">Access mode:</strong> Sign in to
-                access your workspace. Commercial accounts start with a 14-day
-                card-required free trial ($29/month). Private beta access is
-                managed directly by authorized administrators.
+            <div className="mt-5 p-4 rounded-lg bg-surface border border-border text-xs text-ink-secondary">
+              <p>
+                Commercial accounts start with a 14-day free trial ($29/month after, card required). Private beta access is managed by authorized administrators.
               </p>
             </div>
 
-            {/* Disclosures */}
-            <p className="mt-6 text-xs text-ink-secondary">
+            <p className="mt-5 text-xs text-ink-muted text-center">
               By signing in, you agree to Nunuza&apos;s{" "}
-              <Link href="/terms" className="underline underline-offset-2">
+              <Link href="/terms" className="underline underline-offset-2 hover:text-ink transition-colors">
                 Terms of Service
               </Link>{" "}
               and{" "}
-              <Link href="/privacy" className="underline underline-offset-2">
+              <Link href="/privacy" className="underline underline-offset-2 hover:text-ink transition-colors">
                 Privacy Policy
               </Link>
               .
             </p>
           </div>
 
-          <p className="mt-6 text-center text-sm text-ink-secondary">
+          <p className="mt-6 text-center text-xs text-ink-muted">
             14-day free trial · $29/mo after · Private beta by invite
           </p>
-
-          <div className="mt-4 text-center">
-            <Link
-              href="/"
-              className="text-sm text-ink-secondary hover:text-ink transition-colors"
-            >
-              ← Back to home
-            </Link>
-          </div>
         </div>
       </main>
     </div>

@@ -305,7 +305,7 @@ export default async function PerformancePage() {
                       })}
                     </p>
                   </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-emerald-50 text-emerald-800 border border-emerald-200 shrink-0">
+                  <span className="badge-active shrink-0 text-[10px]">
                     Published
                   </span>
                 </div>

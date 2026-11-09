@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -12,29 +10,35 @@
 @layer base {
   :root {
     /* Brand colours */
-    --color-forest:       #174C3C;
+    --color-forest: #174C3C;
     --color-forest-hover: #103B2F;
     --color-forest-light: #EAF2EE;
     --color-forest-muted: #C9DECE;
 
     /* Surfaces */
     --color-offwhite: #F8F8F5;
-    --color-white:    #FFFFFF;
+    --color-surface: #F8F8F5;
+    --color-surface-raised: #F3F4F1;
+    --color-surface-alt: #EFEFE9;
+    --color-white: #FFFFFF;
 
     /* Text */
-    --color-ink:           #202522;
+    --color-ink: #202522;
     --color-ink-secondary: #68716C;
+    --color-ink-muted: #9CA39A;
 
     /* Borders */
     --color-border: #E4E8E3;
 
     /* Semantic status */
-    --color-success:       #287A50;
+    --color-success: #287A50;
     --color-success-light: #EAF5EF;
-    --color-warning:       #A86412;
+    --color-warning: #A86412;
     --color-warning-light: #FDF3E3;
-    --color-error:         #B93838;
-    --color-error-light:   #FDEAEA;
+    --color-error: #B93838;
+    --color-error-light: #FDEAEA;
+    --color-danger: #B93838;
+    --color-danger-light: #FDEAEA;
 
     /* Typography */
     --font-sans: 'Inter', system-ui, sans-serif;
@@ -43,7 +47,7 @@
     --space-page: clamp(1rem, 4vw, 1.5rem);
 
     /* Transition */
-    --transition-fast:   150ms ease;
+    --transition-fast: 150ms ease;
     --transition-normal: 200ms ease;
   }
 
@@ -66,6 +70,7 @@
     html {
       scroll-behavior: auto;
     }
+
     *,
     *::before,
     *::after {
@@ -98,7 +103,12 @@
   }
 
   /* Headings */
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     color: var(--color-ink);
     font-weight: 600;
     letter-spacing: -0.01em;
@@ -110,6 +120,7 @@
     text-decoration: none;
     transition: color var(--transition-fast);
   }
+
   a:hover {
     color: var(--color-forest-hover);
   }
@@ -123,6 +134,7 @@
 
 /* ─── Utility layer ───────────────────────────────────────────────────────── */
 @layer utilities {
+
   /* Visually hidden but accessible to screen readers */
   .sr-only {
     position: absolute;
@@ -157,72 +169,116 @@
   }
 
   /* Status badge colours */
-  .badge-draft-only   { @apply bg-forest-light text-forest text-xs font-medium px-2.5 py-1 rounded-full; }
-  .badge-beta         { @apply bg-warning-light text-warning text-xs font-medium px-2.5 py-1 rounded-full; }
-  .badge-active       { @apply bg-success-light text-success text-xs font-medium px-2.5 py-1 rounded-full; }
-  .badge-error        { @apply bg-error-light text-error text-xs font-medium px-2.5 py-1 rounded-full; }
+  .badge-draft-only {
+    @apply bg-forest-light text-forest text-xs font-medium px-2.5 py-0.5 rounded-full;
+  }
+
+  .badge-beta {
+    @apply bg-warning-light text-warning text-xs font-medium px-2.5 py-0.5 rounded-full;
+  }
+
+  .badge-active {
+    @apply bg-success-light text-success text-xs font-medium px-2.5 py-0.5 rounded-full;
+  }
+
+  .badge-error {
+    @apply bg-error-light text-error text-xs font-medium px-2.5 py-0.5 rounded-full;
+  }
+
+  .badge-inactive {
+    @apply bg-surface-alt text-ink-secondary text-xs font-medium px-2.5 py-0.5 rounded-full;
+  }
 }
 
 /* ─── Component layer ─────────────────────────────────────────────────────── */
 @layer components {
-  /* Primary button */
+  /* ── Buttons ── */
+
+  /* Primary button — forest green */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2
-           bg-forest text-white
-           px-5 py-2.5 rounded-lg text-sm font-medium
-           transition-colors duration-150
-           hover:bg-forest-hover
-           focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2
-           disabled:opacity-50 disabled:cursor-not-allowed
-           select-none whitespace-nowrap;
+    @apply inline-flex items-center justify-center gap-2 bg-forest text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-150 hover:bg-forest-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed select-none whitespace-nowrap;
   }
 
   /* Secondary / outlined button */
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2
-           bg-white text-ink border border-border
-           px-5 py-2.5 rounded-lg text-sm font-medium
-           transition-colors duration-150
-           hover:bg-offwhite hover:border-forest-muted
-           focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2
-           disabled:opacity-50 disabled:cursor-not-allowed
-           select-none whitespace-nowrap;
+    @apply inline-flex items-center justify-center gap-2 bg-white text-ink border border-border px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-150 hover:bg-surface hover:border-forest-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed select-none whitespace-nowrap;
   }
 
   /* Ghost button */
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2
-           bg-transparent text-ink-secondary
-           px-3 py-2 rounded-lg text-sm font-medium
-           transition-colors duration-150
-           hover:bg-offwhite hover:text-ink
-           focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2
-           disabled:opacity-50 disabled:cursor-not-allowed
-           select-none whitespace-nowrap;
+    @apply inline-flex items-center justify-center gap-2 bg-transparent text-ink-secondary px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-150 hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed select-none whitespace-nowrap;
   }
 
-  /* Card surface */
+  /* Destructive button */
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 bg-error-light text-error border border-error/20 px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-150 hover:bg-error hover:text-white hover:border-error focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed select-none whitespace-nowrap;
+  }
+
+  /* ── Cards & Surfaces ── */
+
+  /* Standard white card */
   .card {
     @apply bg-white border border-border rounded-xl shadow-card;
   }
 
   .card-hover {
-    @apply card transition-shadow duration-200 hover:shadow-card-hover;
+    @apply card transition-shadow duration-200 hover:shadow-card-hover cursor-pointer;
   }
 
-  /* Form input */
+  /* ── Notices / Banners ── */
+
+  /* Informational notice — forest tint */
+  .notice-info {
+    @apply bg-forest-light border border-forest-muted rounded-xl p-4;
+  }
+
+  /* Warning notice */
+  .notice-warning {
+    @apply bg-warning-light border border-warning/20 rounded-xl p-4;
+  }
+
+  /* Error notice */
+  .notice-error {
+    @apply bg-error-light border border-error/20 rounded-xl p-4;
+  }
+
+  /* Success notice */
+  .notice-success {
+    @apply bg-success-light border border-success/20 rounded-xl p-4;
+  }
+
+  /* ── Form elements ── */
+
+  /* Form text input */
   .input-field {
-    @apply w-full px-3 py-2.5 text-sm
-           bg-white border border-border rounded-lg
-           text-ink placeholder:text-ink-secondary
-           transition-colors duration-150
-           focus:outline-none focus:border-forest focus:ring-2 focus:ring-forest/20
-           disabled:bg-offwhite disabled:text-ink-secondary disabled:cursor-not-allowed;
+    @apply w-full px-3 py-2.5 text-sm bg-white border border-border rounded-lg text-ink placeholder:text-ink-muted transition-colors duration-150 focus:outline-none focus:border-forest focus:ring-2 focus:ring-forest/15 disabled:bg-surface disabled:text-ink-secondary disabled:cursor-not-allowed;
   }
 
-  /* Section divider label */
+  /* Form label */
+  .form-label {
+    @apply block text-sm font-medium text-ink mb-1.5;
+  }
+
+  /* Form hint */
+  .form-hint {
+    @apply text-xs text-ink-muted mt-1;
+  }
+
+  /* ── Typography utilities ── */
+
+  /* Page title */
+  .page-title {
+    @apply text-2xl font-bold text-ink tracking-tight;
+  }
+
+  /* Section title */
+  .section-title {
+    @apply text-sm font-semibold text-ink;
+  }
+
+  /* Section divider label (overline) */
   .section-label {
-    @apply text-xs font-semibold uppercase tracking-widest text-ink-secondary;
+    @apply text-xs font-semibold uppercase tracking-widest text-ink-muted;
   }
 
   /* Narrow reading-width container for legal/blog pages */
@@ -231,20 +287,109 @@
   }
 
   /* Prose-like spacing for long-form content (privacy, terms) */
-  .prose-like p { @apply leading-relaxed; }
-  .prose-like h2 { @apply text-base font-semibold text-ink mt-8 mb-3; }
-  .prose-like ul { @apply list-disc list-inside space-y-1; }
+  .prose-like p {
+    @apply leading-relaxed;
+  }
+
+  .prose-like h2 {
+    @apply text-base font-semibold text-ink mt-8 mb-3;
+  }
+
+  .prose-like ul {
+    @apply list-disc list-inside space-y-1;
+  }
+
+  /* ── Page chrome ── */
+
+  /* Consistent page header wrapper */
+  .page-header {
+    @apply flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-8;
+  }
+
+  /* Navigation active link */
+  .nav-link-active {
+    @apply bg-forest-light text-forest font-semibold;
+  }
+
+  /* Navigation default link */
+  .nav-link {
+    @apply text-ink-secondary hover:bg-surface hover:text-ink;
+  }
+
+  /* ── Status dots ── */
+  .status-dot-active {
+    @apply w-2 h-2 rounded-full bg-success inline-block;
+  }
+
+  .status-dot-warning {
+    @apply w-2 h-2 rounded-full bg-warning inline-block;
+  }
+
+  .status-dot-error {
+    @apply w-2 h-2 rounded-full bg-error inline-block;
+  }
+
+  .status-dot-muted {
+    @apply w-2 h-2 rounded-full bg-ink-muted inline-block;
+  }
+
+  /* ── Integration status pill ── */
+  .integration-status-connected {
+    @apply bg-success-light text-success border border-success/20 text-xs font-medium px-2.5 py-0.5 rounded-full;
+  }
+
+  .integration-status-pending {
+    @apply bg-surface text-ink-secondary border border-border text-xs font-medium px-2.5 py-0.5 rounded-full;
+  }
+
+  .integration-status-error {
+    @apply bg-error-light text-error border border-error/20 text-xs font-medium px-2.5 py-0.5 rounded-full;
+  }
 }
 
 /* ─── Animations ──────────────────────────────────────────────────────────── */
 @layer utilities {
   .animate-fade-in {
-    animation: fadeIn 200ms ease both;
+    animation: fadeIn 220ms ease both;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 220ms ease both;
   }
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

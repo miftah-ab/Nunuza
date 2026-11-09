@@ -26,6 +26,7 @@ import {
   Edit3,
   Calendar,
   Lock,
+  X,
 } from "lucide-react";
 
 interface ContentManagerProps {
@@ -265,19 +266,19 @@ export function ContentManager({
   const getStatusBadge = (status: PostStatus) => {
     switch (status) {
       case "draft":
-        return <span className="badge badge-draft">Draft</span>;
+        return <span className="badge-draft-only">Draft</span>;
       case "needs_review":
-        return <span className="badge badge-review">Needs Review</span>;
+        return <span className="badge-beta">Needs Review</span>;
       case "approved":
-        return <span className="badge badge-beta">Approved</span>;
+        return <span className="badge-active">Approved</span>;
       case "scheduled":
-        return <span className="badge badge-active flex items-center gap-1"><Clock size={12} /> Scheduled</span>;
+        return <span className="badge-active flex items-center gap-1"><Clock size={12} /> Scheduled</span>;
       case "published":
-        return <span className="badge badge-active flex items-center gap-1"><CheckCircle2 size={12} /> Published</span>;
+        return <span className="badge-active flex items-center gap-1"><CheckCircle2 size={12} /> Published</span>;
       case "failed":
-        return <span className="badge badge-inactive flex items-center gap-1"><AlertCircle size={12} /> Failed</span>;
+        return <span className="badge-error flex items-center gap-1"><AlertCircle size={12} /> Failed</span>;
       default:
-        return <span className="badge badge-draft">{status}</span>;
+        return <span className="badge-draft-only">{status}</span>;
     }
   };
 
@@ -364,11 +365,10 @@ export function ContentManager({
           <button
             key={tab.key}
             onClick={() => setFilter(tab.key)}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-              filter === tab.key
-                ? "bg-forest text-white"
-                : "text-ink-secondary hover:text-ink hover:bg-forest-light/50"
-            }`}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${filter === tab.key
+              ? "bg-forest text-white"
+              : "text-ink-secondary hover:text-ink hover:bg-forest-light/50"
+              }`}
           >
             {tab.label}
           </button>
@@ -417,8 +417,9 @@ export function ContentManager({
                   </button>
                   <button
                     onClick={() => handleDeletePost(post.id)}
-                    className="p-1.5 text-ink-secondary hover:text-danger rounded hover:bg-danger/10"
+                    className="p-1.5 text-ink-secondary hover:text-error rounded hover:bg-error-light transition-colors"
                     title="Delete post"
+                    aria-label="Delete post"
                   >
                     <Trash2 size={15} />
                   </button>
@@ -487,14 +488,14 @@ export function ContentManager({
                       </span>
                       <button
                         onClick={() => handleCancelSchedule(post.id)}
-                        className="text-danger hover:underline text-xs font-medium"
+                        className="text-error hover:underline text-xs font-medium"
                       >
                         Cancel
                       </button>
                     </div>
                   )}
                   {post.status === "published" && (
-                    <div className="flex items-center gap-1 text-emerald-600 font-medium text-xs">
+                    <div className="flex items-center gap-1 text-success font-medium text-xs">
                       <CheckCircle2 size={12} /> Published
                     </div>
                   )}
@@ -507,23 +508,28 @@ export function ContentManager({
 
       {/* AI Generation Modal */}
       {isAiModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-ink/30 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="ai-modal-title">
           <div className="card max-w-lg w-full p-6 shadow-xl animate-fade-in">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-ink flex items-center gap-2">
-                <Sparkles size={18} className="text-forest" /> Generate LinkedIn Draft
-              </h2>
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-forest-light flex items-center justify-center">
+                  <Sparkles size={16} className="text-forest" />
+                </div>
+                <h2 id="ai-modal-title" className="text-base font-bold text-ink">Generate LinkedIn Draft</h2>
+              </div>
               <button
                 onClick={() => setIsAiModalOpen(false)}
-                className="text-ink-secondary hover:text-ink text-sm"
+                className="p-1.5 rounded-lg text-ink-secondary hover:bg-surface hover:text-ink transition-colors"
+                aria-label="Close"
               >
-                ✕
+                <X size={18} />
               </button>
             </div>
 
             {generationError && (
-              <div className="mb-4 p-3 rounded bg-danger/10 border border-danger/20 text-danger text-xs">
-                {generationError}
+              <div className="mb-4 notice-error flex items-start gap-2">
+                <AlertCircle size={14} className="shrink-0 mt-0.5 text-error" />
+                <span className="text-sm text-error">{generationError}</span>
               </div>
             )}
 
@@ -614,15 +620,16 @@ export function ContentManager({
 
       {/* Manual Draft Modal */}
       {isManualModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-ink/30 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="manual-modal-title">
           <div className="card max-w-lg w-full p-6 shadow-xl animate-fade-in">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-ink">New Manual Draft</h2>
+            <div className="flex items-center justify-between mb-5">
+              <h2 id="manual-modal-title" className="text-base font-bold text-ink">New Manual Draft</h2>
               <button
                 onClick={() => setIsManualModalOpen(false)}
-                className="text-ink-secondary hover:text-ink text-sm"
+                className="p-1.5 rounded-lg text-ink-secondary hover:bg-surface hover:text-ink transition-colors"
+                aria-label="Close"
               >
-                ✕
+                <X size={18} />
               </button>
             </div>
 
@@ -694,18 +701,19 @@ export function ContentManager({
 
       {/* Edit Post Modal */}
       {editingPost && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-ink/30 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
           <div className="card max-w-xl w-full p-6 shadow-xl animate-fade-in">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-5">
               <div>
-                <h2 className="text-lg font-bold text-ink">Edit Post</h2>
-                <span className="text-xs text-ink-secondary">Version {editingPost.version}</span>
+                <h2 id="edit-modal-title" className="text-base font-bold text-ink">Edit Post</h2>
+                <span className="text-xs text-ink-muted">Version {editingPost.version}</span>
               </div>
               <button
                 onClick={() => setEditingPost(null)}
-                className="text-ink-secondary hover:text-ink text-sm"
+                className="p-1.5 rounded-lg text-ink-secondary hover:bg-surface hover:text-ink transition-colors"
+                aria-label="Close"
               >
-                ✕
+                <X size={18} />
               </button>
             </div>
 
@@ -763,7 +771,7 @@ export function ContentManager({
                 <button
                   type="button"
                   onClick={() => handleDeletePost(editingPost.id)}
-                  className="btn-danger text-xs flex items-center gap-1"
+                  className="btn-danger flex items-center gap-1.5"
                 >
                   <Trash2 size={13} /> Delete
                 </button>
@@ -798,23 +806,28 @@ export function ContentManager({
 
       {/* Schedule Modal */}
       {schedulingPost && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-ink/30 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="schedule-modal-title">
           <div className="card max-w-md w-full p-6 shadow-xl animate-fade-in">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-ink flex items-center gap-2">
-                <Calendar size={18} className="text-forest" /> Schedule for LinkedIn
-              </h2>
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-forest-light flex items-center justify-center">
+                  <Calendar size={16} className="text-forest" />
+                </div>
+                <h2 id="schedule-modal-title" className="text-base font-bold text-ink">Schedule for LinkedIn</h2>
+              </div>
               <button
                 onClick={() => setSchedulingPost(null)}
-                className="text-ink-secondary hover:text-ink text-sm"
+                className="p-1.5 rounded-lg text-ink-secondary hover:bg-surface hover:text-ink transition-colors"
+                aria-label="Close"
               >
-                ✕
+                <X size={18} />
               </button>
             </div>
 
             {scheduleError && (
-              <div className="mb-4 p-3 rounded bg-danger/10 border border-danger/20 text-danger text-xs">
-                {scheduleError}
+              <div className="mb-4 notice-error flex items-start gap-2">
+                <AlertCircle size={14} className="shrink-0 mt-0.5 text-error" />
+                <span className="text-sm text-error">{scheduleError}</span>
               </div>
             )}
 

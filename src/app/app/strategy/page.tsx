@@ -165,7 +165,7 @@ export default async function StrategyPage() {
 
             <div className="card p-5">
               <h2 className="text-sm font-semibold text-ink mb-2 flex items-center gap-1.5">
-                <ShieldAlert size={14} className="text-amber-600" />
+                <ShieldAlert size={14} className="text-warning" />
                 <span>Exclusions & Forbidden Topics</span>
               </h2>
               {exclusions.length === 0 ? (

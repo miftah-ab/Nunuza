@@ -9,8 +9,8 @@ import {
   CheckCircle2,
   Lock,
   AlertTriangle,
-  Clock,
-  Sparkles,
+  Zap,
+  UserCheck,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -49,8 +49,8 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
       setWorkspace(json.data.workspace);
       setSuccess(
         !isPaused
-          ? "Agent is now paused. Background jobs and publishing will halt safely."
-          : "Agent resumed. Operating according to configured mode."
+          ? "Agent paused. Background jobs and publishing are halted safely."
+          : "Agent resumed. Operating according to your configured mode."
       );
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Error updating pause state");
@@ -73,7 +73,6 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
       return;
     }
 
-    // Switch back to approval_required
     await updateMode("approval_required");
   };
 
@@ -96,7 +95,7 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
       setSuccess(
         mode === "autopilot"
           ? "Bounded Autopilot enabled. Posts will be scheduled automatically within safety caps."
-          : "Operating mode set to Approval Required. Every post requires your explicit confirmation."
+          : "Mode set to Approval Required. Every post needs your explicit confirmation."
       );
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Error updating mode");
@@ -106,211 +105,229 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {error && (
-        <div className="p-3.5 bg-danger/10 border border-danger/20 rounded-lg text-danger text-xs flex items-center gap-2">
-          <AlertTriangle size={16} className="shrink-0" />
-          <span>{error}</span>
+        <div className="notice-error flex items-start gap-2.5">
+          <AlertTriangle size={16} className="shrink-0 mt-0.5 text-error" />
+          <span className="text-sm text-error">{error}</span>
         </div>
       )}
 
       {success && (
-        <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400 text-xs flex items-center gap-2">
-          <CheckCircle2 size={16} className="shrink-0 text-emerald-400" />
-          <span>{success}</span>
+        <div className="notice-success flex items-start gap-2.5">
+          <CheckCircle2 size={16} className="shrink-0 mt-0.5 text-success" />
+          <span className="text-sm text-success">{success}</span>
         </div>
       )}
 
-      {/* ─── 1. Agent Pause / Resume ─── */}
-      <div className="card p-6 border border-border">
+      {/* ─── 1. Master switch ─── */}
+      <div className="card p-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <Shield size={18} className="text-forest" />
-              <h2 className="text-base font-semibold text-ink">Master Agent Switch</h2>
-              <span
-                className={`text-xs px-2 py-0.5 rounded-full font-mono ${isPaused ? "badge-inactive" : "badge-active"
-                  }`}
-              >
-                {isPaused ? "Paused" : "Active"}
-              </span>
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-lg bg-forest-light flex items-center justify-center shrink-0">
+              <Shield size={16} className="text-forest" />
             </div>
-            <p className="text-xs text-ink-secondary max-w-xl">
-              {isPaused
-                ? "Agent is paused. All automated drafting, background jobs, and scheduled publishing are halted safely."
-                : "Agent is actively running according to your strategy and operating mode."}
-            </p>
+            <div>
+              <div className="flex items-center gap-2 mb-0.5">
+                <h2 className="text-sm font-semibold text-ink">Master Agent Switch</h2>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${isPaused
+                    ? "bg-warning-light text-warning border-warning/20"
+                    : "bg-success-light text-success border-success/20"
+                  }`}>
+                  {isPaused ? "Paused" : "Active"}
+                </span>
+              </div>
+              <p className="text-sm text-ink-secondary max-w-lg">
+                {isPaused
+                  ? "Agent is paused. All automated drafting, background jobs, and scheduled publishing are halted safely."
+                  : "Agent is running according to your strategy and operating mode."}
+              </p>
+            </div>
           </div>
 
           <button
             onClick={handleTogglePause}
             disabled={loading}
-            className={`text-xs px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors ${isPaused
-              ? "bg-forest text-white hover:bg-forest/90"
-              : "bg-danger/10 text-danger hover:bg-danger/20 border border-danger/30"
+            className={`shrink-0 flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isPaused
+                ? "bg-forest text-white hover:bg-forest-hover"
+                : "bg-error-light text-error hover:bg-error hover:text-white border border-error/20"
               }`}
           >
             {isPaused ? (
-              <>
-                <PlayCircle size={15} /> Resume Agent
-              </>
+              <><PlayCircle size={15} /> Resume Agent</>
             ) : (
-              <>
-                <PauseCircle size={15} /> Pause Agent
-              </>
+              <><PauseCircle size={15} /> Pause Agent</>
             )}
           </button>
         </div>
       </div>
 
       {/* ─── 2. Operating Mode ─── */}
-      <div className="card p-6 border border-border space-y-4">
+      <div className="card p-5 space-y-4">
         <div>
-          <h2 className="text-base font-semibold text-ink">Operating Mode</h2>
-          <p className="text-xs text-ink-secondary mt-0.5">
-            Choose whether the agent requires manual confirmation before publishing or acts autonomously.
+          <h2 className="text-sm font-semibold text-ink">Operating Mode</h2>
+          <p className="text-sm text-ink-secondary mt-1">
+            Choose whether the agent requires manual confirmation before publishing, or acts autonomously within safety bounds.
           </p>
         </div>
 
         <div className="grid gap-3">
           {/* Approval Required */}
-          <div
+          <button
+            type="button"
             onClick={() => handleSelectMode("approval_required")}
-            className={`p-4 rounded-xl border cursor-pointer transition-colors ${workspace.operating_mode === "approval_required"
-              ? "border-forest bg-forest-light/40"
-              : "border-border hover:bg-surface-raised"
+            className={`w-full text-left p-4 rounded-xl border transition-colors ${workspace.operating_mode === "approval_required"
+                ? "border-forest bg-forest-light/40"
+                : "border-border hover:bg-surface"
               }`}
+            aria-pressed={workspace.operating_mode === "approval_required"}
           >
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-ink text-sm">
-                    Approval Required (Recommended)
-                  </span>
-                  {workspace.operating_mode === "approval_required" && (
-                    <span className="badge-active text-[10px]">Active</span>
-                  )}
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-forest-light flex items-center justify-center shrink-0 mt-0.5">
+                  <UserCheck size={15} className="text-forest" />
                 </div>
-                <p className="text-xs text-ink-secondary mt-1">
-                  Every generated post enters Needs Review and requires your explicit approval before it can be scheduled or published. Full human-in-the-loop control.
-                </p>
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-semibold text-ink">Approval Required</span>
+                    <span className="text-xs text-ink-muted font-medium">(Recommended)</span>
+                    {workspace.operating_mode === "approval_required" && (
+                      <span className="badge-active">Active</span>
+                    )}
+                  </div>
+                  <p className="text-sm text-ink-secondary">
+                    Every generated post enters Needs Review and requires your explicit approval before it can be scheduled or published. Full human-in-the-loop control.
+                  </p>
+                </div>
               </div>
-              <input
-                type="radio"
-                name="operating_mode"
-                checked={workspace.operating_mode === "approval_required"}
-                onChange={() => handleSelectMode("approval_required")}
-                className="mt-1"
-              />
+              <div className={`w-4 h-4 rounded-full border-2 shrink-0 mt-1 ${workspace.operating_mode === "approval_required"
+                  ? "border-forest bg-forest"
+                  : "border-border"
+                }`} aria-hidden="true" />
             </div>
-          </div>
+          </button>
 
           {/* Autopilot */}
-          <div
+          <button
+            type="button"
             onClick={() => handleSelectMode("autopilot")}
-            className={`p-4 rounded-xl border transition-colors ${!isAutopilotEligible
-              ? "opacity-60 cursor-not-allowed border-border bg-surface/30"
-              : workspace.operating_mode === "autopilot"
-                ? "border-forest bg-forest-light/40 cursor-pointer"
-                : "border-border hover:bg-surface-raised cursor-pointer"
+            disabled={!isAutopilotEligible}
+            className={`w-full text-left p-4 rounded-xl border transition-colors ${!isAutopilotEligible
+                ? "opacity-60 cursor-not-allowed border-border bg-surface/30"
+                : workspace.operating_mode === "autopilot"
+                  ? "border-forest bg-forest-light/40"
+                  : "border-border hover:bg-surface cursor-pointer"
               }`}
+            aria-pressed={workspace.operating_mode === "autopilot"}
           >
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-ink text-sm">
-                    Bounded Autopilot
-                  </span>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-forest-light flex items-center justify-center shrink-0 mt-0.5">
+                  <Zap size={15} className="text-forest" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <span className="text-sm font-semibold text-ink">Bounded Autopilot</span>
+                    {!isAutopilotEligible && (
+                      <span className="badge-draft-only flex items-center gap-1">
+                        <Lock size={10} /> Trial or Beta required
+                      </span>
+                    )}
+                    {workspace.operating_mode === "autopilot" && (
+                      <span className="badge-active">Active</span>
+                    )}
+                  </div>
+                  <p className="text-sm text-ink-secondary">
+                    Automatically drafts and queues posts matching your content strategy and cadence. Constrained by strict daily/weekly safety caps server-side.
+                  </p>
                   {!isAutopilotEligible && (
-                    <span className="badge-draft-only text-[10px] flex items-center gap-1">
-                      <Lock size={10} /> Subscription or Beta Required
-                    </span>
-                  )}
-                  {workspace.operating_mode === "autopilot" && (
-                    <span className="badge-active text-[10px]">Active</span>
+                    <p className="text-xs text-warning mt-2 font-medium">
+                      Start your 14-day free trial ($29/mo) or contact your administrator for private beta access.{" "}
+                      <Link href="/app/billing" className="underline underline-offset-2">View billing →</Link>
+                    </p>
                   )}
                 </div>
-                <p className="text-xs text-ink-secondary mt-1">
-                  Automatically drafts and queues posts matching your content strategy and target cadence. Constrained by strict daily/weekly safety caps.
-                </p>
-                {!isAutopilotEligible && (
-                  <p className="text-[11px] text-amber-600 mt-2 font-medium">
-                    Start your 14-day free trial ($29/mo) or contact your administrator for private beta access to enable Autopilot.
-                  </p>
-                )}
               </div>
-              <input
-                type="radio"
-                name="operating_mode"
-                disabled={!isAutopilotEligible}
-                checked={workspace.operating_mode === "autopilot"}
-                onChange={() => handleSelectMode("autopilot")}
-                className="mt-1"
-              />
+              <div className={`w-4 h-4 rounded-full border-2 shrink-0 mt-1 ${workspace.operating_mode === "autopilot"
+                  ? "border-forest bg-forest"
+                  : "border-border"
+                }`} aria-hidden="true" />
             </div>
-          </div>
+          </button>
         </div>
       </div>
 
-      {/* ─── 3. Hard Safety Caps & Policies ─── */}
-      <div className="card p-6 border border-border">
-        <h2 className="text-base font-semibold text-ink mb-1">Safety Guardrails &amp; Product Caps</h2>
-        <p className="text-xs text-ink-secondary mb-4">
+      {/* ─── 3. Safety caps ─── */}
+      <div className="card p-5">
+        <h2 className="text-sm font-semibold text-ink mb-1">Safety Guardrails</h2>
+        <p className="text-sm text-ink-secondary mb-4">
           Strict rate limits enforced server-side to protect your personal LinkedIn reputation.
         </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-          <div className="p-3.5 rounded-lg bg-surface border border-border">
-            <span className="text-ink-secondary block mb-1">Daily Publishing Cap</span>
-            <span className="font-bold text-ink text-base">1 post / day</span>
-            <p className="text-[11px] text-ink-secondary mt-1">
-              Max 1 post published per personal LinkedIn profile per calendar day.
-            </p>
-          </div>
-
-          <div className="p-3.5 rounded-lg bg-surface border border-border">
-            <span className="text-ink-secondary block mb-1">Weekly Rolling Cap</span>
-            <span className="font-bold text-ink text-base">7 posts / week</span>
-            <p className="text-[11px] text-ink-secondary mt-1">
-              Max 7 posts across any rolling 7-day window.
-            </p>
-          </div>
-
-          <div className="p-3.5 rounded-lg bg-surface border border-border">
-            <span className="text-ink-secondary block mb-1">Fail-Closed Safety</span>
-            <span className="font-bold text-ink text-base">Automatic Halt</span>
-            <p className="text-[11px] text-ink-secondary mt-1">
-              Publishing stops immediately if OAuth tokens expire or API errors occur.
-            </p>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {[
+            {
+              label: "Daily Publishing Cap",
+              value: "1 post / day",
+              desc: "Max 1 post published per personal LinkedIn profile per calendar day.",
+            },
+            {
+              label: "Weekly Rolling Cap",
+              value: "7 posts / week",
+              desc: "Max 7 posts across any rolling 7-day window.",
+            },
+            {
+              label: "Fail-Closed Safety",
+              value: "Auto halt",
+              desc: "Publishing stops immediately if OAuth tokens expire or API errors occur.",
+            },
+          ].map(({ label, value, desc }) => (
+            <div key={label} className="p-4 rounded-xl bg-surface border border-border">
+              <p className="text-xs font-semibold text-ink-muted uppercase tracking-wider mb-2">{label}</p>
+              <p className="text-base font-bold text-ink">{value}</p>
+              <p className="text-xs text-ink-secondary mt-1">{desc}</p>
+            </div>
+          ))}
         </div>
       </div>
 
       {/* ─── Autopilot Confirmation Modal ─── */}
       {showAutopilotConfirm && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          className="fixed inset-0 z-50 bg-ink/30 backdrop-blur-sm flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="autopilot-confirm-title"
+        >
           <div className="card max-w-md w-full p-6 shadow-xl animate-fade-in space-y-4">
-            <div className="flex items-center gap-2 text-forest">
-              <Sparkles size={20} />
-              <h3 className="font-bold text-ink text-base">Enable Bounded Autopilot</h3>
+            <div>
+              <h3 id="autopilot-confirm-title" className="text-base font-bold text-ink">
+                Enable Bounded Autopilot
+              </h3>
+              <p className="text-sm text-ink-secondary mt-2 leading-relaxed">
+                When Autopilot is enabled, Nunuza will draft and schedule posts according to your configured content pillars and cadence without waiting for per-post manual approval.
+              </p>
             </div>
 
-            <p className="text-xs text-ink-secondary leading-relaxed">
-              When Autopilot is enabled, Nunuza will draft and schedule posts according to your configured content pillars and cadence without waiting for manual per-post approval.
-            </p>
-
-            <div className="p-3 bg-surface rounded-lg text-xs text-ink space-y-1 border border-border">
-              <p className="font-semibold text-ink">Enforced Safety Controls:</p>
-              <p>• Max 1 post per day, 7 posts per rolling week</p>
-              <p>• Posts respect your configured writing voice and tone</p>
-              <p>• You can pause the agent or switch back at any time</p>
+            <div className="p-4 bg-surface rounded-xl border border-border space-y-1.5">
+              <p className="text-xs font-semibold text-ink mb-2">Enforced safety controls:</p>
+              {[
+                "Max 1 post per day, 7 posts per rolling week",
+                "Posts respect your configured voice and tone",
+                "Pause the agent or switch modes at any time",
+              ].map((item) => (
+                <div key={item} className="flex items-start gap-2 text-sm text-ink-secondary">
+                  <CheckCircle2 size={13} className="text-success shrink-0 mt-0.5" />
+                  <span>{item}</span>
+                </div>
+              ))}
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 pt-2">
+            <div className="flex items-center justify-end gap-2.5 pt-1">
               <button
                 type="button"
                 onClick={() => setShowAutopilotConfirm(false)}
-                className="btn-ghost text-xs"
+                className="btn-ghost"
               >
                 Cancel
               </button>
@@ -318,9 +335,9 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
                 type="button"
                 disabled={loading}
                 onClick={() => updateMode("autopilot")}
-                className="btn-primary text-xs"
+                className="btn-primary"
               >
-                {loading ? "Enabling..." : "Confirm & Enable Autopilot"}
+                {loading ? "Enabling…" : "Confirm & Enable Autopilot"}
               </button>
             </div>
           </div>
@@ -329,4 +346,3 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
     </div>
   );
 }
-

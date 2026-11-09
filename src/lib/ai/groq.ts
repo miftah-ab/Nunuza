@@ -177,8 +177,11 @@ export class GroqProvider implements AiProvider {
         throw new Error("Groq API returned empty completion.");
       }
 
-      // Enforce character limit
-      const safeText = content.slice(0, 3000);
+      // Enforce character limit and strip em dashes (— U+2014, – U+2013)
+      const safeText = content
+        .replace(/\u2014/g, ",")   // em dash → comma
+        .replace(/\u2013/g, "-")   // en dash → hyphen
+        .slice(0, 3000);
 
       return {
         text: safeText,

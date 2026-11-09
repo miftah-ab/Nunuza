@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { BillingDetails } from "@/lib/integrations/polar/types";
-import { CheckCircle2, AlertCircle, Shield, CreditCard, Sparkles } from "lucide-react";
+import { CheckCircle2, AlertCircle, Shield, CreditCard, Sparkles, ExternalLink } from "lucide-react";
 
 interface BillingClientProps {
   details: BillingDetails;
@@ -33,62 +33,63 @@ export function BillingClient({ details }: BillingClientProps) {
     }
   };
 
-  const getBadge = () => {
+  const getStatusBanner = () => {
     switch (details.entitlement) {
       case "internal_beta":
       case "publishing_beta":
       case "internal_test":
         return {
-          title: "Private Beta — Full Access",
-          variant: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
+          label: "Private Beta — Full Access",
+          className: "notice-info",
+          textClass: "text-forest",
           desc: "This workspace is authorized for private beta testing with full v1.0.0 features. No subscription or payment card required.",
-        };
-      case "draft_only":
-        return {
-          title: "Commercial Workspace — Trial Not Started",
-          variant: "bg-surface text-ink-secondary border-border",
-          desc: "Start your 14-day free trial (credit card required) to activate full LinkedIn publishing, scheduling, and Autopilot.",
         };
       case "paid_trial":
         return {
-          title: "14-Day Trial Active",
-          variant: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
+          label: "14-Day Trial Active",
+          className: "notice-info",
+          textClass: "text-forest",
           desc: `Your trial is active. Renews at $29/mo${details.subscription?.trialEnd ? ` on ${new Date(details.subscription.trialEnd).toLocaleDateString()}` : ""}.`,
         };
       case "paid_active":
         return {
-          title: "Nunuza Solo — Active ($29/mo)",
-          variant: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
+          label: "Nunuza Solo — Active ($29/mo)",
+          className: "notice-info",
+          textClass: "text-forest",
           desc: `Subscribed. Next billing date: ${details.subscription?.currentPeriodEnd ? new Date(details.subscription.currentPeriodEnd).toLocaleDateString() : "Next month"}.`,
         };
       case "suspended":
         return {
-          title: "Subscription Suspended",
-          variant: "bg-rose-500/10 text-rose-600 border-rose-500/20",
-          desc: "Your subscription is suspended. Update your payment method to restore publishing and automation.",
+          label: "Subscription Suspended",
+          className: "notice-error",
+          textClass: "text-error",
+          desc: "Your subscription is suspended. Update your payment method via Polar to restore publishing and automation.",
         };
       case "expired":
         return {
-          title: "Trial Expired",
-          variant: "bg-rose-500/10 text-rose-600 border-rose-500/20",
+          label: "Trial Expired",
+          className: "notice-error",
+          textClass: "text-error",
           desc: "Your 14-day free trial has expired. Subscribe to Nunuza Solo ($29/mo) to reactivate publishing and automation.",
         };
       case "inactive":
         return {
-          title: "Subscription Inactive",
-          variant: "bg-rose-500/10 text-rose-600 border-rose-500/20",
+          label: "Subscription Inactive",
+          className: "notice-error",
+          textClass: "text-error",
           desc: "Your subscription has ended. Content export and viewing remain available.",
         };
       default:
         return {
-          title: details.entitlement,
-          variant: "bg-surface text-ink",
-          desc: "",
+          label: "Start Your Trial",
+          className: "notice-warning",
+          textClass: "text-warning",
+          desc: "Start your 14-day free trial (credit card required) to activate full LinkedIn publishing, scheduling, and Autopilot.",
         };
     }
   };
 
-  const badge = getBadge();
+  const statusBanner = getStatusBanner();
   const isPrivateBeta =
     details.accessMode === "private_beta" ||
     details.entitlement === "internal_beta" ||
@@ -97,111 +98,108 @@ export function BillingClient({ details }: BillingClientProps) {
   const isPaid = details.entitlement === "paid_trial" || details.entitlement === "paid_active";
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      {/* Current Status Card */}
-      <div className="card p-6 border bg-surface-raised shadow-xs rounded-xl">
-        <div className="flex items-start justify-between">
-          <div>
-            <span
-              className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${badge.variant}`}
-            >
-              {badge.title}
-            </span>
-            <p className="mt-3 text-sm text-ink-secondary">{badge.desc}</p>
-          </div>
-          {isPaid && (
-            <div className="text-right">
-              <span className="text-xs text-ink-muted block">Billed via</span>
-              <span className="text-sm font-semibold text-ink">Polar Merchant of Record</span>
-            </div>
+    <div className="space-y-5 max-w-3xl">
+      {/* Status banner */}
+      <div className={statusBanner.className}>
+        <div className="flex items-start gap-3">
+          {isPrivateBeta ? (
+            <Sparkles size={16} className="shrink-0 mt-0.5 text-forest" />
+          ) : isPaid ? (
+            <CheckCircle2 size={16} className="shrink-0 mt-0.5 text-forest" />
+          ) : (
+            <AlertCircle size={16} className={`shrink-0 mt-0.5 ${statusBanner.textClass}`} />
           )}
+          <div>
+            <p className={`text-sm font-semibold ${statusBanner.textClass}`}>{statusBanner.label}</p>
+            <p className="text-sm text-ink-secondary mt-0.5">{statusBanner.desc}</p>
+          </div>
         </div>
       </div>
 
-      {/* Plan Card */}
-      <div className="card p-6 border rounded-xl bg-surface space-y-6">
-        <div className="flex items-baseline justify-between border-b pb-4">
+      {/* Plan card */}
+      <div className="card p-6 space-y-6">
+        <div className="flex items-baseline justify-between pb-5 border-b border-border">
           <div>
-            <h2 className="text-xl font-bold text-ink">Nunuza Solo</h2>
+            <h2 className="text-lg font-bold text-ink">Nunuza Solo</h2>
             <p className="text-sm text-ink-secondary mt-1">
-              Full autonomous LinkedIn content operations agent for solo founders.
+              Full autonomous LinkedIn content operations for solo founders.
             </p>
           </div>
-          <div className="text-right">
-            <span className="text-3xl font-extrabold text-ink">$29</span>
-            <span className="text-sm text-ink-muted"> / month</span>
+          <div className="text-right shrink-0 ml-6">
+            <span className="text-3xl font-extrabold text-ink leading-none">$29</span>
+            <span className="text-sm text-ink-muted block mt-1">/ month</span>
           </div>
         </div>
 
-        {/* Feature List */}
-        <div className="grid sm:grid-cols-2 gap-3 text-sm">
-          <div className="flex items-center gap-2 text-ink">
-            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-            <span>AI Draft Generation (Groq LLM)</span>
-          </div>
-          <div className="flex items-center gap-2 text-ink">
-            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-            <span>Strategic Monthly Content Plans</span>
-          </div>
-          <div className="flex items-center gap-2 text-ink">
-            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-            <span>LinkedIn Scheduling & Publishing</span>
-          </div>
-          <div className="flex items-center gap-2 text-ink">
-            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-            <span>Telegram Bot Control</span>
-          </div>
-          <div className="flex items-center gap-2 text-ink">
-            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-            <span>Remote MCP Server Integration</span>
-          </div>
-          <div className="flex items-center gap-2 text-ink">
-            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-            <span>Autopilot Mode (Bounded Safety)</span>
-          </div>
+        {/* Feature list */}
+        <div className="grid sm:grid-cols-2 gap-2.5">
+          {[
+            "AI Draft Generation",
+            "Strategic Monthly Content Plans",
+            "LinkedIn Scheduling & Publishing",
+            "Telegram Bot Control",
+            "Remote MCP Server Integration",
+            "Bounded Autopilot (Hard Safety Caps)",
+          ].map((item) => (
+            <div key={item} className="flex items-center gap-2 text-sm text-ink">
+              <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+              <span>{item}</span>
+            </div>
+          ))}
         </div>
 
-        {/* Legal Disclosures before Checkout */}
-        <div className="p-4 rounded-lg bg-surface-raised border text-xs text-ink-secondary space-y-2">
-          <div className="flex items-center gap-1.5 font-semibold text-ink">
-            <Shield className="w-4 h-4 text-brand" />
-            <span>Trial &amp; Renewal Disclosures</span>
+        {/* Legal disclosures */}
+        <div className="p-4 rounded-lg bg-surface border border-border">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Shield className="w-4 h-4 text-forest" />
+            <span className="text-sm font-semibold text-ink">Trial &amp; Renewal Disclosures</span>
           </div>
-          <ul className="list-disc pl-4 space-y-1">
-            <li>14-day free trial requires a valid credit/debit card at checkout.</li>
-            <li>Converts to $29.00 USD/month automatically after 14 days unless canceled.</li>
-            <li>Cancel anytime before the trial ends in this dashboard without being charged.</li>
-            <li>Payments processed securely by Polar as Merchant of Record.</li>
+          <ul className="space-y-1 text-xs text-ink-secondary">
+            <li>• 14-day free trial requires a valid credit/debit card at checkout.</li>
+            <li>• Converts to $29.00 USD/month automatically after 14 days unless canceled.</li>
+            <li>• Cancel anytime before the trial ends in this dashboard without being charged.</li>
+            <li>• Payments processed securely by Polar as Merchant of Record.</li>
           </ul>
         </div>
 
-        {/* Action Button & Error State */}
+        {/* Error state */}
         {error && (
-          <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-600 text-xs flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{error}</span>
+          <div className="notice-error flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-error" />
+            <span className="text-sm text-error">{error}</span>
           </div>
         )}
 
+        {/* CTA */}
         {isPrivateBeta ? (
-          <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-400 space-y-1">
-            <div className="flex items-center gap-1.5 font-semibold text-emerald-700 dark:text-emerald-300">
-              <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              <span>Private Beta Access Active</span>
+          <div className="notice-info flex items-start gap-2.5">
+            <Sparkles className="w-4 h-4 shrink-0 mt-0.5 text-forest" />
+            <div>
+              <p className="text-sm font-semibold text-forest">Private Beta Access Active</p>
+              <p className="text-sm text-ink-secondary mt-0.5">
+                Your workspace is enrolled in the private beta with full v1.0.0 capabilities. No payment card or checkout required.
+              </p>
             </div>
-            <p>
-              Your workspace is enrolled in the private beta with full v1.0.0 capabilities. You do not need a payment card or checkout.
-            </p>
           </div>
-        ) : !isPaid ? (
+        ) : isPaid ? (
+          <div className="flex items-center justify-between p-4 bg-surface rounded-lg border border-border">
+            <div>
+              <p className="text-sm font-medium text-ink">Manage subscription</p>
+              <p className="text-xs text-ink-secondary mt-0.5">Billing managed by Polar — Merchant of Record.</p>
+            </div>
+            <span className="text-xs text-ink-muted flex items-center gap-1">
+              Polar <ExternalLink size={12} />
+            </span>
+          </div>
+        ) : (
           <div>
             <button
               onClick={handleStartTrial}
               disabled={loading}
-              className="btn btn-primary w-full py-2.5 flex items-center justify-center gap-2 text-sm font-semibold"
+              className="btn-primary w-full py-3 justify-center text-sm font-semibold"
             >
               {loading ? (
-                "Processing..."
+                "Processing…"
               ) : (
                 <>
                   <CreditCard className="w-4 h-4" />
@@ -211,11 +209,11 @@ export function BillingClient({ details }: BillingClientProps) {
             </button>
             {!details.isSellerEligible && (
               <p className="mt-2 text-xs text-center text-ink-muted">
-                Note: Live checkout is currently in test mode pending seller onboarding (BED-08).
+                Note: Live checkout is currently in test mode pending seller onboarding.
               </p>
             )}
           </div>
-        ) : null}
+        )}
       </div>
     </div>
   );

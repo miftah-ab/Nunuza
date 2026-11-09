@@ -65,51 +65,39 @@ export default async function CalendarPage() {
 
       {/* Private Beta Notice */}
       {(workspace.entitlement_type === "internal_beta" || workspace.entitlement_type === "publishing_beta") && (
-        <div className="card border-forest-muted bg-forest-light/40 p-4 mb-6">
-          <div className="flex items-start gap-3">
-            <Clock size={16} className="text-forest mt-0.5" />
-            <div>
-              <p className="text-xs font-semibold text-ink">
-                Private Beta — Publishing &amp; Scheduling Active
-              </p>
-              <p className="text-xs text-ink-secondary mt-0.5">
-                Scheduled drafts are queued for automated publication to your connected LinkedIn profile. Rate limits enforced: max 1 post per calendar day, 7 posts per rolling 7 days.
-              </p>
-            </div>
+        <div className="notice-info mb-6">
+          <Clock size={15} className="shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold">Private Beta — Publishing &amp; Scheduling Active</p>
+            <p className="mt-0.5">
+              Scheduled drafts are queued for automated publication to your connected LinkedIn profile. Rate limits enforced: max 1 post per calendar day, 7 posts per rolling 7 days.
+            </p>
           </div>
         </div>
       )}
 
       {/* Subscription Notice */}
       {(workspace.entitlement_type === "paid_trial" || workspace.entitlement_type === "paid_active") && (
-        <div className="card border-forest-muted bg-forest-light/40 p-4 mb-6">
-          <div className="flex items-start gap-3">
-            <Clock size={16} className="text-forest mt-0.5" />
-            <div>
-              <p className="text-xs font-semibold text-ink">
-                Automated Scheduling Active
-              </p>
-              <p className="text-xs text-ink-secondary mt-0.5">
-                Scheduled posts publish automatically to your connected LinkedIn profile at the appointed time.
-              </p>
-            </div>
+        <div className="notice-info mb-6">
+          <Clock size={15} className="shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold">Automated Scheduling Active</p>
+            <p className="mt-0.5">
+              Scheduled posts publish automatically to your connected LinkedIn profile at the appointed time.
+            </p>
           </div>
         </div>
       )}
 
       {/* Commercial Trial Required Notice */}
       {(workspace.entitlement_type === "draft_only" || workspace.entitlement_type === "suspended" || workspace.entitlement_type === "expired") && (
-        <div className="card border-amber-200 bg-amber-50/50 p-4 mb-6">
-          <div className="flex items-start gap-3">
-            <Lock size={16} className="text-amber-700 mt-0.5" />
-            <div>
-              <p className="text-xs font-semibold text-ink">
-                Automated Publishing Gated
-              </p>
-              <p className="text-xs text-ink-secondary mt-0.5">
-                Start your 14-day free trial ($29/mo) or request private beta access to enable automatic background publishing.
-              </p>
-            </div>
+        <div className="notice-warning mb-6">
+          <Lock size={15} className="shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold">Automated Publishing Gated</p>
+            <p className="mt-0.5">
+              Start your 14-day free trial (\$29/mo) or request private beta access to enable automatic background publishing.
+            </p>
           </div>
         </div>
       )}

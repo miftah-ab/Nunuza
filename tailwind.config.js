@@ -19,10 +19,16 @@ module.exports = {
         },
         // Surfaces
         offwhite: "#F8F8F5",
+        surface: {
+          DEFAULT: "#F8F8F5",
+          raised:  "#F3F4F1",
+          alt:     "#EFEFE9",
+        },
         // Text
         ink: {
           DEFAULT:   "#202522",
           secondary: "#68716C",
+          muted:     "#9CA39A",
         },
         // Borders & dividers
         border: "#E4E8E3",
@@ -30,6 +36,10 @@ module.exports = {
         success: { DEFAULT: "#287A50", light: "#EAF5EF" },
         warning: { DEFAULT: "#A86412", light: "#FDF3E3" },
         error:   { DEFAULT: "#B93838", light: "#FDEAEA" },
+        // Danger alias (same as error, some components use this)
+        danger:  { DEFAULT: "#B93838", light: "#FDEAEA" },
+        // Brand alias
+        brand:   "#174C3C",
       },
 
       // ─── Typography ─────────────────────────────────────────────────────────
@@ -82,6 +92,7 @@ module.exports = {
       animation: {
         "fade-in":  "fade-in 0.25s ease-out",
         "slide-in": "slide-in 0.2s ease-out",
+        "slide-up": "slide-up 0.22s ease-out",
       },
     },
   },

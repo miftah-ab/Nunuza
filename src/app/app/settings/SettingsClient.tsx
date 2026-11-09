@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Workspace, Profile } from "@/types/database";
-import { CheckCircle2, AlertCircle, Download, Trash2, Save } from "lucide-react";
+import { CheckCircle2, AlertCircle, Download, Trash2, Save, User, Database } from "lucide-react";
 
 interface SettingsClientProps {
   userEmail: string;
@@ -44,7 +44,7 @@ export function SettingsClient({
       if (!res.ok) throw new Error(json.error || "Failed to update settings");
 
       setWorkspace(json.data.workspace);
-      setSuccess("Settings updated successfully.");
+      setSuccess("Settings saved successfully.");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Error saving settings");
     } finally {
@@ -87,126 +87,145 @@ export function SettingsClient({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {error && (
-        <div className="p-3.5 bg-danger/10 border border-danger/20 rounded-lg text-danger text-xs flex items-center gap-2">
-          <AlertCircle size={16} className="shrink-0" />
-          <span>{error}</span>
+        <div className="notice-error flex items-start gap-2.5">
+          <AlertCircle size={16} className="shrink-0 mt-0.5 text-error" />
+          <span className="text-sm text-error">{error}</span>
         </div>
       )}
 
       {success && (
-        <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400 text-xs flex items-center gap-2">
-          <CheckCircle2 size={16} className="shrink-0 text-emerald-400" />
-          <span>{success}</span>
+        <div className="notice-success flex items-start gap-2.5">
+          <CheckCircle2 size={16} className="shrink-0 mt-0.5 text-success" />
+          <span className="text-sm text-success">{success}</span>
         </div>
       )}
 
       {/* ─── Profile & Workspace Form ─── */}
-      <form onSubmit={handleSave} className="card p-6 border border-border space-y-4">
-        <div>
-          <h2 className="text-base font-semibold text-ink">General Profile</h2>
-          <p className="text-xs text-ink-secondary mt-0.5">
-            Your personal details and workspace identity.
-          </p>
+      <form onSubmit={handleSave} className="card p-6 space-y-5">
+        <div className="flex items-center gap-2 pb-4 border-b border-border">
+          <User size={16} className="text-forest shrink-0" />
+          <div>
+            <h2 className="text-sm font-semibold text-ink">Profile &amp; Workspace</h2>
+            <p className="text-xs text-ink-secondary mt-0.5">
+              Your personal details and workspace identity.
+            </p>
+          </div>
         </div>
 
         <div>
-          <label className="block text-xs font-semibold text-ink mb-1">
+          <label htmlFor="settings-email" className="form-label">
             Sign-in Email
           </label>
           <input
+            id="settings-email"
             type="email"
             disabled
             value={userEmail}
-            className="input-field text-sm opacity-70 cursor-not-allowed bg-surface"
+            className="input-field"
+            aria-describedby="settings-email-hint"
           />
-          <p className="text-[11px] text-ink-secondary mt-1">
-            Linked to your Google OAuth account.
+          <p id="settings-email-hint" className="form-hint">
+            Linked to your Google OAuth account. Contact support to change.
           </p>
         </div>
 
         <div>
-          <label className="block text-xs font-semibold text-ink mb-1">
+          <label htmlFor="settings-display-name" className="form-label">
             Display Name
           </label>
           <input
+            id="settings-display-name"
             type="text"
             required
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
-            className="input-field text-sm"
+            className="input-field"
+            placeholder="Your full name"
           />
         </div>
 
         <div>
-          <label className="block text-xs font-semibold text-ink mb-1">
+          <label htmlFor="settings-workspace-name" className="form-label">
             Workspace Name
           </label>
           <input
+            id="settings-workspace-name"
             type="text"
             required
             value={workspaceName}
             onChange={(e) => setWorkspaceName(e.target.value)}
-            className="input-field text-sm"
+            className="input-field"
+            placeholder="e.g. My LinkedIn Workspace"
           />
         </div>
 
         <div>
-          <label className="block text-xs font-semibold text-ink mb-1">
+          <label htmlFor="settings-timezone" className="form-label">
             Time Zone
           </label>
           <input
+            id="settings-timezone"
             type="text"
             value={timezone}
             onChange={(e) => setTimezone(e.target.value)}
-            className="input-field text-sm font-mono"
+            className="input-field font-mono"
             placeholder="e.g. UTC, America/New_York, Europe/London"
+            aria-describedby="settings-timezone-hint"
           />
+          <p id="settings-timezone-hint" className="form-hint">
+            Used for scheduling and cadence calculations.
+          </p>
         </div>
 
-        <div className="pt-2 flex justify-end">
+        <div className="pt-1 flex justify-end">
           <button
             type="submit"
             disabled={isSaving}
-            className="btn-primary text-xs flex items-center gap-1.5"
+            className="btn-primary"
           >
-            <Save size={14} />
-            {isSaving ? "Saving..." : "Save Settings"}
+            <Save size={15} />
+            {isSaving ? "Saving…" : "Save Changes"}
           </button>
         </div>
       </form>
 
       {/* ─── Data Export ─── */}
-      <div className="card p-6 border border-border">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h2 className="text-base font-semibold text-ink">Data Portability &amp; Export</h2>
-            <p className="text-xs text-ink-secondary mt-0.5">
-              Download a complete archive of your workspace profile, strategy, and content posts in JSON format.
+      <div className="card p-6">
+        <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+          <div className="flex items-center gap-2 shrink-0">
+            <Database size={16} className="text-forest" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-sm font-semibold text-ink">Data Portability &amp; Export</h2>
+            <p className="text-sm text-ink-secondary mt-1">
+              Download a complete archive of your workspace profile, strategy, and content posts in JSON format. Available at any time, including after cancellation.
             </p>
           </div>
           <button
             onClick={handleExportData}
-            className="btn-secondary text-xs flex items-center gap-1.5 self-start whitespace-nowrap"
+            className="btn-secondary shrink-0"
           >
-            <Download size={14} /> Export All Data
+            <Download size={15} />
+            Export All Data
           </button>
         </div>
       </div>
 
       {/* ─── Account Deletion ─── */}
-      <div className="card p-6 border border-danger/20 bg-danger/5">
-        <div>
-          <h2 className="text-base font-semibold text-ink flex items-center gap-2">
-            <Trash2 size={16} className="text-danger" /> Workspace &amp; Account Deletion
-          </h2>
-          <p className="text-xs text-ink-secondary mt-1 max-w-xl">
-            To permanently delete your workspace and all associated content posts, voice profiles, and audit logs, please export your content archive first and email support at <strong className="text-ink">support@nunuza.com</strong> from your registered email. Deletion requests are processed within 48 hours.
-          </p>
+      <div className="card p-6 border-error/20 bg-error-light/20">
+        <div className="flex items-start gap-3">
+          <Trash2 size={16} className="text-error shrink-0 mt-0.5" />
+          <div>
+            <h2 className="text-sm font-semibold text-ink">Workspace &amp; Account Deletion</h2>
+            <p className="text-sm text-ink-secondary mt-1 max-w-xl">
+              To permanently delete your workspace and all associated content posts, voice profiles, and audit logs, export your content archive first and email{" "}
+              <strong className="text-ink">support@nunuza.com</strong> from your registered email. Deletion requests are processed within 48 hours.
+            </p>
+          </div>
         </div>
       </div>
     </div>
   );
 }
-

@@ -8,9 +8,11 @@ import {
   ArrowRight,
   CheckCircle2,
   Lock,
-  Info,
   ChevronDown,
   Sparkles,
+  BarChart2,
+  Clock,
+  Linkedin,
 } from "lucide-react";
 
 export const metadata: Metadata = {
@@ -46,42 +48,48 @@ const workflowSteps = [
   {
     icon: Download,
     step: "04",
-    title: "Export or copy your drafts",
+    title: "Export or schedule publication",
     description:
-      "Copy to clipboard or export your drafts in a portable format. Your content is yours regardless of subscription status.",
+      "Copy to clipboard, export drafts in a portable format, or schedule automated LinkedIn publishing with hard safety caps enforced server-side.",
   },
 ];
 
 const featureCards = [
   {
+    icon: BarChart2,
     title: "Persistent strategy",
     description:
       "Your audience, goals, content pillars, and voice preferences are stored and applied to every generation — not re-entered every session.",
   },
   {
+    icon: Mic2,
     title: "Structured voice profile",
     description:
       "Set tone, sentence length, formality, phrases to use or avoid, and optional writing samples. The agent follows your defined style, not a generic AI voice.",
   },
   {
+    icon: ClipboardCheck,
     title: "Approval-required workflow",
     description:
-      "Every draft requires your explicit review and approval. Nothing publishes automatically in this preview. You are the final decision-maker.",
+      "Every draft requires your explicit review and approval. Nothing publishes automatically until you say so. You are the final decision-maker.",
   },
   {
+    icon: FileText,
     title: "Version history",
     description:
       "Every edit and revision is preserved. You can see how a draft evolved and what changed at each step.",
   },
   {
+    icon: Download,
     title: "Export in portable format",
     description:
       "Your drafts and content versions can be exported regardless of trial or subscription status, including after cancellation.",
   },
   {
-    title: "Honest content limits",
+    icon: Clock,
+    title: "Bounded Autopilot",
     description:
-      "Up to 30 new draft items per calendar month. No hidden overage charges. Usage and reset date are visible before you reach the limit.",
+      "Up to 1 post per day, 7 posts per rolling week. Hard rate caps enforced server-side protect your LinkedIn profile reputation.",
   },
 ];
 
@@ -117,28 +125,29 @@ const faqItems = [
 export default function HomePage() {
   return (
     <>
-      {/* ── 1 & 2. Hero ──────────────────────────────────────────────────── */}
+      {/* ── Hero ─────────────────────────────────────────────────────── */}
       <section
         id="hero"
         aria-labelledby="hero-headline"
         className="bg-offwhite border-b border-border"
       >
-        <div className="container-page py-20 md:py-28 text-center">
+        <div className="container-page py-20 md:py-32 text-center">
           {/* Stage label */}
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-forest-light border border-forest-muted text-forest text-xs font-semibold mb-6">
-            <span className="w-1.5 h-1.5 rounded-full bg-forest inline-block" aria-hidden="true" />
-            14-Day Free Trial · Card Required · Private Beta
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-border text-ink-secondary text-xs font-medium mb-8">
+            <span className="w-1.5 h-1.5 rounded-full bg-success inline-block" aria-hidden="true" />
+            Now in private beta · 14-day free trial for commercial access
           </div>
 
           <h1
             id="hero-headline"
-            className="text-4xl md:text-5xl font-bold text-ink leading-tight tracking-tight max-w-3xl mx-auto"
+            className="text-4xl md:text-5xl lg:text-6xl font-bold text-ink leading-[1.1] tracking-tight max-w-4xl mx-auto"
           >
-            Your LinkedIn strategy, voice, drafts, and publishing in one workflow.
+            LinkedIn content operations,{" "}
+            <span className="text-forest">built for founders.</span>
           </h1>
 
           <p className="mt-6 text-lg text-ink-secondary max-w-2xl mx-auto leading-relaxed">
-            Plan, generate, schedule, and publish high-impact LinkedIn content. Full v1.0.0 capabilities available through our 14-day commercial trial or private partner beta.
+            Define your strategy once. Generate, review, and publish LinkedIn posts on a consistent cadence — without losing your voice or your time.
           </p>
 
           {/* CTAs */}
@@ -146,7 +155,7 @@ export default function HomePage() {
             <Link
               href="/login"
               id="hero-primary-cta"
-              className="btn-primary text-base px-6 py-3"
+              className="btn-primary text-base px-7 py-3"
             >
               Start 14-Day Free Trial
               <ArrowRight size={18} aria-hidden="true" />
@@ -154,19 +163,34 @@ export default function HomePage() {
             <a
               href="#how-it-works"
               id="hero-secondary-cta"
-              className="btn-secondary text-base px-6 py-3"
+              className="btn-secondary text-base px-7 py-3"
             >
               See how it works
             </a>
           </div>
 
-          <p className="mt-6 text-xs text-ink-secondary">
-            14 days free · $29/month after · Cancel anytime
+          <p className="mt-5 text-sm text-ink-muted">
+            14 days free · \$29/month after · Cancel anytime
           </p>
+
+          {/* Trust signals */}
+          <div className="mt-14 flex flex-wrap items-center justify-center gap-6 text-sm text-ink-secondary">
+            {[
+              "Approval-required by default",
+              "Max 1 post/day hard cap",
+              "Full data export",
+              "Cancel anytime",
+            ].map((item) => (
+              <span key={item} className="flex items-center gap-1.5">
+                <CheckCircle2 size={14} className="text-success shrink-0" aria-hidden="true" />
+                {item}
+              </span>
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* ── 4 & 5. Workflow section ──────────────────────────────────────── */}
+      {/* ── Workflow steps ──────────────────────────────────────────── */}
       <section
         id="how-it-works"
         aria-labelledby="workflow-heading"
@@ -179,25 +203,24 @@ export default function HomePage() {
               id="workflow-heading"
               className="text-3xl md:text-4xl font-bold text-ink tracking-tight"
             >
-              From strategy to LinkedIn publication.
+              From strategy to published post.
             </h2>
             <p className="mt-4 text-ink-secondary max-w-xl mx-auto">
-              A seamless workflow that keeps your voice, strategy, and publication schedule
-              connected — without the manual coordination.
+              A connected workflow that keeps your voice, strategy, and publishing schedule in sync — without manual coordination.
             </p>
           </div>
 
-          <ol className="grid md:grid-cols-2 gap-6 list-none">
+          <ol className="grid md:grid-cols-2 gap-5 list-none">
             {workflowSteps.map(({ icon: Icon, step, title, description }) => (
               <li key={step} className="card p-6 flex gap-4">
                 <div
-                  className="flex-shrink-0 w-10 h-10 rounded-lg bg-forest-light flex items-center justify-center"
+                  className="flex-shrink-0 w-9 h-9 rounded-lg bg-forest-light flex items-center justify-center"
                   aria-hidden="true"
                 >
-                  <Icon size={20} className="text-forest" />
+                  <Icon size={18} className="text-forest" />
                 </div>
                 <div>
-                  <p className="text-xs font-semibold text-ink-secondary mb-1">
+                  <p className="text-xs font-semibold text-ink-muted mb-1 uppercase tracking-wider">
                     Step {step}
                   </p>
                   <h3 className="text-base font-semibold text-ink mb-2">
@@ -213,7 +236,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ── 6. Feature sections ──────────────────────────────────────────── */}
+      {/* ── Features ──────────────────────────────────────────────── */}
       <section
         id="features"
         aria-labelledby="features-heading"
@@ -221,27 +244,25 @@ export default function HomePage() {
       >
         <div className="container-page">
           <div className="text-center mb-14">
-            <p className="section-label mb-3">Complete v1.0.0 Features</p>
+            <p className="section-label mb-3">What&apos;s included</p>
             <h2
               id="features-heading"
               className="text-3xl md:text-4xl font-bold text-ink tracking-tight"
             >
-              Autonomous content operations, built for founders.
+              Everything a founder needs to publish consistently.
             </h2>
           </div>
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {featureCards.map(({ title, description }) => (
+            {featureCards.map(({ icon: Icon, title, description }) => (
               <article key={title} className="card p-5">
-                <div className="flex items-start gap-2 mb-2">
-                  <CheckCircle2
-                    size={16}
-                    className="text-success mt-0.5 flex-shrink-0"
-                    aria-hidden="true"
-                  />
+                <div className="flex items-center gap-2.5 mb-3">
+                  <div className="w-8 h-8 rounded-lg bg-forest-light flex items-center justify-center shrink-0">
+                    <Icon size={16} className="text-forest" aria-hidden="true" />
+                  </div>
                   <h3 className="text-sm font-semibold text-ink">{title}</h3>
                 </div>
-                <p className="text-sm text-ink-secondary leading-relaxed pl-6">
+                <p className="text-sm text-ink-secondary leading-relaxed">
                   {description}
                 </p>
               </article>
@@ -250,7 +271,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ── 7. How permissions and publishing work ───────────────────────── */}
+      {/* ── Access pathways ──────────────────────────────────────────── */}
       <section
         id="permissions"
         aria-labelledby="permissions-heading"
@@ -263,36 +284,32 @@ export default function HomePage() {
               id="permissions-heading"
               className="text-3xl font-bold text-ink tracking-tight"
             >
-              Two access pathways. You are always in control.
+              Two ways to access. You stay in control.
             </h2>
             <p className="mt-4 text-ink-secondary">
               Nunuza provides full v1.0.0 feature access through commercial trials or private partner beta.
             </p>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div className="card p-5 flex gap-4">
-              <CheckCircle2
-                size={18}
-                className="text-forest flex-shrink-0 mt-0.5"
-                aria-hidden="true"
-              />
+              <div className="w-9 h-9 rounded-lg bg-forest-light flex items-center justify-center shrink-0 mt-0.5">
+                <Linkedin size={18} className="text-forest" aria-hidden="true" />
+              </div>
               <div>
                 <p className="text-sm font-semibold text-ink mb-1">
-                  Commercial Access (14-Day Free Trial)
+                  Commercial Access — 14-Day Free Trial
                 </p>
                 <p className="text-sm text-ink-secondary">
-                  Start with a 14-day free trial (credit card required). Full v1.0.0 access across AI drafting, LinkedIn personal-profile publishing, scheduling, and Autopilot. Renews at $29/month unless canceled.
+                  Start with a 14-day free trial (credit card required). Full v1.0.0 access across AI drafting, LinkedIn personal-profile publishing, scheduling, and Autopilot. Renews at \$29/month unless canceled.
                 </p>
               </div>
             </div>
 
             <div className="card p-5 flex gap-4">
-              <Sparkles
-                size={18}
-                className="text-forest flex-shrink-0 mt-0.5"
-                aria-hidden="true"
-              />
+              <div className="w-9 h-9 rounded-lg bg-forest-light flex items-center justify-center shrink-0 mt-0.5">
+                <Sparkles size={18} className="text-forest" aria-hidden="true" />
+              </div>
               <div>
                 <p className="text-sm font-semibold text-ink mb-1">
                   Private Beta Access
@@ -304,11 +321,9 @@ export default function HomePage() {
             </div>
 
             <div className="card p-5 flex gap-4">
-              <Lock
-                size={18}
-                className="text-forest flex-shrink-0 mt-0.5"
-                aria-hidden="true"
-              />
+              <div className="w-9 h-9 rounded-lg bg-forest-light flex items-center justify-center shrink-0 mt-0.5">
+                <Lock size={18} className="text-forest" aria-hidden="true" />
+              </div>
               <div>
                 <p className="text-sm font-semibold text-ink mb-1">
                   Bounded Safety &amp; Control
@@ -322,33 +337,33 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ── 8. Pricing section ──────────────────────────────────────────── */}
+      {/* ── Pricing ──────────────────────────────────────────────────── */}
       <section
         id="pricing"
         aria-labelledby="pricing-heading"
         className="py-20 md:py-28 bg-offwhite border-y border-border"
       >
-        <div className="container-page max-w-2xl text-center">
+        <div className="container-page max-w-lg text-center">
           <p className="section-label mb-3">Pricing</p>
           <h2
             id="pricing-heading"
             className="text-3xl md:text-4xl font-bold text-ink tracking-tight"
           >
-            One simple plan. 14-day trial.
+            One plan. Everything included.
           </h2>
           <p className="mt-4 text-ink-secondary">
-            Full autonomous LinkedIn content operations agent for solo founders.
+            Full autonomous LinkedIn content operations for solo founders.
           </p>
 
           <div className="mt-10 card p-8 text-left">
             <div className="flex items-start justify-between gap-4 mb-6">
               <div>
                 <h3 className="text-lg font-bold text-ink">Nunuza Solo</h3>
-                <p className="text-sm text-ink-secondary">One plan. Everything included.</p>
+                <p className="text-sm text-ink-secondary mt-1">14-day free trial included.</p>
               </div>
-              <div className="text-right">
-                <p className="text-3xl font-bold text-ink">$29</p>
-                <p className="text-xs text-ink-secondary">/ month</p>
+              <div className="text-right shrink-0">
+                <p className="text-3xl font-bold text-ink leading-none">\$29</p>
+                <p className="text-xs text-ink-muted mt-1">/ month</p>
               </div>
             </div>
 
@@ -361,27 +376,26 @@ export default function HomePage() {
                 "Bounded Autopilot (with strict safety caps)",
                 "Full version history and draft export",
               ].map((item) => (
-                <li key={item} className="flex items-center gap-2.5 text-sm text-ink">
-                  <CheckCircle2 size={15} className="text-success flex-shrink-0" aria-hidden="true" />
+                <li key={item} className="flex items-start gap-2.5 text-sm text-ink">
+                  <CheckCircle2 size={15} className="text-success shrink-0 mt-0.5" aria-hidden="true" />
                   {item}
                 </li>
               ))}
             </ul>
 
-            <div className="pt-2 text-center">
-              <Link href="/login" className="btn-primary w-full py-3 inline-block text-center font-semibold text-sm">
-                Start 14-Day Free Trial
-              </Link>
-            </div>
+            <Link href="/login" className="btn-primary w-full py-3 text-sm font-semibold justify-center">
+              Start 14-Day Free Trial
+              <ArrowRight size={16} aria-hidden="true" />
+            </Link>
           </div>
 
-          <p className="mt-6 text-xs text-ink-secondary">
-            14-day card-required trial. Then $29/month unless canceled. Cancel anytime in your dashboard.
+          <p className="mt-5 text-xs text-ink-muted">
+            14-day card-required trial. Then \$29/month unless canceled. Cancel anytime in your dashboard.
           </p>
         </div>
       </section>
 
-      {/* ── 9. FAQ ──────────────────────────────────────────────────────── */}
+      {/* ── FAQ ──────────────────────────────────────────────────────── */}
       <section
         id="faq"
         aria-labelledby="faq-heading"
@@ -398,14 +412,14 @@ export default function HomePage() {
             </h2>
           </div>
 
-          <dl className="space-y-4">
+          <dl className="space-y-3">
             {faqItems.map(({ q, a }) => (
               <div key={q} className="card p-5">
-                <dt className="text-sm font-semibold text-ink flex items-start justify-between gap-2">
-                  {q}
-                  <ChevronDown size={16} className="text-ink-secondary flex-shrink-0 mt-0.5" aria-hidden="true" />
+                <dt className="text-sm font-semibold text-ink flex items-start justify-between gap-3">
+                  <span>{q}</span>
+                  <ChevronDown size={16} className="text-ink-muted shrink-0 mt-0.5" aria-hidden="true" />
                 </dt>
-                <dd className="mt-2 text-sm text-ink-secondary leading-relaxed">
+                <dd className="mt-2.5 text-sm text-ink-secondary leading-relaxed">
                   {a}
                 </dd>
               </div>
@@ -414,7 +428,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ── 10. Final CTA ────────────────────────────────────────────────── */}
+      {/* ── Final CTA ────────────────────────────────────────────────── */}
       <section
         id="final-cta"
         aria-labelledby="final-cta-heading"
@@ -425,21 +439,24 @@ export default function HomePage() {
             id="final-cta-heading"
             className="text-3xl md:text-4xl font-bold text-white tracking-tight"
           >
-            Launch your LinkedIn content operations.
+            Start publishing on LinkedIn consistently.
           </h2>
           <p className="mt-4 text-forest-muted max-w-lg mx-auto">
-            Experience autonomous content operations tailored to your voice and strategy. Start your 14-day free trial today.
+            Your strategy, your voice, your cadence. Full v1.0.0 access on a 14-day free trial — no commitment until after.
           </p>
           <div className="mt-8">
             <Link
               href="/login"
               id="final-cta-button"
-              className="inline-flex items-center gap-2 bg-white text-forest px-6 py-3 rounded-lg text-base font-semibold hover:bg-offwhite transition-colors"
+              className="inline-flex items-center gap-2 bg-white text-forest px-7 py-3 rounded-lg text-base font-semibold hover:bg-offwhite transition-colors"
             >
               Start 14-Day Free Trial
               <ArrowRight size={18} aria-hidden="true" />
             </Link>
           </div>
+          <p className="mt-5 text-sm text-forest-muted">
+            14 days free · \$29/month after · Cancel anytime
+          </p>
         </div>
       </section>
     </>

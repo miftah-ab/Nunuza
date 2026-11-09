@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { Logo } from "@/components/layout/Logo";
 
 export const metadata: Metadata = {
   title: "Page not found",
@@ -8,7 +9,10 @@ export const metadata: Metadata = {
 
 export default function NotFound() {
   return (
-    <div className="min-h-screen bg-offwhite flex flex-col items-center justify-center px-4 text-center">
+    <div className="min-h-screen bg-surface flex flex-col items-center justify-center px-4 text-center">
+      <div className="mb-8">
+        <Logo />
+      </div>
       <p className="text-8xl font-bold text-forest-muted mb-4" aria-hidden="true">
         404
       </p>

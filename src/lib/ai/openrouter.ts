@@ -78,7 +78,10 @@ export class OpenRouterProvider implements AiProvider {
         throw new Error("OpenRouter API returned empty completion.");
       }
 
-      const safeText = content.slice(0, 3000);
+      const safeText = content
+        .replace(/\u2014/g, ",")   // em dash → comma
+        .replace(/\u2013/g, "-")   // en dash → hyphen
+        .slice(0, 3000);
 
       return {
         text: safeText,

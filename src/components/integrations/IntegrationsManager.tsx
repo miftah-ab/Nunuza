@@ -24,6 +24,7 @@ import {
   ExternalLink,
   ShieldAlert,
   Info,
+  X,
 } from "lucide-react";
 
 export interface IntegrationStatusData {
@@ -222,16 +223,20 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
     <div className="space-y-6">
       {/* Alert Banners */}
       {errorMsg && (
-        <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex items-center justify-between">
+        <div className="notice-error p-4 rounded-lg text-sm flex items-center justify-between">
           <span>{errorMsg}</span>
-          <button onClick={() => setErrorMsg(null)} className="text-red-400 hover:text-white font-bold text-xs ml-4">✕</button>
+          <button onClick={() => setErrorMsg(null)} className="ml-4 hover:opacity-70">
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
       {successMsg && (
-        <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm flex items-center justify-between">
+        <div className="notice-success p-4 rounded-lg text-sm flex items-center justify-between">
           <span>{successMsg}</span>
-          <button onClick={() => setSuccessMsg(null)} className="text-emerald-400 hover:text-white font-bold text-xs ml-4">✕</button>
+          <button onClick={() => setSuccessMsg(null)} className="ml-4 hover:opacity-70">
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -246,8 +251,8 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
               <h2 className="text-lg font-semibold text-ink flex items-center gap-2">
                 LinkedIn
                 {data.linkedin.connected ? (
-                  <span className="badge-approved text-xs px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Connected
+                  <span className="badge-active text-xs px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-success" /> Connected
                   </span>
                 ) : (
                   <span className="badge-draft-only text-xs px-2 py-0.5 rounded-full">Not connected</span>
@@ -281,22 +286,22 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
 
         {/* Notice on Private Beta vs Commercial access */}
         {data.workspaceEntitlement === "internal_beta" || data.workspaceEntitlement === "publishing_beta" || data.workspaceEntitlement === "internal_test" ? (
-          <div className="mt-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-400 flex items-start gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
+          <div className="notice-info mt-4 p-3 rounded-lg text-xs flex items-start gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
             <div>
               <span className="font-semibold">Private Beta Active:</span> This workspace has authorized private beta access. Once your LinkedIn profile is connected, human-approved drafts can be scheduled and published directly to your personal profile.
             </div>
           </div>
         ) : data.workspaceEntitlement === "paid_trial" || data.workspaceEntitlement === "paid_active" ? (
-          <div className="mt-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-400 flex items-start gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
+          <div className="notice-info mt-4 p-3 rounded-lg text-xs flex items-start gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
             <div>
               <span className="font-semibold">Commercial Subscription Active:</span> Full LinkedIn publishing and background scheduling enabled for your workspace.
             </div>
           </div>
         ) : (
-          <div className="mt-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
-            <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-300" />
+          <div className="notice-warning mt-4 p-3 rounded-lg text-xs flex items-start gap-2">
+            <Info className="w-4 h-4 shrink-0 mt-0.5" />
             <div>
               <span className="font-semibold">Subscription Required:</span> You can connect LinkedIn now. Live publishing and background scheduling become active upon starting your 14-day free trial ($29/month) or receiving private beta access.
             </div>
@@ -317,8 +322,8 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
                 {!data.telegram.enabled ? (
                   <span className="badge-draft-only text-xs px-2 py-0.5 rounded-full">Integration not enabled</span>
                 ) : data.telegram.connected ? (
-                  <span className="badge-approved text-xs px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Connected
+                  <span className="badge-active text-xs px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-success" /> Connected
                   </span>
                 ) : (
                   <span className="badge-draft-only text-xs px-2 py-0.5 rounded-full">Not linked</span>
@@ -369,7 +374,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
                       Pairing with @Linker_Studio_Bot
                     </span>
                   </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-emerald-50 text-emerald-800 border border-emerald-200">
+                  <span className="badge-active text-[10px] px-2 py-0.5 rounded-full font-medium">
                     Pairing Active
                   </span>
                 </div>
@@ -449,8 +454,8 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
                 {!data.mcp.enabled ? (
                   <span className="badge-draft-only text-xs px-2 py-0.5 rounded-full">Integration not enabled</span>
                 ) : data.mcp.active ? (
-                  <span className="badge-approved text-xs px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Active Key
+                  <span className="badge-active text-xs px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-success" /> Active Key
                   </span>
                 ) : (
                   <span className="badge-draft-only text-xs px-2 py-0.5 rounded-full">No active key</span>
@@ -476,7 +481,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
               <button
                 onClick={handleGenerateMcpKey}
                 disabled={loadingAction === "mcp_key"}
-                className="btn-primary text-xs px-4 py-2 flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white"
+                className="btn-primary text-xs px-4 py-2 flex items-center gap-2"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${loadingAction === "mcp_key" ? "animate-spin" : ""}`} />
                 {data.mcp.active ? "Rotate Key" : "Generate Key"}
@@ -507,7 +512,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
                   onClick={() => copyToClipboard(data.mcp.endpointUrl, "url")}
                   className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1"
                 >
-                  {copiedUrl ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedUrl ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
                   {copiedUrl ? "Copied" : "Copy"}
                 </button>
               </div>
@@ -515,19 +520,19 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
 
             {/* Revealed Key Banner (Single Display) */}
             {newMcpToken && (
-              <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 space-y-2">
+              <div className="notice-warning p-4 rounded-lg space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
-                    <ShieldAlert className="w-4 h-4 text-amber-400" /> Save your MCP API Key now
+                  <span className="text-xs font-semibold text-ink flex items-center gap-1.5">
+                    <ShieldAlert className="w-4 h-4 text-warning" /> Save your MCP API Key now
                   </span>
-                  <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">Shown only once</span>
+                  <span className="text-[10px] text-ink-secondary font-bold uppercase tracking-wider">Shown only once</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
                     readOnly
                     value={newMcpToken}
-                    className="input-field text-xs font-mono py-1.5 px-2.5 flex-1 bg-black/40 text-amber-200 select-all"
+                    className="input-field text-xs font-mono py-1.5 px-2.5 flex-1 bg-surface text-ink select-all"
                   />
                   <button
                     onClick={() => copyToClipboard(newMcpToken, "key")}
@@ -537,7 +542,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
                     {copiedKey ? "Copied" : "Copy"}
                   </button>
                 </div>
-                <p className="text-[11px] text-amber-300/80">
+                <p className="text-[11px] text-ink-secondary">
                   This key will not be shown again. It is stored as a cryptographic hash on our servers.
                 </p>
               </div>

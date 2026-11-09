@@ -13,7 +13,6 @@ import {
   FileText,
   Sparkles,
   ArrowRight,
-  Activity as ActivityIcon,
   Calendar,
   Lock,
   Plus,
@@ -21,111 +20,99 @@ import {
   Send,
   Cpu,
   Clock,
-  ExternalLink,
   ShieldCheck,
-  CheckCircle,
+  TrendingUp,
+  Layers,
+  Zap,
+  Circle,
 } from "lucide-react";
 import { getTelegramLinkStatus } from "@/lib/integrations/telegram/service";
 import { getMcpCredentialStatus } from "@/lib/integrations/mcp/tokens";
+
+// Module-level helper — avoids lint warning about Date.now() inside render
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
 
 export const metadata: Metadata = {
   title: "Overview — Nunuza",
   robots: { index: false, follow: false },
 };
 
-interface StateDisplay {
+// ─── State configuration ───────────────────────────────────────────────────────
+
+type StateInfo = {
   label: string;
   icon: typeof CheckCircle2;
-  color: string;
+  dotClass: string;
+  badgeClass: string;
   description: string;
-}
+};
 
-const STATE_CONFIG: Record<AgentState, StateDisplay> = {
+const STATE_CONFIG: Record<AgentState, StateInfo> = {
   setup_required: {
     label: "Setup required",
     icon: AlertCircle,
-    color: "text-amber-600",
-    description: "Initial setup is incomplete. Complete onboarding to activate your workspace.",
+    dotClass: "bg-warning",
+    badgeClass: "bg-warning-light text-warning border-warning/20",
+    description: "Complete onboarding to activate your workspace.",
   },
   active_approval_required: {
-    label: "Active — review needed",
+    label: "Active — review required",
     icon: CheckCircle2,
-    color: "text-forest",
-    description: "Content drafting is active. Generated posts require manual review before scheduling or export.",
+    dotClass: "bg-success",
+    badgeClass: "bg-success-light text-success border-success/20",
+    description: "Generating drafts. Each post requires your approval before publishing.",
   },
   active_autopilot: {
     label: "Active — autopilot",
-    icon: CheckCircle2,
-    color: "text-forest",
-    description: "Autopilot is active. Posts are scheduled automatically according to your cadence bounds.",
+    icon: Zap,
+    dotClass: "bg-success",
+    badgeClass: "bg-success-light text-success border-success/20",
+    description: "Autopilot active. Posts are queued automatically within your safety caps.",
   },
   paused: {
     label: "Paused",
     icon: PauseCircle,
-    color: "text-ink-secondary",
-    description: "Content generation and agent jobs are paused. Resume to continue.",
+    dotClass: "bg-ink-muted",
+    badgeClass: "bg-surface text-ink-secondary border-border",
+    description: "All background jobs and publishing are halted. Resume to continue.",
   },
   blocked_integration: {
     label: "Integration issue",
     icon: WifiOff,
-    color: "text-error",
-    description: "Integration connection issue requires your attention in Integrations.",
+    dotClass: "bg-error",
+    badgeClass: "bg-error-light text-error border-error/20",
+    description: "An integration error needs attention before publishing can resume.",
   },
   attention_required: {
     label: "Attention required",
     icon: AlertTriangle,
-    color: "text-warning",
-    description: "Workspace configuration or content pipeline requires review.",
+    dotClass: "bg-warning",
+    badgeClass: "bg-warning-light text-warning border-warning/20",
+    description: "Workspace configuration or content pipeline needs review.",
   },
 };
 
-const ENTITLEMENT_BADGES: Record<string, { label: string; className: string }> = {
-  internal_beta: {
-    label: "Private Beta — Full Access",
-    className: "badge-beta",
-  },
-  publishing_beta: {
-    label: "Private Beta — Full Access",
-    className: "badge-beta",
-  },
-  internal_test: {
-    label: "Internal Beta — Full Access",
-    className: "badge-beta",
-  },
-  paid_trial: {
-    label: "14-Day Free Trial",
-    className: "badge-active",
-  },
-  paid_active: {
-    label: "Active Subscription ($29/mo)",
-    className: "badge-active",
-  },
-  suspended: {
-    label: "Subscription Suspended",
-    className: "badge-error",
-  },
-  expired: {
-    label: "Trial Expired",
-    className: "badge-error",
-  },
-  draft_only: {
-    label: "Commercial Onboarding",
-    className: "badge-draft-only",
-  },
-  inactive: {
-    label: "Inactive",
-    className: "badge-error",
-  },
-};
+type EntitlementInfo = { label: string; badgeClass: string };
 
-interface RecentActivityItem {
-  id: string;
-  source: "audit" | "job";
-  title: string;
-  detail: string;
-  timestamp: string;
-  statusBadge?: { label: string; className: string };
-}
+const ENTITLEMENT_INFO: Record<string, EntitlementInfo> = {
+  internal_beta: { label: "Private Beta", badgeClass: "bg-forest-light text-forest border-forest-muted" },
+  publishing_beta: { label: "Private Beta", badgeClass: "bg-forest-light text-forest border-forest-muted" },
+  internal_test: { label: "Internal Beta", badgeClass: "bg-forest-light text-forest border-forest-muted" },
+  paid_trial: { label: "Trial Active", badgeClass: "bg-success-light text-success border-success/20" },
+  paid_active: { label: "Nunuza Solo", badgeClass: "bg-success-light text-success border-success/20" },
+  suspended: { label: "Suspended", badgeClass: "bg-error-light text-error border-error/20" },
+  expired: { label: "Trial Expired", badgeClass: "bg-error-light text-error border-error/20" },
+  draft_only: { label: "Onboarding", badgeClass: "bg-surface text-ink-secondary border-border" },
+  inactive: { label: "Inactive", badgeClass: "bg-surface text-ink-secondary border-border" },
+};
 
 interface PostSummary {
   id: string;
@@ -137,106 +124,74 @@ interface PostSummary {
   created_at?: string;
 }
 
+interface RecentActivityItem {
+  id: string;
+  source: "audit" | "job";
+  title: string;
+  detail: string;
+  timestamp: string;
+  status?: string;
+}
+
+// ─── Page ──────────────────────────────────────────────────────────────────────
+
 export default async function OverviewPage() {
   let workspace: Workspace;
 
   try {
     workspace = await requireWorkspace();
   } catch (err) {
-    if (err instanceof AuthError) {
-      redirect("/login");
-    }
+    if (err instanceof AuthError) redirect("/login");
     redirect("/app/onboarding");
   }
 
-  // If setup is still required, redirect to onboarding wizard
-  if (workspace.state === "setup_required") {
-    redirect("/app/onboarding");
-  }
+  if (workspace.state === "setup_required") redirect("/app/onboarding");
 
   const supabase = await createClient();
 
-  // ─── 1. Query Real Metrics (isolated strictly by workspace_id) ───────────────
+  // ─── 1. Metrics ──────────────────────────────────────────────────────────────
   let draftsAwaitingReview: number | null = null;
   let approvedDrafts: number | null = null;
   let scheduledDrafts: number | null = null;
   let publishedDrafts: number | null = null;
   let totalDrafts: number | null = null;
-  let draftsError: string | null = null;
+  let metricsError = false;
 
   try {
     const [awaitingRes, approvedRes, scheduledRes, publishedRes, totalRes] = await Promise.all([
-      supabase
-        .from("content_posts")
-        .select("id", { count: "exact", head: true })
-        .eq("workspace_id", workspace.id)
-        .in("status", ["draft", "needs_review"]),
-      supabase
-        .from("content_posts")
-        .select("id", { count: "exact", head: true })
-        .eq("workspace_id", workspace.id)
-        .eq("status", "approved"),
-      supabase
-        .from("content_posts")
-        .select("id", { count: "exact", head: true })
-        .eq("workspace_id", workspace.id)
-        .eq("status", "scheduled"),
-      supabase
-        .from("content_posts")
-        .select("id", { count: "exact", head: true })
-        .eq("workspace_id", workspace.id)
-        .eq("status", "published"),
-      supabase
-        .from("content_posts")
-        .select("id", { count: "exact", head: true })
-        .eq("workspace_id", workspace.id),
+      supabase.from("content_posts").select("id", { count: "exact", head: true }).eq("workspace_id", workspace.id).in("status", ["draft", "needs_review"]),
+      supabase.from("content_posts").select("id", { count: "exact", head: true }).eq("workspace_id", workspace.id).eq("status", "approved"),
+      supabase.from("content_posts").select("id", { count: "exact", head: true }).eq("workspace_id", workspace.id).eq("status", "scheduled"),
+      supabase.from("content_posts").select("id", { count: "exact", head: true }).eq("workspace_id", workspace.id).eq("status", "published"),
+      supabase.from("content_posts").select("id", { count: "exact", head: true }).eq("workspace_id", workspace.id),
     ]);
-
-    if (awaitingRes.error) throw new Error(awaitingRes.error.message);
-    if (approvedRes.error) throw new Error(approvedRes.error.message);
-
-    draftsAwaitingReview = awaitingRes.count ?? 0;
-    approvedDrafts = approvedRes.count ?? 0;
-    scheduledDrafts = scheduledRes.count ?? 0;
-    publishedDrafts = publishedRes.count ?? 0;
-    totalDrafts = totalRes.count ?? 0;
-  } catch (err: unknown) {
-    draftsError = err instanceof Error ? err.message : "Unable to query content drafts.";
+    if (!awaitingRes.error && !approvedRes.error) {
+      draftsAwaitingReview = awaitingRes.count ?? 0;
+      approvedDrafts = approvedRes.count ?? 0;
+      scheduledDrafts = scheduledRes.count ?? 0;
+      publishedDrafts = publishedRes.count ?? 0;
+      totalDrafts = totalRes.count ?? 0;
+    } else {
+      metricsError = true;
+    }
+  } catch {
+    metricsError = true;
   }
 
-  // ─── 2. Query Operational Posts (Upcoming Scheduled & Drafts Needing Review) ───
+  // ─── 2. Operational posts ────────────────────────────────────────────────────
   let upcomingPosts: PostSummary[] = [];
   let pendingReviewPosts: PostSummary[] = [];
 
   try {
     const [upcomingRes, pendingRes] = await Promise.all([
-      supabase
-        .from("content_posts")
-        .select("id, title, pillar, status, scheduled_for, created_at")
-        .eq("workspace_id", workspace.id)
-        .eq("status", "scheduled")
-        .order("scheduled_for", { ascending: true })
-        .limit(3),
-      supabase
-        .from("content_posts")
-        .select("id, title, pillar, status, updated_at, created_at")
-        .eq("workspace_id", workspace.id)
-        .in("status", ["draft", "needs_review"])
-        .order("updated_at", { ascending: false })
-        .limit(3),
+      supabase.from("content_posts").select("id, title, pillar, status, scheduled_for, created_at").eq("workspace_id", workspace.id).eq("status", "scheduled").order("scheduled_for", { ascending: true }).limit(4),
+      supabase.from("content_posts").select("id, title, pillar, status, updated_at, created_at").eq("workspace_id", workspace.id).in("status", ["draft", "needs_review"]).order("updated_at", { ascending: false }).limit(4),
     ]);
+    if (!upcomingRes.error && upcomingRes.data) upcomingPosts = upcomingRes.data as PostSummary[];
+    if (!pendingRes.error && pendingRes.data) pendingReviewPosts = pendingRes.data as PostSummary[];
+  } catch { /* non-fatal */ }
 
-    if (!upcomingRes.error && upcomingRes.data) {
-      upcomingPosts = upcomingRes.data as PostSummary[];
-    }
-    if (!pendingRes.error && pendingRes.data) {
-      pendingReviewPosts = pendingRes.data as PostSummary[];
-    }
-  } catch {
-    // Non-fatal query fallback
-  }
-
-  // ─── 3. Query Integration Health & Cadence ──────────────────────────────────
+  // ─── 3. Integration health ───────────────────────────────────────────────────
   let linkedinConnected = false;
   let linkedinProfileName: string | null = null;
   let telegramConnected = false;
@@ -245,454 +200,348 @@ export default async function OverviewPage() {
 
   try {
     const [linkedinData, telegramStatus, mcpStatus, strategyData] = await Promise.all([
-      (async () => {
-        try {
-          const res = await supabase
-            .from("integration_connections")
-            .select("status, metadata")
-            .eq("workspace_id", workspace.id)
-            .eq("provider", "linkedin")
-            .eq("status", "connected")
-            .maybeSingle();
-          return res.data;
-        } catch {
-          return null;
-        }
-      })(),
+      supabase.from("integration_connections").select("status, metadata").eq("workspace_id", workspace.id).eq("provider", "linkedin").eq("status", "connected").maybeSingle().then(r => r.data),
       getTelegramLinkStatus(workspace.id, supabase).catch(() => ({ linked: false })),
       getMcpCredentialStatus(workspace.id, supabase).catch(() => ({ active: false })),
-      (async () => {
-        try {
-          const res = await supabase
-            .from("content_strategies")
-            .select("cadence_per_week")
-            .eq("workspace_id", workspace.id)
-            .maybeSingle();
-          return res.data;
-        } catch {
-          return null;
-        }
-      })(),
+      supabase.from("content_strategies").select("cadence_per_week").eq("workspace_id", workspace.id).maybeSingle().then(r => r.data),
     ]);
-
     if (linkedinData) {
       linkedinConnected = true;
       linkedinProfileName = (linkedinData.metadata as any)?.name || null;
     }
     telegramConnected = telegramStatus?.linked ?? false;
     mcpActive = mcpStatus?.active ?? false;
-    if (strategyData?.cadence_per_week) {
-      weeklyCadenceTarget = strategyData.cadence_per_week;
-    }
-  } catch {
-    // Non-fatal integration health query
-  }
+    if (strategyData?.cadence_per_week) weeklyCadenceTarget = strategyData.cadence_per_week;
+  } catch { /* non-fatal */ }
 
-  // ─── 4. Query Recent Activity (audit_events & agent_jobs) ────────────────────
+  // ─── 4. Recent activity ──────────────────────────────────────────────────────
   let recentActivities: RecentActivityItem[] = [];
-  let activityError: string | null = null;
 
   try {
     const [auditRes, jobsRes] = await Promise.all([
-      supabase
-        .from("audit_events")
-        .select("id, action, actor_type, resource_type, created_at")
-        .eq("workspace_id", workspace.id)
-        .order("created_at", { ascending: false })
-        .limit(5),
-      supabase
-        .from("agent_jobs")
-        .select("id, job_type, status, created_at, last_error_code")
-        .eq("workspace_id", workspace.id)
-        .order("created_at", { ascending: false })
-        .limit(5),
+      supabase.from("audit_events").select("id, action, actor_type, resource_type, created_at").eq("workspace_id", workspace.id).order("created_at", { ascending: false }).limit(4),
+      supabase.from("agent_jobs").select("id, job_type, status, created_at").eq("workspace_id", workspace.id).order("created_at", { ascending: false }).limit(3),
     ]);
 
-    if (auditRes.error) throw new Error(auditRes.error.message);
-    if (jobsRes.error) throw new Error(jobsRes.error.message);
+    const auditItems: RecentActivityItem[] = (auditRes.data ?? []).map((a: any) => ({
+      id: `audit-${a.id}`,
+      source: "audit" as const,
+      title: (a.action as string).replace(/_/g, " ").replace(/^\w/, (c: string) => c.toUpperCase()),
+      detail: a.actor_type + (a.resource_type ? ` · ${a.resource_type}` : ""),
+      timestamp: a.created_at,
+    }));
 
-    const auditItems: RecentActivityItem[] = (auditRes.data ?? []).map((a: any) => {
-      const actionDisplay = a.action.replace(/_/g, " ");
-      return {
-        id: `audit-${a.id}`,
-        source: "audit",
-        title: actionDisplay.charAt(0).toUpperCase() + actionDisplay.slice(1),
-        detail: `Actor: ${a.actor_type}${a.resource_type ? ` · ${a.resource_type}` : ""}`,
-        timestamp: a.created_at,
-        statusBadge: { label: "Logged", className: "badge-draft-only" },
-      };
-    });
-
-    const jobItems: RecentActivityItem[] = (jobsRes.data ?? []).map((j: any) => {
-      const typeDisplay = j.job_type.replace(/_/g, " ");
-      let badgeClass = "badge-draft-only";
-      if (j.status === "succeeded") badgeClass = "badge-active";
-      else if (j.status === "failed_terminal" || j.status === "failed_retryable") badgeClass = "badge-error";
-      else if (j.status === "running") badgeClass = "badge-beta";
-
-      return {
-        id: `job-${j.id}`,
-        source: "job",
-        title: `Job: ${typeDisplay}`,
-        detail: `Status: ${j.status}${j.last_error_code ? ` (${j.last_error_code})` : ""}`,
-        timestamp: j.created_at,
-        statusBadge: { label: j.status, className: badgeClass },
-      };
-    });
+    const jobItems: RecentActivityItem[] = (jobsRes.data ?? []).map((j: any) => ({
+      id: `job-${j.id}`,
+      source: "job" as const,
+      title: (j.job_type as string).replace(/_/g, " ").replace(/^\w/, (c: string) => c.toUpperCase()),
+      detail: j.status,
+      timestamp: j.created_at,
+      status: j.status,
+    }));
 
     recentActivities = [...auditItems, ...jobItems]
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .slice(0, 4);
-  } catch (err: unknown) {
-    activityError = err instanceof Error ? err.message : "Unable to query activity log.";
-  }
+      .slice(0, 5);
+  } catch { /* non-fatal */ }
 
-  // ─── 5. State & Entitlement Badges ───────────────────────────────────────────
+  // ─── 5. Computed values ──────────────────────────────────────────────────────
   const effectiveState: AgentState = workspace.paused_at ? "paused" : workspace.state;
-  const stateConfig = STATE_CONFIG[effectiveState] ?? STATE_CONFIG.setup_required;
-  const StateIcon = stateConfig.icon;
-  const entitlementBadge = ENTITLEMENT_BADGES[workspace.entitlement_type] ?? {
+  const stateInfo = STATE_CONFIG[effectiveState] ?? STATE_CONFIG.setup_required;
+  const StateIcon = stateInfo.icon;
+
+  const entitlementInfo = ENTITLEMENT_INFO[workspace.entitlement_type] ?? {
     label: workspace.entitlement_type,
-    className: "badge-draft-only",
+    badgeClass: "bg-surface text-ink-secondary border-border",
   };
 
-  return (
-    <div className="max-w-6xl mx-auto space-y-6 animate-fade-in pb-12">
-      {/* ─── Top Operational Header ─── */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-border">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl font-bold text-ink">Overview</h1>
-            <span className={entitlementBadge.className}>{entitlementBadge.label}</span>
-          </div>
-          <p className="text-xs text-ink-secondary mt-1">
-            {workspace.name} &bull; Operating Mode:{" "}
-            <span className="font-semibold text-ink">
-              {workspace.operating_mode === "approval_required" ? "Approval Required" : "Autopilot"}
-            </span>
-          </p>
-        </div>
+  const isBetaOrPaid =
+    workspace.entitlement_type === "internal_beta" ||
+    workspace.entitlement_type === "publishing_beta" ||
+    workspace.entitlement_type === "paid_trial" ||
+    workspace.entitlement_type === "paid_active";
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
-          <Link
-            href="/app/content"
-            className="btn-primary text-xs flex items-center gap-1.5 shadow-xs"
-          >
-            <Plus size={15} />
-            <span>Create Draft</span>
+  const needsTrialCTA =
+    workspace.entitlement_type === "draft_only" ||
+    workspace.entitlement_type === "suspended" ||
+    workspace.entitlement_type === "expired";
+
+  const fmt = (iso: string | null | undefined) => iso
+    ? new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    : null;
+
+  const metrics = [
+    {
+      href: "/app/content",
+      label: "Needs Review",
+      value: metricsError ? "—" : (draftsAwaitingReview ?? 0),
+      sub: approvedDrafts && approvedDrafts > 0 ? `${approvedDrafts} approved` : null,
+      icon: FileText,
+      urgent: (draftsAwaitingReview ?? 0) > 0,
+    },
+    {
+      href: "/app/calendar",
+      label: "Scheduled",
+      value: metricsError ? "—" : (scheduledDrafts ?? 0),
+      sub: `target ${weeklyCadenceTarget}/week`,
+      icon: Calendar,
+      urgent: false,
+    },
+    {
+      href: "/app/performance",
+      label: "Published",
+      value: metricsError ? "—" : (publishedDrafts ?? 0),
+      sub: "to LinkedIn",
+      icon: TrendingUp,
+      urgent: false,
+    },
+    {
+      href: "/app/content",
+      label: "Total Pipeline",
+      value: metricsError ? "—" : (totalDrafts ?? 0),
+      sub: "all stages",
+      icon: Layers,
+      urgent: false,
+    },
+  ];
+
+  const integrations = [
+    {
+      icon: Linkedin,
+      iconClass: "text-[#0A66C2]",
+      label: "LinkedIn",
+      detail: linkedinConnected
+        ? (linkedinProfileName ? linkedinProfileName : "Personal profile connected")
+        : "Not connected",
+      connected: linkedinConnected,
+      href: "/app/integrations",
+    },
+    {
+      icon: Send,
+      iconClass: "text-[#229ED9]",
+      label: "Telegram",
+      detail: telegramConnected ? "Bot paired & active" : "Not paired",
+      connected: telegramConnected,
+      href: "/app/integrations",
+    },
+    {
+      icon: Cpu,
+      iconClass: "text-forest",
+      label: "MCP Server",
+      detail: mcpActive ? "Endpoint active" : "Inactive",
+      connected: mcpActive,
+      href: "/app/integrations",
+    },
+  ];
+
+  return (
+    <div className="max-w-6xl mx-auto pb-16 space-y-6 animate-fade-in">
+
+      {/* ─── Page Header ─── */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-ink tracking-tight">Overview</h1>
+          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${entitlementInfo.badgeClass}`}>
+            {entitlementInfo.label}
+          </span>
+        </div>
+        <Link href="/app/content" className="btn-primary self-start sm:self-auto">
+          <Plus size={15} />
+          New Draft
+        </Link>
+      </div>
+
+      {/* ─── Trial / Access notice (compact, dismissible-looking) ─── */}
+      {needsTrialCTA && (
+        <div className="notice-warning flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <Lock size={15} className="shrink-0 mt-0.5 text-warning" />
+            <div>
+              <p className="text-sm font-semibold text-ink">
+                {workspace.entitlement_type === "expired" ? "Trial Expired" : "Start Your Free Trial"}
+              </p>
+              <p className="text-sm text-ink-secondary mt-0.5">
+                Unlock LinkedIn publishing, scheduling, Telegram controls, and Autopilot for $29/month. Card required, cancel anytime.
+              </p>
+            </div>
+          </div>
+          <Link href="/app/billing" className="btn-primary shrink-0 self-start sm:self-auto">
+            Start Free Trial
           </Link>
         </div>
-      </div>
+      )}
 
-      {/* ─── Private Beta Full-Access Notice ─── */}
       {(workspace.entitlement_type === "internal_beta" || workspace.entitlement_type === "publishing_beta") && (
-        <div className="card border-forest-muted bg-forest-light/40 p-4">
-          <div className="flex items-start gap-3">
-            <div className="p-2 rounded bg-white/80 border border-forest-muted text-forest shrink-0">
-              <Sparkles size={17} />
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-ink">
-                Private Beta — Full Access
-              </p>
-              <p className="text-xs text-ink-secondary mt-0.5 leading-relaxed">
-                Your workspace is authorized for private beta testing with complete v1.0.0 features. You can generate drafts, schedule and publish to LinkedIn, use Telegram and MCP channels, and exercise Bounded Autopilot. No subscription required.
-              </p>
-            </div>
-          </div>
+        <div className="notice-info flex items-center gap-3">
+          <Sparkles size={15} className="shrink-0 text-forest" />
+          <p className="text-sm text-ink-secondary">
+            <span className="font-semibold text-ink">Private Beta.</span>{" "}
+            Full v1.0.0 access — generate, schedule, and publish to LinkedIn. No subscription required.
+          </p>
         </div>
       )}
 
-      {/* ─── Paid Trial Notice ─── */}
       {workspace.entitlement_type === "paid_trial" && (
-        <div className="card border-forest-muted bg-forest-light/40 p-4">
-          <div className="flex items-start gap-3">
-            <div className="p-2 rounded bg-white/80 border border-forest-muted text-forest shrink-0">
-              <Sparkles size={17} />
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-ink">
-                14-Day Free Trial — Full Access
-              </p>
-              <p className="text-xs text-ink-secondary mt-0.5 leading-relaxed">
-                You have full v1.0.0 access across all publishing, scheduling, and automation tools during your 14-day trial. Automatic renewal at $29/month unless cancelled.
-              </p>
-            </div>
-          </div>
+        <div className="notice-info flex items-center gap-3">
+          <ShieldCheck size={15} className="shrink-0 text-forest" />
+          <p className="text-sm text-ink-secondary">
+            <span className="font-semibold text-ink">14-Day Trial Active.</span>{" "}
+            Full access to all features. Renews at $29/month unless canceled.
+          </p>
         </div>
       )}
 
-      {/* ─── Commercial Trial Activation Callout ─── */}
-      {(workspace.entitlement_type === "suspended" || workspace.entitlement_type === "expired" || workspace.entitlement_type === "draft_only") && (
-        <div className="card border-amber-200 bg-amber-50/50 p-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <div className="p-2 rounded bg-white border border-amber-200 text-amber-700 shrink-0">
-                <Lock size={17} />
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-ink">
-                  {workspace.entitlement_type === "expired" ? "Trial Expired" : "Start Your 14-Day Free Trial"}
-                </p>
-                <p className="text-xs text-ink-secondary mt-0.5 leading-relaxed max-w-xl">
-                  Unlock LinkedIn personal-profile publishing, durable scheduling, Telegram/MCP controls, and Autopilot for $29/month (card required, cancel anytime).
-                </p>
-              </div>
-            </div>
-            <Link
-              href="/app/billing"
-              className="btn-primary text-xs whitespace-nowrap self-start sm:self-auto"
-            >
-              Start Free Trial
-            </Link>
+      {/* ─── Empty state (no posts yet) ─── */}
+      {!metricsError && totalDrafts === 0 && (
+        <div className="card p-6 flex flex-col sm:flex-row sm:items-center gap-5">
+          <div className="w-10 h-10 rounded-xl bg-forest-light flex items-center justify-center shrink-0">
+            <Sparkles size={20} className="text-forest" />
           </div>
+          <div className="flex-1">
+            <h3 className="text-sm font-semibold text-ink">Ready for your first draft?</h3>
+            <p className="text-sm text-ink-secondary mt-1">
+              Your strategy and voice settings are saved. Generate a post with AI using your pillars, or write one manually.
+            </p>
+          </div>
+          <Link href="/app/content" className="btn-primary shrink-0 self-start sm:self-auto">
+            <Sparkles size={15} />
+            Create First Draft
+          </Link>
         </div>
       )}
 
-      {/* ─── First-Draft Callout when Workspace has 0 Posts ─── */}
-      {!draftsError && totalDrafts === 0 && (
-        <div className="card border-forest-muted bg-white p-5 shadow-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <Sparkles size={17} className="text-forest" />
-                <h3 className="text-sm font-semibold text-ink">Ready for your first draft?</h3>
+      {/* ─── KPI Metrics ─── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {metrics.map(({ href, label, value, sub, icon: Icon, urgent }) => (
+          <Link
+            key={label}
+            href={href}
+            className="card p-4 hover:border-forest/30 hover:shadow-card-hover transition-all group flex flex-col gap-3"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-ink-muted uppercase tracking-wider">{label}</span>
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${urgent ? "bg-warning-light" : "bg-forest-light"}`}>
+                <Icon size={14} className={urgent ? "text-warning" : "text-forest"} aria-hidden="true" />
               </div>
-              <p className="text-xs text-ink-secondary mt-1 max-w-xl">
-                Your workspace strategy and voice settings are saved. Generate a post with AI using your pillars, or compose your own draft.
-              </p>
-            </div>
-            <Link
-              href="/app/content"
-              className="btn-primary text-xs flex items-center justify-center gap-1.5 whitespace-nowrap"
-            >
-              <Sparkles size={14} />
-              <span>Create First Draft</span>
-            </Link>
-          </div>
-        </div>
-      )}
-
-      {/* ─── 4-Metric Operational Grid ─── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Metric 1: Drafts Awaiting Review */}
-        <Link
-          href="/app/content"
-          className="card p-4 hover:border-forest/40 transition-colors flex flex-col justify-between group"
-        >
-          <div>
-            <div className="flex items-center justify-between text-ink-secondary mb-2">
-              <span className="text-xs font-semibold uppercase tracking-wider">Awaiting Review</span>
-              <FileText size={16} className="text-forest group-hover:scale-105 transition-transform" />
-            </div>
-            {draftsError ? (
-              <div className="text-xs text-error">
-                <p className="font-semibold">Query error</p>
-                <p className="mt-0.5">{draftsError}</p>
-              </div>
-            ) : (
-              <div>
-                <p className="text-2xl font-bold text-ink">
-                  {draftsAwaitingReview}
-                </p>
-                <p className="text-[11px] text-ink-secondary mt-1">
-                  {draftsAwaitingReview === 0
-                    ? "0 drafts currently waiting for review."
-                    : `${draftsAwaitingReview} ${draftsAwaitingReview === 1 ? "draft" : "drafts"} ready for review & approval.`}
-                </p>
-                {approvedDrafts !== null && approvedDrafts > 0 && (
-                  <p className="text-[11px] text-forest mt-0.5 font-medium">
-                    {approvedDrafts} approved {approvedDrafts === 1 ? "draft" : "drafts"} available to export.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-          <div className="mt-3 pt-2 border-t border-border/60 flex items-center justify-between text-[11px] text-ink-secondary font-medium">
-            <span>Review drafts</span>
-            <ArrowRight size={13} className="text-forest group-hover:translate-x-0.5 transition-transform" />
-          </div>
-        </Link>
-
-        {/* Metric 2: Scheduled Posts */}
-        <Link
-          href="/app/calendar"
-          className="card p-4 hover:border-forest/40 transition-colors flex flex-col justify-between group"
-        >
-          <div>
-            <div className="flex items-center justify-between text-ink-secondary mb-2">
-              <span className="text-xs font-semibold uppercase tracking-wider">Scheduled Posts</span>
-              <Calendar size={16} className="text-forest group-hover:scale-105 transition-transform" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-ink">
-                {draftsError ? "—" : scheduledDrafts}
+              <p className={`text-3xl font-bold leading-none ${urgent && Number(value) > 0 ? "text-warning" : "text-ink"}`}>
+                {value}
               </p>
-              <p className="text-[11px] text-ink-secondary mt-1">
-                {scheduledDrafts === 0
-                  ? "No posts currently queued in calendar."
-                  : `${scheduledDrafts} queued for automated publication.`}
-              </p>
+              {sub && (
+                <p className="text-xs text-ink-muted mt-1.5">{sub}</p>
+              )}
             </div>
-          </div>
-          <div className="mt-3 pt-2 border-t border-border/60 flex items-center justify-between text-[11px] text-ink-secondary font-medium">
-            <span>View calendar</span>
-            <ArrowRight size={13} className="text-forest group-hover:translate-x-0.5 transition-transform" />
-          </div>
-        </Link>
-
-        {/* Metric 3: Published Posts */}
-        <Link
-          href="/app/performance"
-          className="card p-4 hover:border-forest/40 transition-colors flex flex-col justify-between group"
-        >
-          <div>
-            <div className="flex items-center justify-between text-ink-secondary mb-2">
-              <span className="text-xs font-semibold uppercase tracking-wider">Published to Date</span>
-              <CheckCircle2 size={16} className="text-forest group-hover:scale-105 transition-transform" />
+            <div className="pt-2 border-t border-border flex items-center justify-between text-xs text-ink-muted font-medium">
+              <span>View</span>
+              <ArrowRight size={12} className="text-forest group-hover:translate-x-0.5 transition-transform" />
             </div>
-            <div>
-              <p className="text-2xl font-bold text-ink">
-                {draftsError ? "—" : publishedDrafts}
-              </p>
-              <p className="text-[11px] text-ink-secondary mt-1">
-                Live LinkedIn posts via personal profile.
-              </p>
-            </div>
-          </div>
-          <div className="mt-3 pt-2 border-t border-border/60 flex items-center justify-between text-[11px] text-ink-secondary font-medium">
-            <span>View performance</span>
-            <ArrowRight size={13} className="text-forest group-hover:translate-x-0.5 transition-transform" />
-          </div>
-        </Link>
-
-        {/* Metric 4: Total Pipeline Posts */}
-        <Link
-          href="/app/content"
-          className="card p-4 hover:border-forest/40 transition-colors flex flex-col justify-between group"
-        >
-          <div>
-            <div className="flex items-center justify-between text-ink-secondary mb-2">
-              <span className="text-xs font-semibold uppercase tracking-wider">Total Pipeline</span>
-              <ActivityIcon size={16} className="text-forest group-hover:scale-105 transition-transform" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-ink">
-                {draftsError ? "—" : totalDrafts}
-              </p>
-              <p className="text-[11px] text-ink-secondary mt-1">
-                Across all draft, review, and live stages.
-              </p>
-            </div>
-          </div>
-          <div className="mt-3 pt-2 border-t border-border/60 flex items-center justify-between text-[11px] text-ink-secondary font-medium">
-            <span>Open content studio</span>
-            <ArrowRight size={13} className="text-forest group-hover:translate-x-0.5 transition-transform" />
-          </div>
-        </Link>
+          </Link>
+        ))}
       </div>
 
-      {/* ─── Two-Column Operational Layout ─── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column (2 cols): Content Operations */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Upcoming Scheduled Posts */}
-          <div className="card p-5">
-            <div className="flex items-center justify-between pb-3 mb-3 border-b border-border">
+      {/* ─── Main two-column layout ─── */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+
+        {/* Left — Content pipeline (3 cols) */}
+        <div className="lg:col-span-3 space-y-4">
+
+          {/* Upcoming publications */}
+          <div className="card overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
               <div className="flex items-center gap-2">
-                <Clock size={16} className="text-forest" />
-                <h2 className="text-sm font-semibold text-ink">Upcoming Scheduled Publications</h2>
+                <Calendar size={15} className="text-forest" />
+                <h2 className="text-sm font-semibold text-ink">Upcoming Publications</h2>
               </div>
-              <Link href="/app/calendar" className="text-xs font-semibold text-forest hover:text-forest-hover flex items-center gap-1">
-                Calendar <ArrowRight size={13} />
+              <Link href="/app/calendar" className="text-xs font-medium text-forest hover:text-forest-hover flex items-center gap-1 transition-colors">
+                Calendar <ArrowRight size={12} />
               </Link>
             </div>
 
             {upcomingPosts.length === 0 ? (
-              <div className="py-6 text-center text-xs text-ink-secondary">
-                <p>No upcoming publications scheduled at this time.</p>
-                <p className="text-[11px] mt-1 text-ink-secondary/70">
-                  Approve drafts in Content to schedule them onto your publishing calendar.
-                </p>
+              <div className="px-5 py-10 text-center">
+                <Calendar size={28} className="mx-auto text-border mb-3" />
+                <p className="text-sm font-medium text-ink">No scheduled publications</p>
+                <p className="text-xs text-ink-muted mt-1">Approve drafts in Content to schedule them.</p>
               </div>
             ) : (
-              <div className="space-y-2.5">
+              <div className="divide-y divide-border">
                 {upcomingPosts.map((post) => (
-                  <div
-                    key={post.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-lg bg-surface border border-border gap-2"
-                  >
+                  <div key={post.id} className="flex items-center justify-between px-5 py-3.5 hover:bg-surface/50 transition-colors">
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-ink truncate">
+                      <p className="text-sm font-medium text-ink truncate">
                         {post.title || "Untitled draft"}
                       </p>
-                      <div className="flex items-center gap-2 mt-0.5 text-[11px] text-ink-secondary">
-                        <span className="font-medium text-forest">{post.pillar || "General"}</span>
-                        <span>&bull;</span>
-                        <span>
-                          {post.scheduled_for
-                            ? new Date(post.scheduled_for).toLocaleDateString(undefined, {
-                              weekday: "short",
-                              month: "short",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })
-                            : "Scheduled"}
-                        </span>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {post.pillar && (
+                          <span className="text-xs text-forest font-medium">{post.pillar}</span>
+                        )}
+                        {post.pillar && post.scheduled_for && (
+                          <span className="text-ink-muted text-xs">·</span>
+                        )}
+                        {post.scheduled_for && (
+                          <span className="text-xs text-ink-muted flex items-center gap-1">
+                            <Clock size={11} />
+                            {fmt(post.scheduled_for)}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-forest-light text-forest border border-forest-muted self-start sm:self-auto">
-                      Scheduled
-                    </span>
+                    <span className="badge-draft-only shrink-0 ml-3">Scheduled</span>
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Drafts Needing Review & Attention */}
-          <div className="card p-5">
-            <div className="flex items-center justify-between pb-3 mb-3 border-b border-border">
+          {/* Drafts needing attention */}
+          <div className="card overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
               <div className="flex items-center gap-2">
-                <FileText size={16} className="text-forest" />
-                <h2 className="text-sm font-semibold text-ink">Drafts Awaiting Attention</h2>
+                <FileText size={15} className="text-forest" />
+                <h2 className="text-sm font-semibold text-ink">Awaiting Review</h2>
+                {(draftsAwaitingReview ?? 0) > 0 && (
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-warning-light text-warning text-xs font-bold">
+                    {draftsAwaitingReview}
+                  </span>
+                )}
               </div>
-              <Link href="/app/content" className="text-xs font-semibold text-forest hover:text-forest-hover flex items-center gap-1">
-                Review all <ArrowRight size={13} />
+              <Link href="/app/content" className="text-xs font-medium text-forest hover:text-forest-hover flex items-center gap-1 transition-colors">
+                All content <ArrowRight size={12} />
               </Link>
             </div>
 
             {pendingReviewPosts.length === 0 ? (
-              <div className="py-6 text-center text-xs text-ink-secondary">
-                <CheckCircle2 size={24} className="mx-auto text-forest/50 mb-2" />
-                <p>All content drafts are reviewed.</p>
-                <p className="text-[11px] mt-1 text-ink-secondary/70">
-                  Generate new drafts from your Content Strategy or write a new piece.
-                </p>
+              <div className="px-5 py-10 text-center">
+                <CheckCircle2 size={28} className="mx-auto text-success/30 mb-3" />
+                <p className="text-sm font-medium text-ink">All drafts reviewed</p>
+                <p className="text-xs text-ink-muted mt-1">Generate new drafts from your content strategy.</p>
               </div>
             ) : (
-              <div className="space-y-2.5">
+              <div className="divide-y divide-border">
                 {pendingReviewPosts.map((post) => (
-                  <div
-                    key={post.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-lg bg-surface border border-border gap-2"
-                  >
+                  <div key={post.id} className="flex items-center justify-between px-5 py-3.5 hover:bg-surface/50 transition-colors gap-4">
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-ink truncate">
+                      <p className="text-sm font-medium text-ink truncate">
                         {post.title || "Untitled draft"}
                       </p>
-                      <div className="flex items-center gap-2 mt-0.5 text-[11px] text-ink-secondary">
-                        <span className="font-medium text-forest">{post.pillar || "General"}</span>
-                        <span>&bull;</span>
-                        <span>Status: {post.status.replace(/_/g, " ")}</span>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {post.pillar && (
+                          <span className="text-xs text-forest font-medium">{post.pillar}</span>
+                        )}
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${post.status === "needs_review"
+                          ? "bg-warning-light text-warning"
+                          : "bg-surface text-ink-secondary"
+                          }`}>
+                          {post.status === "needs_review" ? "Needs review" : "Draft"}
+                        </span>
                       </div>
                     </div>
                     <Link
                       href={`/app/content?post=${post.id}`}
-                      className="btn-secondary text-[11px] py-1 px-2.5 self-start sm:self-auto whitespace-nowrap"
+                      className="btn-secondary text-xs py-1.5 px-3 shrink-0"
                     >
-                      Review Draft
+                      Review
                     </Link>
                   </div>
                 ))}
@@ -701,138 +550,113 @@ export default async function OverviewPage() {
           </div>
         </div>
 
-        {/* Right Column (1 col): Integrations & Automation Health */}
-        <div className="space-y-6">
-          {/* Integrations Health Panel */}
+        {/* Right — Status & Health (2 cols) */}
+        <div className="lg:col-span-2 space-y-4">
+
+          {/* Agent status */}
           <div className="card p-5">
-            <div className="flex items-center justify-between pb-3 mb-3 border-b border-border">
-              <h2 className="text-sm font-semibold text-ink">Channel Health</h2>
-              <Link href="/app/integrations" className="text-xs font-semibold text-forest hover:text-forest-hover flex items-center gap-1">
-                Manage <ArrowRight size={13} />
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-ink">Agent Status</h2>
+              <Link href="/app/permissions" className="text-xs font-medium text-forest hover:text-forest-hover flex items-center gap-1 transition-colors">
+                Configure <ArrowRight size={12} />
               </Link>
             </div>
 
-            <div className="space-y-3 text-xs">
-              {/* LinkedIn */}
-              <div className="flex items-center justify-between p-2.5 rounded-lg bg-surface border border-border">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <Linkedin size={16} className="text-[#0A66C2] shrink-0" />
-                  <div className="truncate">
-                    <p className="font-semibold text-ink">LinkedIn Profile</p>
-                    <p className="text-[11px] text-ink-secondary truncate">
-                      {linkedinConnected ? (linkedinProfileName ? `Connected (${linkedinProfileName})` : "Connected") : "Not connected"}
-                    </p>
-                  </div>
-                </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0 ${linkedinConnected ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-amber-50 text-amber-800 border border-amber-200"}`}>
-                  {linkedinConnected ? "Active" : "Disconnected"}
-                </span>
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-surface border border-border mb-3">
+              <div className={`w-2 h-2 rounded-full shrink-0 ${stateInfo.dotClass}`} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-ink">{stateInfo.label}</p>
+                <p className="text-xs text-ink-muted mt-0.5 leading-relaxed">{stateInfo.description}</p>
               </div>
-
-              {/* Telegram */}
-              <div className="flex items-center justify-between p-2.5 rounded-lg bg-surface border border-border">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <Send size={16} className="text-[#229ED9] shrink-0" />
-                  <div className="truncate">
-                    <p className="font-semibold text-ink">Telegram Bot</p>
-                    <p className="text-[11px] text-ink-secondary truncate">
-                      {telegramConnected ? "Bot paired & active" : "Pairing token ready"}
-                    </p>
-                  </div>
-                </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0 ${telegramConnected ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-surface-alt text-ink-secondary border border-border"}`}>
-                  {telegramConnected ? "Linked" : "Unlinked"}
-                </span>
-              </div>
-
-              {/* MCP */}
-              <div className="flex items-center justify-between p-2.5 rounded-lg bg-surface border border-border">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <Cpu size={16} className="text-forest shrink-0" />
-                  <div className="truncate">
-                    <p className="font-semibold text-ink">Remote MCP Server</p>
-                    <p className="text-[11px] text-ink-secondary truncate">
-                      {mcpActive ? "API endpoint active" : "Key provision ready"}
-                    </p>
-                  </div>
-                </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0 ${mcpActive ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-surface-alt text-ink-secondary border border-border"}`}>
-                  {mcpActive ? "Active" : "Inactive"}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Automation & Cadence Guardrails */}
-          <div className="card p-5">
-            <div className="flex items-center justify-between pb-3 mb-3 border-b border-border">
-              <h2 className="text-sm font-semibold text-ink">Automation Guardrails</h2>
-              <Link href="/app/permissions" className="text-xs font-semibold text-forest hover:text-forest-hover flex items-center gap-1">
-                Configure <ArrowRight size={13} />
-              </Link>
             </div>
 
             <div className="space-y-2.5 text-xs">
-              <div>
-                <div className="flex items-center justify-between">
-                  <span className="text-ink-secondary">Agent State:</span>
-                  <span className="font-semibold text-ink flex items-center gap-1.5">
-                    <StateIcon size={14} className={stateConfig.color} />
-                    {stateConfig.label}
-                  </span>
-                </div>
-                <p className="text-[11px] text-ink-secondary mt-1">
-                  {stateConfig.description}
-                </p>
-              </div>
-              <div className="flex items-center justify-between pt-1.5 border-t border-border/50">
-                <span className="text-ink-secondary">Operating Mode:</span>
-                <span className="font-semibold text-ink">
-                  {workspace.operating_mode === "approval_required" ? "Approval Required" : "Autopilot"}
+              <div className="flex items-center justify-between">
+                <span className="text-ink-secondary">Operating mode</span>
+                <span className="font-medium text-ink">
+                  {workspace.operating_mode === "approval_required" ? "Approval required" : "Autopilot"}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-ink-secondary">Daily Publishing Cap:</span>
-                <span className="font-semibold text-ink">1 post / day (Hard limit)</span>
+                <span className="text-ink-secondary">Daily publish cap</span>
+                <span className="font-medium text-ink">1 post / day</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-ink-secondary">Weekly Target Cadence:</span>
-                <span className="font-semibold text-ink">
-                  {weeklyCadenceTarget} posts / week
-                </span>
+                <span className="text-ink-secondary">Weekly target</span>
+                <span className="font-medium text-ink">{weeklyCadenceTarget} posts</span>
               </div>
             </div>
           </div>
 
-          {/* Recent Activity Mini-Feed */}
+          {/* Channel health */}
           <div className="card p-5">
-            <div className="flex items-center justify-between pb-3 mb-3 border-b border-border">
-              <h2 className="text-sm font-semibold text-ink">Recent Activity</h2>
-              <Link href="/app/activity" className="text-xs font-semibold text-forest hover:text-forest-hover flex items-center gap-1">
-                All logs <ArrowRight size={13} />
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-ink">Channel Health</h2>
+              <Link href="/app/integrations" className="text-xs font-medium text-forest hover:text-forest-hover flex items-center gap-1 transition-colors">
+                Manage <ArrowRight size={12} />
               </Link>
             </div>
 
-            {activityError ? (
-              <p className="text-xs text-error">{activityError}</p>
-            ) : recentActivities.length === 0 ? (
-              <div className="py-4 text-center text-xs text-ink-secondary">
-                <p className="text-2xl font-bold text-ink mb-1">0</p>
-                <p>No activity recorded yet.</p>
+            <div className="space-y-2">
+              {integrations.map(({ icon: Icon, iconClass, label, detail, connected, href }) => (
+                <Link
+                  key={label}
+                  href={href}
+                  className="flex items-center justify-between p-3 rounded-xl bg-surface border border-border hover:border-forest/20 hover:bg-forest-light/20 transition-colors group"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Icon size={16} className={`${iconClass} shrink-0`} />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-ink">{label}</p>
+                      <p className="text-xs text-ink-muted truncate mt-0.5">{detail}</p>
+                    </div>
+                  </div>
+                  <div className={`flex items-center gap-1.5 shrink-0 ml-2 text-xs font-medium px-2 py-0.5 rounded-full border ${connected
+                    ? "bg-success-light text-success border-success/20"
+                    : "bg-surface text-ink-muted border-border"
+                    }`}>
+                    <Circle size={6} className={connected ? "text-success fill-success" : "text-ink-muted fill-ink-muted"} />
+                    {connected ? "Connected" : "Disconnected"}
+                  </div>
+                </Link>
+              ))}
+            </div>
+
+            {!linkedinConnected && isBetaOrPaid && (
+              <div className="mt-3 p-3 rounded-xl bg-warning-light border border-warning/20">
+                <p className="text-xs font-medium text-warning flex items-center gap-1.5">
+                  <AlertTriangle size={12} />
+                  Connect LinkedIn to enable publishing
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Recent activity */}
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-ink">Recent Activity</h2>
+              <Link href="/app/activity" className="text-xs font-medium text-forest hover:text-forest-hover flex items-center gap-1 transition-colors">
+                All logs <ArrowRight size={12} />
+              </Link>
+            </div>
+
+            {recentActivities.length === 0 ? (
+              <div className="text-center py-6">
+                <p className="text-sm text-ink-muted">No activity recorded yet.</p>
               </div>
             ) : (
-              <div className="space-y-2.5 text-xs">
+              <div className="space-y-3">
                 {recentActivities.map((item) => (
-                  <div key={item.id} className="pb-2 border-b border-border/50 last:border-0 last:pb-0">
-                    <div className="flex items-center justify-between">
-                      <p className="font-semibold text-ink truncate mr-2">{item.title}</p>
-                      {item.statusBadge && (
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 ${item.statusBadge.className}`}>
-                          {item.statusBadge.label}
-                        </span>
-                      )}
+                  <div key={item.id} className="flex items-start gap-3">
+                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${item.status === "succeeded" ? "bg-success" :
+                      item.status?.startsWith("failed") ? "bg-error" :
+                        item.source === "job" ? "bg-warning" : "bg-forest"
+                      }`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-ink capitalize truncate">{item.title}</p>
+                      <p className="text-xs text-ink-muted mt-0.5">{relativeTime(item.timestamp)}</p>
                     </div>
-                    <p className="text-[11px] text-ink-secondary mt-0.5 truncate">{item.detail}</p>
                   </div>
                 ))}
               </div>
