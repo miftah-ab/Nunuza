@@ -73,20 +73,67 @@ export async function requireAuth(): Promise<string> {
  * NEVER accept workspace_id from client input; always derive it from the session.
  */
 export async function requireWorkspace(): Promise<Workspace> {
-  const userId = await requireAuth();
   const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    throw new AuthError();
+  }
 
   const { data: workspace, error } = await supabase
     .from("workspaces")
     .select("*")
-    .eq("owner_user_id", userId)
+    .eq("owner_user_id", user.id)
     .single();
 
-  if (error || !workspace) {
-    throw new ForbiddenError("Workspace not found.");
+  if (!error && workspace) {
+    return workspace as Workspace;
   }
 
-  return workspace as Workspace;
+  // Self-healing provisioning fallback:
+  // If user is authenticated but workspace row was not provisioned (e.g. signup trigger was absent when user registered),
+  // provision their profile and draft_only workspace via service role.
+  try {
+    const { createServiceClient } = await import("@/lib/supabase/server");
+    const serviceClient = createServiceClient();
+
+    const email = user.email ?? "";
+    const baseName = email.split("@")[0] || "User";
+
+    // Ensure profile exists
+    await serviceClient.from("profiles").upsert(
+      {
+        id: user.id,
+        display_name: (user.user_metadata?.full_name as string) || (user.user_metadata?.name as string) || baseName,
+        timezone: "UTC",
+      },
+      { onConflict: "id" }
+    );
+
+    // Create workspace
+    const { data: newWs, error: wsErr } = await serviceClient
+      .from("workspaces")
+      .insert({
+        owner_user_id: user.id,
+        name: `${baseName}'s Workspace`,
+        state: "setup_required",
+        entitlement_type: "draft_only",
+        operating_mode: "approval_required",
+      })
+      .select()
+      .single();
+
+    if (!wsErr && newWs) {
+      return newWs as Workspace;
+    }
+  } catch (healError) {
+    console.error("[requireWorkspace] Self-healing workspace provisioning failed:", healError);
+  }
+
+  throw new ForbiddenError("Workspace not found.");
 }
 
 /**

@@ -1,4 +1,4 @@
-﻿import type { Metadata } from "next";
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 export const metadata: Metadata = { title: "Settings", robots: { index: false } };
@@ -15,10 +15,14 @@ export default async function SettingsPage() {
         <div><p className="text-xs text-ink-secondary font-medium uppercase tracking-widest mb-1">Display name</p><p className="text-sm text-ink">{profile?.display_name ?? "—"}</p></div>
         <div><p className="text-xs text-ink-secondary font-medium uppercase tracking-widest mb-1">Time zone</p><p className="text-sm text-ink">{profile?.timezone ?? "UTC"}</p></div>
       </div>
-      <div className="mt-6 card p-5 border-error-light bg-error-light/30">
-        <p className="text-sm font-semibold text-ink mb-1">Delete account</p>
-        <p className="text-xs text-ink-secondary mb-3">Permanently removes your workspace and all data. This cannot be undone. Export your drafts first.</p>
-        <button disabled className="btn-secondary text-sm opacity-60 cursor-not-allowed">Delete account — builds in Phase 3</button>
+      <div className="mt-6 card p-5 border-border bg-surface/50">
+        <p className="text-sm font-semibold text-ink mb-1">Workspace Deletion</p>
+        <p className="text-xs text-ink-secondary mb-3">
+          Self-serve account and workspace deletion is disabled during the draft-only preview. If you need your data or workspace completely expunged, please export your content first and reach out to support.
+        </p>
+        <button disabled className="btn-secondary text-xs opacity-60 cursor-not-allowed">
+          Self-serve deletion disabled in preview
+        </button>
       </div>
     </div>
   );
