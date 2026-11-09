@@ -93,7 +93,7 @@ export default async function LoginPage({
 
             <div className="mt-5 p-4 rounded-lg bg-surface border border-border text-xs text-ink-secondary">
               <p>
-                Commercial accounts start with a 14-day free trial ($29/month after, card required). Private beta access is managed by authorized administrators.
+                Accounts start with a 14-day free trial ($29/month after, card required). Cancel anytime.
               </p>
             </div>
 
@@ -111,7 +111,7 @@ export default async function LoginPage({
           </div>
 
           <p className="mt-6 text-center text-xs text-ink-muted">
-            14-day free trial · $29/mo after · Private beta by invite
+            14-day free trial · $29/mo after · Cancel anytime
           </p>
         </div>
       </main>

@@ -230,7 +230,7 @@ export function OnboardingClient({
                 <strong className="text-ink">Full v1.0.0 Content Operations:</strong> This setup configures
                 your AI draft engine, audience targeting, and writing voice. Once completed, your workspace can
                 generate tailored drafts, manage review cycles, and publish directly to LinkedIn according to your
-                commercial subscription or private beta access.
+                commercial subscription.
               </div>
               <div className="mt-8 flex justify-end">
                 <button

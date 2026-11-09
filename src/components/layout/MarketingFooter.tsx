@@ -21,7 +21,7 @@ export function MarketingFooter() {
               LinkedIn content operations for solo founders.
             </p>
             <p className="text-xs text-ink-secondary">
-              Commercial 14-day trial &amp; Private Beta.
+              14-day free trial. Cancel anytime.
             </p>
           </div>
 

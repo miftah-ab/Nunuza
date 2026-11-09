@@ -561,7 +561,7 @@ export async function executeMcpTool(
 
       if (!canScheduleEntitlement) {
         throw new Error(
-          `ENTITLEMENT_RESTRICTED: Workspace entitlement "${ws?.entitlement_type || "suspended"}" cannot schedule posts. Requires active trial, subscription, or private beta access.`
+          `ENTITLEMENT_RESTRICTED: Workspace entitlement "${ws?.entitlement_type || "suspended"}" cannot schedule posts. Requires an active trial or subscription.`
         );
       }
 

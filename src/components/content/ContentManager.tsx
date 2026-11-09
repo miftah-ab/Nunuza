@@ -347,7 +347,7 @@ export function ContentManager({
         ) : (
           <div className="flex items-center gap-1.5 text-ink-secondary">
             <Lock size={12} className="text-amber-600" />
-            <span>Publishing & scheduling require an active 14-day free trial ($29/mo) or private beta access.</span>
+            <span>Publishing & scheduling require an active 14-day free trial ($29/mo).</span>
           </div>
         )}
       </div>
@@ -457,7 +457,7 @@ export function ContentManager({
                     ) : (
                       <span
                         className="text-ink-secondary flex items-center gap-1 cursor-not-allowed"
-                        title="Approval for publishing requires an active trial, subscription, or private beta access"
+                        title="Approval for publishing requires an active trial or subscription"
                       >
                         <Lock size={11} /> Approval Gated
                       </span>
@@ -474,7 +474,7 @@ export function ContentManager({
                     ) : (
                       <span
                         className="text-ink-secondary flex items-center gap-1 cursor-not-allowed"
-                        title="Scheduling requires an active trial, subscription, or private beta access"
+                        title="Scheduling requires an active trial or subscription"
                       >
                         <Lock size={11} /> Scheduling Gated
                       </span>

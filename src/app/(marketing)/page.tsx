@@ -18,7 +18,7 @@ import {
 export const metadata: Metadata = {
   title: "Nunuza — Autonomous LinkedIn content operations for founders",
   description:
-    "Your LinkedIn strategy, voice, drafts, and automated publishing in one workflow. Start with a 14-day free trial ($29/mo) or private beta access.",
+    "Your LinkedIn strategy, voice, drafts, and automated publishing in one workflow. Start with a 14-day free trial ($29/mo).",
 };
 
 // ─── Data ──────────────────────────────────────────────────────────────────────
@@ -100,11 +100,11 @@ const faqItems = [
   },
   {
     q: "Can I publish to my personal LinkedIn profile?",
-    a: "Yes. Both commercial customers (during trial and active subscription) and authorized private beta testers can connect their personal LinkedIn profile via official OAuth and publish human-approved posts or utilize bounded scheduling.",
+    a: "Yes. During your 14-day free trial and active subscription, you can connect your personal LinkedIn profile via official OAuth and publish human-approved posts or utilize bounded scheduling.",
   },
   {
-    q: "What is the Private Beta?",
-    a: "Private Beta access is reserved for authorized design partners, internal testing, and product validation. Beta workspaces are provisioned directly by an administrator and receive full v1.0.0 capabilities without requiring a credit card or subscription.",
+    q: "Do I need a credit card to start?",
+    a: "Yes, a payment card is collected at checkout for the 14-day free trial, but you will not be charged until the trial ends and you can cancel anytime with one click.",
   },
   {
     q: "Is there a permanent free customer plan?",
@@ -135,7 +135,7 @@ export default function HomePage() {
           {/* Stage label */}
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-border text-ink-secondary text-xs font-medium mb-8">
             <span className="w-1.5 h-1.5 rounded-full bg-success inline-block" aria-hidden="true" />
-            Now in private beta · 14-day free trial for commercial access
+            14-day free trial · Autonomous LinkedIn content operations
           </div>
 
           <h1
@@ -312,10 +312,10 @@ export default function HomePage() {
               </div>
               <div>
                 <p className="text-sm font-semibold text-ink mb-1">
-                  Private Beta Access
+                  Full Feature Access
                 </p>
                 <p className="text-sm text-ink-secondary">
-                  Authorized design partners and internal testers receive complete v1.0.0 capabilities directly from an administrator, with no subscription or payment card required.
+                  Your 14-day trial includes complete access to AI drafting, LinkedIn publishing, automated scheduling, and Bounded Autopilot.
                 </p>
               </div>
             </div>

@@ -336,7 +336,7 @@ export function evaluatePublishCapability(
 export async function requirePublishingAccess(): Promise<Workspace> {
   const workspace = await requireWorkspace();
   if (!canPublish(workspace)) {
-    throw new EntitlementError("internal_beta or paid", workspace.entitlement_type);
+    throw new EntitlementError("active trial or subscription", workspace.entitlement_type);
   }
   if (workspace.paused_at) {
     throw new ForbiddenError("Agent is paused. Resume before publishing.");

@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
         {
           error: "SELLER_INELIGIBLE",
           message:
-            "Live checkout is temporarily disabled. If you have Private Beta access, publishing and scheduling are already active without requiring a card.",
+            "Live checkout is temporarily unavailable. Please try again later or contact support.",
         },
         { status: 403 }
       );

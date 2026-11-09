@@ -40,8 +40,7 @@ export default function TermsPage() {
               Nunuza is an autonomous LinkedIn content operations agent. It supports
               strategic planning, AI content drafting, human review, background scheduling,
               and direct personal-profile publishing via official LinkedIn APIs. Access is
-              available through commercial 14-day free trials ($29/month) or authorized
-              private beta access.
+              available through a commercial 14-day free trial ($29/month).
             </p>
           </section>
 
@@ -76,8 +75,7 @@ export default function TermsPage() {
               Commercial subscriptions start with a 14-day free trial. A valid payment card
               is required at checkout. The trial converts automatically to $29.00 USD/month
               after 14 days unless canceled. You may cancel at any time from your billing dashboard
-              without penalty. Authorized private beta testers access the service without payment
-              cards or fees under terms established with administrators.
+              without penalty.
             </p>
           </section>
 

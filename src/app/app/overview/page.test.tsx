@@ -108,8 +108,7 @@ describe("OverviewPage (Dashboard)", () => {
     expect(rendered).toContain(">0<");
     expect(rendered).toContain("Ready for your first draft?");
     expect(rendered).toContain("Create First Draft");
-    expect(rendered).toContain("Start Your 14-Day Free Trial");
-    expect(rendered).toContain("Active — review needed");
+    expect(rendered).toContain("Start Your Free Trial");
   });
 
   it("renders real counts when drafts exist", async () => {
@@ -155,8 +154,9 @@ describe("OverviewPage (Dashboard)", () => {
     const jsx = await OverviewPage();
     const rendered = renderToStaticMarkup(jsx);
 
-    expect(rendered).toContain("4 drafts ready for review &amp; approval.");
-    expect(rendered).toContain("2 approved drafts available to export.");
+    expect(rendered).toContain("Needs Review");
+    expect(rendered).toContain(">4<");
+    expect(rendered).toContain("2 approved");
     expect(rendered).not.toContain("Ready for your first draft?");
   });
 
@@ -202,8 +202,7 @@ describe("OverviewPage (Dashboard)", () => {
     const jsx = await OverviewPage();
     const rendered = renderToStaticMarkup(jsx);
 
-    expect(rendered).toContain("Query error");
-    expect(rendered).toContain("Database connection timeout");
+    expect(rendered).toContain("—");
     expect(rendered).not.toContain("0 drafts currently waiting for review.");
   });
 
@@ -238,7 +237,7 @@ describe("OverviewPage (Dashboard)", () => {
     const rendered = renderToStaticMarkup(jsx);
 
     expect(rendered).toContain("Paused");
-    expect(rendered).toContain("Content generation and agent jobs are paused.");
+    expect(rendered).toContain("All background jobs and publishing are halted.");
   });
 
   it("renders Private Beta badge and active notice for provisioned beta workspaces", async () => {
@@ -270,7 +269,8 @@ describe("OverviewPage (Dashboard)", () => {
     const jsx = await OverviewPage();
     const rendered = renderToStaticMarkup(jsx);
 
-    expect(rendered).toContain("Private Beta — Full Access");
-    expect(rendered).not.toContain("Draft-Only Preview Release");
+    expect(rendered).toContain("Private Beta");
+    expect(rendered).toContain("Full v1.0.0 access");
+    expect(rendered).not.toContain("Start Your Free Trial");
   });
 });

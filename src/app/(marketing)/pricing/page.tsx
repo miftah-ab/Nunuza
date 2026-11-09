@@ -5,7 +5,7 @@ import { CheckCircle2, Info } from "lucide-react";
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "Nunuza Solo — $29/month with a 14-day free trial. Full LinkedIn content operations SaaS. Private beta available for authorized partners.",
+    "Nunuza Solo — $29/month with a 14-day free trial. Full LinkedIn content operations SaaS. Cancel anytime.",
 };
 
 const includedFeatures = [
@@ -46,16 +46,15 @@ export default function PricingPage() {
           </p>
         </div>
 
-        {/* Access Pathways Banner */}
+        {/* Trial Info Banner */}
         <div className="card border-forest-muted bg-forest-light p-5 flex gap-3 mb-8">
           <Info size={18} className="text-forest flex-shrink-0 mt-0.5" aria-hidden="true" />
           <div>
             <p className="text-sm font-semibold text-ink mb-1">
-              Dual Access Pathways
+              14-Day Free Trial
             </p>
             <p className="text-sm text-ink-secondary">
-              <strong>Commercial Customers:</strong> Start with a 14-day trial (card required at checkout), then $29/month with automatic renewal. Full v1.0.0 features throughout the trial.<br />
-              <strong>Private Beta Testers:</strong> Authorized partners provisioned directly by an administrator receive full access with zero payment required.
+              Start with a 14-day free trial with full access to all features. Cancel anytime during the trial before your first monthly charge of $29.
             </p>
           </div>
         </div>

@@ -303,7 +303,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
           <div className="notice-warning mt-4 p-3 rounded-lg text-xs flex items-start gap-2">
             <Info className="w-4 h-4 shrink-0 mt-0.5" />
             <div>
-              <span className="font-semibold">Subscription Required:</span> You can connect LinkedIn now. Live publishing and background scheduling become active upon starting your 14-day free trial ($29/month) or receiving private beta access.
+              <span className="font-semibold">Subscription Required:</span> You can connect LinkedIn now. Live publishing and background scheduling become active upon starting your 14-day free trial ($29/month).
             </div>
           </div>
         )}

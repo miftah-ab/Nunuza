@@ -80,6 +80,9 @@ export async function schedulePost(
   try {
     supabase = createServiceClient();
   } catch {
+    // fallback
+  }
+  if (!supabase) {
     supabase = await createClient();
   }
 
@@ -247,6 +250,9 @@ export async function cancelScheduledPost(
   try {
     supabase = createServiceClient();
   } catch {
+    // fallback
+  }
+  if (!supabase) {
     supabase = await createClient();
   }
 

@@ -96,7 +96,7 @@ export default async function CalendarPage() {
           <div>
             <p className="font-semibold">Automated Publishing Gated</p>
             <p className="mt-0.5">
-              Start your 14-day free trial (\$29/mo) or request private beta access to enable automatic background publishing.
+              Start your 14-day free trial (\$29/mo) to enable automatic background publishing.
             </p>
           </div>
         </div>

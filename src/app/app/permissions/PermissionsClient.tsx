@@ -65,7 +65,7 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
     if (mode === "autopilot") {
       if (!isAutopilotEligible) {
         setError(
-          "Autopilot requires an active 14-day free trial ($29/mo) or authorized private beta access."
+          "Autopilot requires an active 14-day free trial ($29/mo) or subscription."
         );
         return;
       }
@@ -131,8 +131,8 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
               <div className="flex items-center gap-2 mb-0.5">
                 <h2 className="text-sm font-semibold text-ink">Master Agent Switch</h2>
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${isPaused
-                    ? "bg-warning-light text-warning border-warning/20"
-                    : "bg-success-light text-success border-success/20"
+                  ? "bg-warning-light text-warning border-warning/20"
+                  : "bg-success-light text-success border-success/20"
                   }`}>
                   {isPaused ? "Paused" : "Active"}
                 </span>
@@ -149,8 +149,8 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
             onClick={handleTogglePause}
             disabled={loading}
             className={`shrink-0 flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isPaused
-                ? "bg-forest text-white hover:bg-forest-hover"
-                : "bg-error-light text-error hover:bg-error hover:text-white border border-error/20"
+              ? "bg-forest text-white hover:bg-forest-hover"
+              : "bg-error-light text-error hover:bg-error hover:text-white border border-error/20"
               }`}
           >
             {isPaused ? (
@@ -177,8 +177,8 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
             type="button"
             onClick={() => handleSelectMode("approval_required")}
             className={`w-full text-left p-4 rounded-xl border transition-colors ${workspace.operating_mode === "approval_required"
-                ? "border-forest bg-forest-light/40"
-                : "border-border hover:bg-surface"
+              ? "border-forest bg-forest-light/40"
+              : "border-border hover:bg-surface"
               }`}
             aria-pressed={workspace.operating_mode === "approval_required"}
           >
@@ -201,8 +201,8 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
                 </div>
               </div>
               <div className={`w-4 h-4 rounded-full border-2 shrink-0 mt-1 ${workspace.operating_mode === "approval_required"
-                  ? "border-forest bg-forest"
-                  : "border-border"
+                ? "border-forest bg-forest"
+                : "border-border"
                 }`} aria-hidden="true" />
             </div>
           </button>
@@ -213,10 +213,10 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
             onClick={() => handleSelectMode("autopilot")}
             disabled={!isAutopilotEligible}
             className={`w-full text-left p-4 rounded-xl border transition-colors ${!isAutopilotEligible
-                ? "opacity-60 cursor-not-allowed border-border bg-surface/30"
-                : workspace.operating_mode === "autopilot"
-                  ? "border-forest bg-forest-light/40"
-                  : "border-border hover:bg-surface cursor-pointer"
+              ? "opacity-60 cursor-not-allowed border-border bg-surface/30"
+              : workspace.operating_mode === "autopilot"
+                ? "border-forest bg-forest-light/40"
+                : "border-border hover:bg-surface cursor-pointer"
               }`}
             aria-pressed={workspace.operating_mode === "autopilot"}
           >
@@ -242,15 +242,15 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
                   </p>
                   {!isAutopilotEligible && (
                     <p className="text-xs text-warning mt-2 font-medium">
-                      Start your 14-day free trial ($29/mo) or contact your administrator for private beta access.{" "}
+                      Start your 14-day free trial ($29/mo) to enable Autopilot.{" "}
                       <Link href="/app/billing" className="underline underline-offset-2">View billing →</Link>
                     </p>
                   )}
                 </div>
               </div>
               <div className={`w-4 h-4 rounded-full border-2 shrink-0 mt-1 ${workspace.operating_mode === "autopilot"
-                  ? "border-forest bg-forest"
-                  : "border-border"
+                ? "border-forest bg-forest"
+                : "border-border"
                 }`} aria-hidden="true" />
             </div>
           </button>
