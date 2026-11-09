@@ -93,7 +93,7 @@ export async function generateTelegramPairingToken(
   const botUsername =
     process.env.TELEGRAM_BOT_USERNAME ||
     process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ||
-    "Linker_Studio_Bot";
+    "NunuzaBot";
   const botUrl = `https://t.me/${botUsername}?start=${rawToken}`;
 
   return {

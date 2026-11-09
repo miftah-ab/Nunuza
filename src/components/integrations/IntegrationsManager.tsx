@@ -105,7 +105,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
       const dataPayload = json.data || json;
       const botUrl =
         dataPayload.botUrl ||
-        `https://t.me/Linker_Studio_Bot?start=${dataPayload.token}`;
+        `https://t.me/NunuzaBot?start=${dataPayload.token}`;
 
       setTelegramPairing({
         token: dataPayload.token,
@@ -385,7 +385,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
 
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   <a
-                    href={telegramPairing.botUrl || `https://t.me/Linker_Studio_Bot?start=${telegramPairing.token}`}
+                    href={telegramPairing.botUrl || `https://t.me/NunuzaBot?start=${telegramPairing.token}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="btn-primary text-xs px-3.5 py-1.5 flex items-center gap-1.5 bg-[#229ED9] hover:bg-[#1b80b0] text-white"
