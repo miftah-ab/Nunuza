@@ -13,7 +13,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { logAuditEvent } from "@/lib/db/workspace";
 import type { IntegrationConnection } from "@/types/database";
 
-export const LINKEDIN_API_VERSION = process.env.LINKEDIN_API_VERSION ?? "202410";
+export const LINKEDIN_API_VERSION = "202608";
 export const LINKEDIN_SCOPES = ["w_member_social", "openid", "profile", "email"];
 
 export function getLinkedInAuthorizationUrl(state: string): string {
@@ -242,7 +242,8 @@ export async function publishPostToLinkedIn(
   // 3. Decrypt access token securely in-memory only (BED-03)
   const accessToken = decryptToken(connection.encrypted_token_ref);
   const memberUrn = connection.external_account_id;
-  const apiVersion = connection.metadata?.apiVersion || LINKEDIN_API_VERSION;
+  // Always use the centralized constant — ignore stale apiVersion in connection metadata
+  const apiVersion = LINKEDIN_API_VERSION;
 
   if (!memberUrn || !memberUrn.startsWith("urn:li:person:")) {
     throw new Error(

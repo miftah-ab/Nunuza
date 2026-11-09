@@ -6,8 +6,10 @@
  * 2. Account linking & unlinking bound to authenticated workspaces (telegram_links).
  * 3. Webhook secret validation and replay protection (update_id deduplication).
  * 4. Conversational command processing:
- *    /start, /status, /pause, /resume, /drafts, /approve <id>, /reject <id>, /report, /help
- * 5. Strict adherence to spec:
+ *    /start, /status, /pause, /resume, /drafts, /approve <id>, /reject <id>, /report, /help, /settings
+ * 5. Inline keyboard menus and callback_query handling.
+ * 6. Bot command registration via setMyCommands.
+ * 7. Strict adherence to spec:
  *    - Approval cannot be bypassed.
  *    - draft_only entitlement rejects publishing/approval with clear explanation.
  *    - Cross-tenant isolation enforced on every action.
@@ -28,7 +30,6 @@ export function isUpdateProcessed(updateId: number): boolean {
 
 export function markUpdateProcessed(updateId: number): void {
   if (processedUpdateIds.size >= MAX_PROCESSED_CACHE) {
-    // Clear oldest items if cache grows too large
     const firstItems = Array.from(processedUpdateIds).slice(0, 500);
     firstItems.forEach((id) => processedUpdateIds.delete(id));
   }
@@ -40,12 +41,10 @@ export function markUpdateProcessed(updateId: number): void {
 export function verifyTelegramSecret(headerSecret: string | null | undefined): boolean {
   const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
   if (!expectedSecret) {
-    // If not configured in environment, fail closed in production, allow in local test if mock mode
     return process.env.NODE_ENV === "test";
   }
   if (!headerSecret) return false;
 
-  // Constant-time comparison to prevent timing attacks
   try {
     const a = Buffer.from(headerSecret);
     const b = Buffer.from(expectedSecret);
@@ -56,6 +55,97 @@ export function verifyTelegramSecret(headerSecret: string | null | undefined): b
   }
 }
 
+// ─── MarkdownV2 Escaping ──────────────────────────────────────────────────────
+
+function escapeMd(text: string): string {
+  return String(text).replace(/[_*[\]()~`>#+=|{}.!\-]/g, "\\$&");
+}
+
+// ─── Telegram API Helpers ─────────────────────────────────────────────────────
+
+const TG_API = (token: string, method: string) =>
+  `https://api.telegram.org/bot${token}/${method}`;
+
+async function tgPost(method: string, body: object): Promise<any> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || token.trim() === "") {
+    console.warn(`[telegram] ${method}: TELEGRAM_BOT_TOKEN not configured`);
+    return { ok: true };
+  }
+  try {
+    const res = await fetch(TG_API(token, method), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return await res.json();
+  } catch (err: any) {
+    console.error(`[telegram] ${method} error:`, err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+export async function answerCallbackQuery(
+  callbackQueryId: string,
+  text?: string
+): Promise<void> {
+  await tgPost("answerCallbackQuery", {
+    callback_query_id: callbackQueryId,
+    ...(text ? { text, show_alert: false } : {}),
+  });
+}
+
+export async function editTelegramMessage(
+  chatId: number,
+  messageId: number,
+  text: string,
+  replyMarkup?: any
+): Promise<void> {
+  const payload: any = {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    parse_mode: "MarkdownV2",
+  };
+  if (replyMarkup) payload.reply_markup = replyMarkup;
+  const result = await tgPost("editMessageText", payload);
+  if (!result.ok && result.description && !result.description.includes("message is not modified")) {
+    // Fallback: try without parse_mode
+    const plainPayload: any = { chat_id: chatId, message_id: messageId, text: text.replace(/\\/g, "") };
+    if (replyMarkup) plainPayload.reply_markup = replyMarkup;
+    await tgPost("editMessageText", plainPayload);
+  }
+}
+
+// ─── Keyboard Builders ────────────────────────────────────────────────────────
+
+function mainMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "📝 My Drafts", callback_data: "menu:drafts" },
+        { text: "✅ Approvals", callback_data: "menu:approvals" },
+      ],
+      [
+        { text: "📅 Schedule", callback_data: "menu:schedule" },
+        { text: "📊 Performance", callback_data: "menu:performance" },
+      ],
+      [
+        { text: "🤖 Agent Status", callback_data: "menu:agent" },
+        { text: "⚙️ Settings", callback_data: "menu:settings" },
+      ],
+      [{ text: "❓ Help", callback_data: "menu:help" }],
+    ],
+  };
+}
+
+function navRow(backData = "menu:main") {
+  return [
+    { text: "⬅️ Back", callback_data: backData },
+    { text: "🏠 Main Menu", callback_data: "menu:main" },
+  ];
+}
+
 // ─── Pairing Tokens ───────────────────────────────────────────────────────────
 
 export interface PairingTokenResult {
@@ -64,10 +154,6 @@ export interface PairingTokenResult {
   expiresAt: string;
 }
 
-/**
- * Generates a single-use 15-minute pairing token for an authenticated workspace.
- * Raw token is returned once to the user; only its SHA-256 hash is saved.
- */
 export async function generateTelegramPairingToken(
   workspaceId: string,
   userId: string,
@@ -96,16 +182,9 @@ export async function generateTelegramPairingToken(
     "NunuzaBot";
   const botUrl = `https://t.me/${botUsername}?start=${rawToken}`;
 
-  return {
-    token: rawToken,
-    botUrl,
-    expiresAt,
-  };
+  return { token: rawToken, botUrl, expiresAt };
 }
 
-/**
- * Links a Telegram user and chat ID using a raw pairing token.
- */
 export async function linkTelegramAccount(
   rawToken: string,
   telegramUserId: number,
@@ -115,7 +194,6 @@ export async function linkTelegramAccount(
   const tokenHash = crypto.createHash("sha256").update(rawToken.trim()).digest("hex");
   const supabase = supabaseOverride || createServiceClient();
 
-  // Find valid token
   const { data: tokenRecord, error: tokenError } = await supabase
     .from("link_tokens")
     .select("*")
@@ -131,27 +209,23 @@ export async function linkTelegramAccount(
     };
   }
 
-  // Mark token consumed
   await supabase
     .from("link_tokens")
     .update({ consumed_at: new Date().toISOString() })
     .eq("id", tokenRecord.id);
 
-  // Revoke any previous active link for this workspace
   await supabase
     .from("telegram_links")
     .update({ revoked_at: new Date().toISOString() })
     .eq("workspace_id", tokenRecord.workspace_id)
     .is("revoked_at", null);
 
-  // Revoke any previous active link for this Telegram user
   await supabase
     .from("telegram_links")
     .update({ revoked_at: new Date().toISOString() })
     .eq("telegram_user_id", telegramUserId)
     .is("revoked_at", null);
 
-  // Insert active link
   const { error: linkError } = await supabase.from("telegram_links").insert({
     workspace_id: tokenRecord.workspace_id,
     telegram_user_id: telegramUserId,
@@ -163,7 +237,6 @@ export async function linkTelegramAccount(
     return { success: false, error: `Linking failed: ${linkError.message}` };
   }
 
-  // Log audit event
   await supabase.from("audit_events").insert({
     workspace_id: tokenRecord.workspace_id,
     actor_type: "user",
@@ -176,9 +249,6 @@ export async function linkTelegramAccount(
   return { success: true, workspaceId: tokenRecord.workspace_id };
 }
 
-/**
- * Revokes the active Telegram link for a workspace.
- */
 export async function unlinkTelegramAccount(
   workspaceId: string,
   supabaseOverride?: any
@@ -203,9 +273,6 @@ export async function unlinkTelegramAccount(
   return false;
 }
 
-/**
- * Returns the active Telegram link status for a workspace.
- */
 export async function getTelegramLinkStatus(
   workspaceId: string,
   supabaseOverride?: any
@@ -250,14 +317,59 @@ export interface CommandResponse {
   replyMarkup?: any;
 }
 
+/** Resolve active workspace for a Telegram user; returns null if unlinked. */
+async function resolveWorkspace(
+  telegramUserId: number,
+  supabase: any
+): Promise<{ workspaceId: string; workspace: any } | null> {
+  const { data: link, error: linkErr } = await supabase
+    .from("telegram_links")
+    .select("workspace_id, chat_id")
+    .eq("telegram_user_id", telegramUserId)
+    .is("revoked_at", null)
+    .maybeSingle();
+
+  if (linkErr || !link) return null;
+
+  const { data: workspace } = await supabase
+    .from("workspaces")
+    .select("id, name, entitlement_type, state, operating_mode, paused_at")
+    .eq("id", link.workspace_id)
+    .single();
+
+  return { workspaceId: link.workspace_id, workspace };
+}
+
+function canPublishEntitlement(entitlement: string): boolean {
+  return ["internal_beta", "publishing_beta", "internal_test", "paid_trial", "paid_active"].includes(entitlement);
+}
+
+function notLinkedResponse(appUrl: string): CommandResponse {
+  return {
+    replyText:
+      "👋 **Welcome to Nunuza!**\n\n" +
+      "🔒 **Nunuza Account Not Linked**\n\n" +
+      "Connect your Nunuza workspace from the web dashboard:\n\n" +
+      "1. Open your Nunuza dashboard\n" +
+      "2. Go to **Integrations**\n" +
+      "3. Click **Connect Telegram**",
+    replyMarkup: {
+      inline_keyboard: [
+        [{ text: "🌐 Open Nunuza Dashboard", url: `${appUrl}/app/integrations` }],
+      ],
+    },
+  };
+}
+
 export async function handleTelegramMessage(
   ctx: CommandContext,
   supabaseOverride?: any
 ): Promise<CommandResponse> {
   const supabase = supabaseOverride || createServiceClient();
   const text = (ctx.text || "").trim();
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
-  // 1. Check for /start command (may have deep-link token argument)
+  // 1. /start with deep-link token
   if (text.startsWith("/start")) {
     const parts = text.split(" ");
     if (parts.length > 1 && parts[1].trim()) {
@@ -266,92 +378,73 @@ export async function handleTelegramMessage(
       if (linkResult.success) {
         return {
           replyText:
-            "🎉 **Account linked successfully!**\n\n" +
-            "Your Telegram account is now connected to your Nunuza workspace.\n\n" +
-            "Available commands:\n" +
-            "• `/status` - Agent & posting status\n" +
-            "• `/drafts` - Review pending drafts\n" +
-            "• `/pause` - Pause autonomous operations\n" +
-            "• `/resume` - Resume operations\n" +
-            "• `/report` - Workflow summary & usage\n" +
-            "• `/help` - Command guide",
+            "🎉 *Account linked successfully\\!*\n\n" +
+            "Your Telegram account is now connected to your Nunuza workspace\\.\n\n" +
+            "Use the menu below to get started:",
+          replyMarkup: mainMenuKeyboard(),
         };
       } else {
         return {
-          replyText: `❌ ${linkResult.error || "Failed to link account."}`,
+          replyText: `❌ ${escapeMd(linkResult.error || "Failed to link account.")}`,
         };
       }
     }
   }
 
-  // 2. Resolve active workspace for this Telegram user
-  const { data: link, error: linkErr } = await supabase
-    .from("telegram_links")
-    .select("workspace_id, chat_id")
-    .eq("telegram_user_id", ctx.telegramUserId)
-    .is("revoked_at", null)
-    .maybeSingle();
+  // 2. Resolve workspace
+  const resolved = await resolveWorkspace(ctx.telegramUserId, supabase);
 
-  if (linkErr || !link) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    return {
-      replyText:
-        "👋 **Welcome to Nunuza!**\n\n" +
-        "🔒 **Nunuza Account Not Linked**\n\n" +
-        "Nunuza is your AI LinkedIn content operations agent. To use this Telegram bot for instant post approvals, scheduling, and real-time proactive alerts, you must connect it from inside the Nunuza web app:\n\n" +
-        "1. Open your Nunuza web dashboard.\n" +
-        "2. Navigate to **Integrations**.\n" +
-        "3. Under **Telegram Bot**, click **Connect Telegram** to generate your secure pairing link.\n\n" +
-        "Tap the button below to open your dashboard:",
-      replyMarkup: {
-        inline_keyboard: [
-          [{ text: "🌐 Open Nunuza Integrations", url: `${appUrl}/app/integrations` }],
-        ],
-      },
-    };
+  if (!resolved) {
+    return notLinkedResponse(appUrl);
   }
 
-  const workspaceId = link.workspace_id;
+  const { workspaceId, workspace } = resolved;
+  const entitlement = workspace?.entitlement_type || "draft_only";
 
-  // Update last interaction timestamp
+  // Update last interaction
   await supabase
     .from("telegram_links")
     .update({ last_interaction_at: new Date().toISOString() })
     .eq("telegram_user_id", ctx.telegramUserId)
     .is("revoked_at", null);
 
-  // Fetch workspace details
-  const { data: workspace } = await supabase
-    .from("workspaces")
-    .select("id, name, entitlement_type, state, operating_mode")
-    .eq("id", workspaceId)
-    .single();
-
-  const entitlement = workspace?.entitlement_type || "draft_only";
-
-  // 3. Dispatch known commands
-  if (text.startsWith("/start") || text === "/help") {
+  // 3. Dispatch commands
+  if (text.startsWith("/start") || text === "/help" || text === "/settings") {
+    if (text === "/settings") {
+      return {
+        replyText:
+          `⚙️ *Settings \\— ${escapeMd(workspace?.name || "Workspace")}*\n\n` +
+          `• Entitlement: \`${escapeMd(entitlement)}\`\n` +
+          `• Mode: \`${escapeMd(workspace?.operating_mode || "approval_required")}\`\n\n` +
+          `Manage account settings in your dashboard:`,
+        replyMarkup: {
+          inline_keyboard: [
+            [{ text: "🌐 Open Settings", url: `${appUrl}/app/settings` }],
+            [{ text: "🏠 Main Menu", callback_data: "menu:main" }],
+          ],
+        },
+      };
+    }
     return {
       replyText:
-        `🤖 **Nunuza Agent Controls** (${workspace?.name || "Workspace"})\n\n` +
-        `• \`/status\` - View agent status, scheduled posts & limits\n` +
-        `• \`/drafts\` - List drafts awaiting review\n` +
-        `• \`/approve <draft-id>\` - Approve a post for publishing\n` +
-        `• \`/reject <draft-id> [reason]\` - Reject a draft\n` +
-        `• \`/pause\` - Pause autonomous agent activity\n` +
-        `• \`/resume\` - Resume autonomous agent activity\n` +
-        `• \`/report\` - Monthly workflow item usage & activity\n` +
-        `• \`/help\` - Show this command reference`,
+        `🤖 *Nunuza Agent* — ${escapeMd(workspace?.name || "Workspace")}\n\n` +
+        `Use the menu below to manage your LinkedIn content:`,
+      replyMarkup: mainMenuKeyboard(),
     };
   }
 
   if (text === "/status") {
-    // Count pending drafts & scheduled posts
     const { count: draftCount } = await supabase
       .from("content_posts")
       .select("id", { count: "exact", head: true })
       .eq("workspace_id", workspaceId)
       .eq("status", "draft");
+
+    const { count: reviewCount } = await supabase
+      .from("content_posts")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
+      .eq("status", "needs_review");
 
     const { count: scheduledCount } = await supabase
       .from("content_posts")
@@ -359,21 +452,29 @@ export async function handleTelegramMessage(
       .eq("workspace_id", workspaceId)
       .eq("status", "scheduled");
 
-    const isPaused = workspace?.state === "paused";
+    const isPaused = !!workspace?.paused_at;
     const modeLabel = workspace?.operating_mode === "autopilot" ? "Autopilot" : "Approval Required";
 
     return {
       replyText:
-        `📊 **Nunuza Workspace Status**\n\n` +
-        `• **Workspace:** ${workspace?.name || "Solo"}\n` +
-        `• **Agent State:** ${isPaused ? "⏸️ Paused" : "▶️ Active"}\n` +
-        `• **Operating Mode:** ${modeLabel}\n` +
-        `• **Entitlement:** \`${entitlement}\`\n` +
-        `• **Drafts Awaiting Review:** ${draftCount ?? 0}\n` +
-        `• **Scheduled Posts:** ${scheduledCount ?? 0}\n` +
-        (!["internal_beta", "publishing_beta", "paid_trial", "paid_active"].includes(entitlement)
-          ? "\n⚠️ *Subscription or Beta Required: scheduling & publishing are disabled.*"
+        `📊 *Workspace Status*\n\n` +
+        `• *Workspace:* ${escapeMd(workspace?.name || "Solo")}\n` +
+        `• *Agent:* ${isPaused ? "⏸️ Paused" : "▶️ Active"}\n` +
+        `• *Mode:* ${escapeMd(modeLabel)}\n` +
+        `• *Entitlement:* \`${escapeMd(entitlement)}\`\n` +
+        `• *Drafts:* ${(draftCount ?? 0) + (reviewCount ?? 0)}\n` +
+        `• *Scheduled:* ${scheduledCount ?? 0}` +
+        (!canPublishEntitlement(entitlement)
+          ? "\n\n⚠️ _Subscription required for publishing_"
           : ""),
+      replyMarkup: {
+        inline_keyboard: [
+          [
+            { text: isPaused ? "▶️ Resume" : "⏸️ Pause", callback_data: isPaused ? "agent:resume" : "agent:pause" },
+          ],
+          [{ text: "🏠 Main Menu", callback_data: "menu:main" }],
+        ],
+      },
     };
   }
 
@@ -393,7 +494,13 @@ export async function handleTelegramMessage(
     });
 
     return {
-      replyText: "⏸️ **Agent Paused**\n\nAutonomous drafting and operations are paused. Your existing drafts and scheduled posts are preserved. Send `/resume` to reactivate.",
+      replyText: "⏸️ *Agent Paused*\n\nAutonomous operations are paused\\. Send `/resume` to reactivate\\.",
+      replyMarkup: {
+        inline_keyboard: [
+          [{ text: "▶️ Resume", callback_data: "agent:resume" }],
+          [{ text: "🏠 Main Menu", callback_data: "menu:main" }],
+        ],
+      },
     };
   }
 
@@ -416,14 +523,17 @@ export async function handleTelegramMessage(
     });
 
     return {
-      replyText: "▶️ **Agent Resumed**\n\nAutonomous operations are now active.",
+      replyText: "▶️ *Agent Resumed*\n\nAutonomous operations are now active\\.",
+      replyMarkup: {
+        inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]],
+      },
     };
   }
 
   if (text === "/drafts") {
     const { data: drafts } = await supabase
       .from("content_posts")
-      .select("id, internal_title, text, created_at")
+      .select("id, internal_title, text, status, created_at")
       .eq("workspace_id", workspaceId)
       .eq("status", "draft")
       .order("created_at", { ascending: false })
@@ -431,46 +541,52 @@ export async function handleTelegramMessage(
 
     if (!drafts || drafts.length === 0) {
       return {
-        replyText: "📝 **No drafts awaiting review.**\n\nYour review queue is currently clear.",
+        replyText: "📝 *No drafts awaiting review\\.*\n\nYour review queue is currently clear\\.",
+        replyMarkup: {
+          inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]],
+        },
       };
     }
 
-    let response = "📝 **Drafts Awaiting Review (Top 5):**\n\n";
+    let response = `📝 *Drafts \\(${drafts.length}\\)*\n\n`;
+    const buttons: any[] = [];
+
     drafts.forEach((d: any, idx: number) => {
-      const excerpt = (d.internal_title || d.text || "").slice(0, 100).replace(/\n/g, " ");
-      response += `${idx + 1}. **Draft \`${d.id.slice(0, 8)}\`**\n   "${excerpt}..."\n   Approve: \`/approve ${d.id.slice(0, 8)}\` | Reject: \`/reject ${d.id.slice(0, 8)}\`\n\n`;
+      const title = escapeMd((d.internal_title || d.text || "Untitled").slice(0, 50));
+      const statusEmoji = d.status === "needs_review" ? "🔍" : "📄";
+      response += `${idx + 1}\\. ${statusEmoji} *${title}*\n   ID: \`${d.id.slice(0, 8)}\`\n\n`;
+      buttons.push([
+        { text: `✅ Approve #${idx + 1}`, callback_data: `draft:approve:${d.id}` },
+        { text: `❌ Reject #${idx + 1}`, callback_data: `draft:reject:${d.id}` },
+      ]);
     });
 
-    return { replyText: response.trim() };
+    buttons.push([{ text: "🏠 Main Menu", callback_data: "menu:main" }]);
+
+    return {
+      replyText: response.trim(),
+      replyMarkup: { inline_keyboard: buttons },
+    };
   }
 
   if (text.startsWith("/approve")) {
     const parts = text.split(" ");
     if (parts.length < 2 || !parts[1].trim()) {
       return {
-        replyText: "⚠️ Please specify a draft ID to approve:\n`/approve <draft-id>`\nUse `/drafts` to list draft IDs.",
+        replyText: "⚠️ Please specify a draft ID:\n`/approve <draft-id>`\nUse `/drafts` to list draft IDs\\.",
       };
     }
-
     const shortId = parts[1].trim();
 
-    // Check entitlement before approving for publishing
-    const canPublishEntitlement =
-      entitlement === "internal_beta" ||
-      entitlement === "publishing_beta" ||
-      entitlement === "paid_trial" ||
-      entitlement === "paid_active";
-
-    if (!canPublishEntitlement) {
+    if (!canPublishEntitlement(entitlement)) {
       return {
         replyText:
           `⛔ **Action Restricted: Subscription or Beta Required**\n\n` +
-          `Your workspace entitlement is \`${entitlement}\`. Posts cannot be approved for live scheduling or publishing without an active trial, subscription, or private beta access.\n\n` +
-          `You can continue editing and reviewing drafts in your web dashboard.`,
+          `Your workspace entitlement is \`${entitlement}\`. ` +
+          `An active trial or subscription is required to approve posts.`,
       };
     }
 
-    // Locate post within this workspace (supporting short ID prefix or full UUID)
     const { data: posts } = await supabase
       .from("content_posts")
       .select("id, status")
@@ -480,17 +596,13 @@ export async function handleTelegramMessage(
 
     if (!targetPost) {
       return {
-        replyText: `❌ Draft not found matching ID "${shortId}". Run \`/drafts\` to see active drafts.`,
+        replyText: `❌ Draft not found matching ID \`${escapeMd(shortId)}\`\\. Run \`/drafts\` to see active drafts\\.`,
       };
     }
 
-    // Update status to approved
     await supabase
       .from("content_posts")
-      .update({
-        status: "approved",
-        approved_at: new Date().toISOString(),
-      })
+      .update({ status: "approved", approved_at: new Date().toISOString() })
       .eq("id", targetPost.id);
 
     await supabase.from("audit_events").insert({
@@ -504,6 +616,9 @@ export async function handleTelegramMessage(
 
     return {
       replyText: `✅ **Draft Approved!**\nDraft \`${targetPost.id.slice(0, 8)}\` is approved and ready for scheduling.`,
+      replyMarkup: {
+        inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]],
+      },
     };
   }
 
@@ -511,7 +626,7 @@ export async function handleTelegramMessage(
     const parts = text.split(" ");
     if (parts.length < 2 || !parts[1].trim()) {
       return {
-        replyText: "⚠️ Please specify a draft ID to reject:\n`/reject <draft-id> [optional reason]`",
+        replyText: "⚠️ Please specify a draft ID:\n`/reject <draft-id> [optional reason]`",
       };
     }
 
@@ -527,16 +642,13 @@ export async function handleTelegramMessage(
 
     if (!targetPost) {
       return {
-        replyText: `❌ Draft not found matching ID "${shortId}". Run \`/drafts\` to see active drafts.`,
+        replyText: `❌ Draft not found matching ID \`${escapeMd(shortId)}\`\\. Run \`/drafts\` to see active drafts\\.`,
       };
     }
 
     await supabase
       .from("content_posts")
-      .update({
-        status: "rejected",
-        rejection_reason: reason,
-      })
+      .update({ status: "rejected", rejection_reason: reason })
       .eq("id", targetPost.id);
 
     await supabase.from("audit_events").insert({
@@ -549,12 +661,14 @@ export async function handleTelegramMessage(
     });
 
     return {
-      replyText: `🗑️ **Draft Rejected**\nDraft \`${targetPost.id.slice(0, 8)}\` has been marked as rejected. Reason: "${reason}"`,
+      replyText: `🗑️ *Draft Rejected*\nDraft \`${escapeMd(targetPost.id.slice(0, 8))}\` rejected\\. Reason: _${escapeMd(reason)}_`,
+      replyMarkup: {
+        inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]],
+      },
     };
   }
 
   if (text === "/report") {
-    // Usage counters
     const now = new Date();
     const currentPeriod = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
 
@@ -569,24 +683,637 @@ export async function handleTelegramMessage(
 
     return {
       replyText:
-        `📈 **Monthly Workflow Report**\n\n` +
-        `• **Period:** ${currentPeriod} (UTC)\n` +
-        `• **Generated Drafts:** ${used} / 30 limit\n` +
-        `• **Daily Scheduling Cap:** Max 1 post/day\n` +
-        `• **Weekly Scheduling Cap:** Max 7 posts/week\n` +
-        `• **Reset Date:** 1st of next month (00:00 UTC)`,
+        `📈 *Monthly Workflow Report*\n\n` +
+        `• *Period:* ${escapeMd(currentPeriod)} \\(UTC\\)\n` +
+        `• *Generated Drafts:* ${used} / 30 limit\n` +
+        `• *Daily Cap:* Max 1 post/day\n` +
+        `• *Weekly Cap:* Max 7 posts/week\n` +
+        `• *Reset:* 1st of next month`,
+      replyMarkup: {
+        inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]],
+      },
     };
   }
 
-  // Fallback for conversational input
+  // Fallback
   return {
     replyText:
-      `💬 **Received your message:** "${text.slice(0, 60)}"\n\n` +
-      `To manage content, use:\n` +
-      `• \`/drafts\` to review\n` +
-      `• \`/status\` to check operations\n` +
-      `• \`/help\` for the full command reference`,
+      `💬 *Received:* _${escapeMd(text.slice(0, 60))}_\n\n` +
+      `Use the menu to manage your content:`,
+    replyMarkup: mainMenuKeyboard(),
   };
+}
+
+// ─── Callback Query Handler ───────────────────────────────────────────────────
+
+export interface CallbackContext {
+  callbackQueryId: string;
+  telegramUserId: number;
+  chatId: number;
+  messageId: number;
+  data: string;
+}
+
+export async function handleCallbackQuery(
+  ctx: CallbackContext,
+  supabaseOverride?: any
+): Promise<void> {
+  const supabase = supabaseOverride || createServiceClient();
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+  // Always answer to remove loading spinner
+  await answerCallbackQuery(ctx.callbackQueryId);
+
+  // Resolve workspace — every action requires server-side auth
+  const resolved = await resolveWorkspace(ctx.telegramUserId, supabase);
+
+  if (!resolved) {
+    await editTelegramMessage(
+      ctx.chatId,
+      ctx.messageId,
+      "🔒 *Account not linked\\.* Please connect your Nunuza workspace from the dashboard\\.",
+      {
+        inline_keyboard: [
+          [{ text: "🌐 Open Dashboard", url: `${appUrl}/app/integrations` }],
+        ],
+      }
+    );
+    return;
+  }
+
+  const { workspaceId, workspace } = resolved;
+  const entitlement = workspace?.entitlement_type || "draft_only";
+  const data = ctx.data || "";
+
+  // Update last interaction timestamp
+  await supabase
+    .from("telegram_links")
+    .update({ last_interaction_at: new Date().toISOString() })
+    .eq("telegram_user_id", ctx.telegramUserId)
+    .is("revoked_at", null);
+
+  // ── Main Menu ──
+  if (data === "menu:main") {
+    await editTelegramMessage(
+      ctx.chatId,
+      ctx.messageId,
+      `🤖 *Nunuza Agent* — ${escapeMd(workspace?.name || "Workspace")}\n\nUse the menu below:`,
+      mainMenuKeyboard()
+    );
+    return;
+  }
+
+  // ── Drafts / Approvals ──
+  if (data === "menu:drafts" || data === "menu:approvals" || data.startsWith("draft:prev:") || data.startsWith("draft:next:")) {
+    const offset = data.startsWith("draft:prev:") || data.startsWith("draft:next:")
+      ? parseInt(data.split(":")[2] || "0", 10)
+      : 0;
+
+    const statusFilter = data === "menu:approvals" ? ["needs_review"] : ["draft", "needs_review"];
+
+    const { data: drafts } = await supabase
+      .from("content_posts")
+      .select("id, internal_title, text, status, created_at")
+      .eq("workspace_id", workspaceId)
+      .in("status", statusFilter)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + 4);
+
+    if (!drafts || drafts.length === 0) {
+      await editTelegramMessage(
+        ctx.chatId,
+        ctx.messageId,
+        "📝 *No drafts awaiting review\\.*\n\nYour review queue is currently clear\\.",
+        { inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]] }
+      );
+      return;
+    }
+
+    let msgText = `📝 *Drafts \\(showing ${offset + 1}\\-${offset + drafts.length}\\)*\n\n`;
+    const buttons: any[] = [];
+
+    drafts.forEach((d: any, idx: number) => {
+      const title = escapeMd((d.internal_title || d.text || "Untitled").slice(0, 50));
+      const statusEmoji = d.status === "needs_review" ? "🔍" : "📄";
+      msgText += `${offset + idx + 1}\\. ${statusEmoji} *${title}*\n   \`${d.id.slice(0, 8)}\`\n\n`;
+      buttons.push([
+        { text: `✅ Approve`, callback_data: `draft:approve:${d.id}` },
+        { text: `❌ Reject`, callback_data: `draft:reject:${d.id}` },
+      ]);
+    });
+
+    // Pagination
+    const pagination: any[] = [];
+    if (offset > 0) pagination.push({ text: "⬅️ Prev", callback_data: `draft:prev:${Math.max(0, offset - 5)}` });
+    if (drafts.length === 5) pagination.push({ text: "Next ➡️", callback_data: `draft:next:${offset + 5}` });
+    if (pagination.length > 0) buttons.push(pagination);
+    buttons.push([{ text: "🏠 Main Menu", callback_data: "menu:main" }]);
+
+    await editTelegramMessage(ctx.chatId, ctx.messageId, msgText.trim(), { inline_keyboard: buttons });
+    return;
+  }
+
+  // ── Approve (confirm step) ──
+  if (data.startsWith("draft:approve:") && !data.startsWith("draft:approve_confirm:")) {
+    const postId = data.replace("draft:approve:", "");
+
+    if (!canPublishEntitlement(entitlement)) {
+      await editTelegramMessage(
+        ctx.chatId,
+        ctx.messageId,
+        `⛔ *Action Restricted*\n\nYour entitlement \`${escapeMd(entitlement)}\` does not permit approvals\\.\nAn active trial or subscription is required\\.`,
+        { inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]] }
+      );
+      return;
+    }
+
+    await editTelegramMessage(
+      ctx.chatId,
+      ctx.messageId,
+      `✅ *Confirm Approval*\n\nApprove post \`${escapeMd(postId.slice(0, 8))}\` for publishing?`,
+      {
+        inline_keyboard: [
+          [
+            { text: "✅ Yes, Approve", callback_data: `draft:approve_confirm:${postId}` },
+            { text: "Cancel", callback_data: "menu:drafts" },
+          ],
+        ],
+      }
+    );
+    return;
+  }
+
+  // ── Approve (confirmed) ──
+  if (data.startsWith("draft:approve_confirm:")) {
+    const postId = data.replace("draft:approve_confirm:", "");
+
+    if (!canPublishEntitlement(entitlement)) {
+      await editTelegramMessage(
+        ctx.chatId,
+        ctx.messageId,
+        `⛔ *Action Restricted*\n\nSubscription or beta access required\\.`,
+        { inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]] }
+      );
+      return;
+    }
+
+    // Verify post belongs to this workspace
+    const { data: post } = await supabase
+      .from("content_posts")
+      .select("id, status, internal_title")
+      .eq("id", postId)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+
+    if (!post) {
+      await editTelegramMessage(
+        ctx.chatId,
+        ctx.messageId,
+        `❌ *Post not found or access denied\\.* The post may have been deleted\\.`,
+        { inline_keyboard: [[{ text: "📝 Drafts", callback_data: "menu:drafts" }, { text: "🏠 Menu", callback_data: "menu:main" }]] }
+      );
+      return;
+    }
+
+    await supabase
+      .from("content_posts")
+      .update({ status: "approved", approved_at: new Date().toISOString() })
+      .eq("id", post.id);
+
+    await supabase.from("audit_events").insert({
+      workspace_id: workspaceId,
+      actor_type: "telegram",
+      action: "post_approved",
+      resource_type: "content_post",
+      resource_id: post.id,
+      safe_metadata: { source: "telegram_callback" },
+    });
+
+    const title = escapeMd((post.internal_title || "Post").slice(0, 40));
+    await editTelegramMessage(
+      ctx.chatId,
+      ctx.messageId,
+      `✅ *Approved\\!*\n\n_${title}_ is approved and ready for scheduling\\.`,
+      {
+        inline_keyboard: [
+          [{ text: "📝 More Drafts", callback_data: "menu:drafts" }, { text: "🏠 Menu", callback_data: "menu:main" }],
+        ],
+      }
+    );
+    return;
+  }
+
+  // ── Reject (confirm step) ──
+  if (data.startsWith("draft:reject:") && !data.startsWith("draft:reject_confirm:")) {
+    const postId = data.replace("draft:reject:", "");
+
+    await editTelegramMessage(
+      ctx.chatId,
+      ctx.messageId,
+      `❌ *Confirm Rejection*\n\nReject post \`${escapeMd(postId.slice(0, 8))}\`? This cannot be undone\\.`,
+      {
+        inline_keyboard: [
+          [
+            { text: "❌ Yes, Reject", callback_data: `draft:reject_confirm:${postId}` },
+            { text: "Cancel", callback_data: "menu:drafts" },
+          ],
+        ],
+      }
+    );
+    return;
+  }
+
+  // ── Reject (confirmed) ──
+  if (data.startsWith("draft:reject_confirm:")) {
+    const postId = data.replace("draft:reject_confirm:", "");
+
+    const { data: post } = await supabase
+      .from("content_posts")
+      .select("id, internal_title")
+      .eq("id", postId)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+
+    if (!post) {
+      await editTelegramMessage(
+        ctx.chatId,
+        ctx.messageId,
+        `❌ *Post not found or access denied\\.`,
+        { inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]] }
+      );
+      return;
+    }
+
+    await supabase
+      .from("content_posts")
+      .update({ status: "rejected", rejection_reason: "Rejected via Telegram" })
+      .eq("id", post.id);
+
+    await supabase.from("audit_events").insert({
+      workspace_id: workspaceId,
+      actor_type: "telegram",
+      action: "post_rejected",
+      resource_type: "content_post",
+      resource_id: post.id,
+      safe_metadata: { reason: "Rejected via Telegram" },
+    });
+
+    const title = escapeMd((post.internal_title || "Post").slice(0, 40));
+    await editTelegramMessage(
+      ctx.chatId,
+      ctx.messageId,
+      `🗑️ *Rejected*\n\n_${title}_ has been rejected\\.`,
+      {
+        inline_keyboard: [
+          [{ text: "📝 More Drafts", callback_data: "menu:drafts" }, { text: "🏠 Menu", callback_data: "menu:main" }],
+        ],
+      }
+    );
+    return;
+  }
+
+  // ── Schedule / Publishing ──
+  if (data === "menu:schedule") {
+    const { data: scheduled } = await supabase
+      .from("content_posts")
+      .select("id, internal_title, scheduled_at, status")
+      .eq("workspace_id", workspaceId)
+      .in("status", ["scheduled", "approved"])
+      .order("scheduled_at", { ascending: true })
+      .limit(5);
+
+    if (!scheduled || scheduled.length === 0) {
+      await editTelegramMessage(
+        ctx.chatId,
+        ctx.messageId,
+        "📅 *No scheduled posts\\.*\n\nApprove a draft first, then schedule it from the web dashboard\\.",
+        {
+          inline_keyboard: [
+            [{ text: "✅ Approvals", callback_data: "menu:approvals" }],
+            [{ text: "🏠 Main Menu", callback_data: "menu:main" }],
+          ],
+        }
+      );
+      return;
+    }
+
+    let msgText = `📅 *Scheduled & Approved Posts*\n\n`;
+    const buttons: any[] = [];
+
+    scheduled.forEach((p: any, idx: number) => {
+      const title = escapeMd((p.internal_title || "Post").slice(0, 40));
+      const when = p.scheduled_at
+        ? escapeMd(new Date(p.scheduled_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }))
+        : "Not scheduled";
+      const statusEmoji = p.status === "scheduled" ? "📅" : "✅";
+      msgText += `${idx + 1}\\. ${statusEmoji} *${title}*\n   ${when}\n\n`;
+      if (p.status === "approved" && canPublishEntitlement(entitlement)) {
+        buttons.push([{ text: `🚀 Publish Now #${idx + 1}`, callback_data: `post:publish_now:${p.id}` }]);
+      }
+      if (p.status === "scheduled") {
+        buttons.push([{ text: `🗑️ Cancel #${idx + 1}`, callback_data: `post:cancel:${p.id}` }]);
+      }
+    });
+
+    buttons.push([{ text: "🏠 Main Menu", callback_data: "menu:main" }]);
+
+    await editTelegramMessage(ctx.chatId, ctx.messageId, msgText.trim(), { inline_keyboard: buttons });
+    return;
+  }
+
+  // ── Publish Now ──
+  if (data.startsWith("post:publish_now:")) {
+    const postId = data.replace("post:publish_now:", "");
+
+    if (!canPublishEntitlement(entitlement)) {
+      await editTelegramMessage(
+        ctx.chatId,
+        ctx.messageId,
+        `⛔ *Publishing Restricted*\n\nSubscription or beta access required\\.`,
+        { inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]] }
+      );
+      return;
+    }
+
+    // Verify post belongs to this workspace
+    const { data: post } = await supabase
+      .from("content_posts")
+      .select("id, status, internal_title")
+      .eq("id", postId)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+
+    if (!post || post.status !== "approved") {
+      await editTelegramMessage(
+        ctx.chatId,
+        ctx.messageId,
+        `❌ *Cannot publish\\.* Post not found, not approved, or already published\\.`,
+        { inline_keyboard: [[{ text: "📅 Schedule", callback_data: "menu:schedule" }, { text: "🏠 Menu", callback_data: "menu:main" }]] }
+      );
+      return;
+    }
+
+    // Show processing state
+    await editTelegramMessage(
+      ctx.chatId,
+      ctx.messageId,
+      `⏳ *Publishing\\.\\.\\.*\n\nSending to LinkedIn, please wait\\.`,
+      { inline_keyboard: [] }
+    );
+
+    // Call existing publishPostNow pipeline
+    try {
+      const { publishPostNow } = await import("@/lib/jobs/scheduling");
+      const result = await publishPostNow(workspaceId, postId);
+      if (result.execution?.success) {
+        const title = escapeMd((post.internal_title || "Post").slice(0, 40));
+        await editTelegramMessage(
+          ctx.chatId,
+          ctx.messageId,
+          `🚀 *Published to LinkedIn\\!*\n\n_${title}_ is now live\\.`,
+          { inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]] }
+        );
+      } else {
+        const errMsg = escapeMd(result.execution?.error || "Publishing failed.");
+        await editTelegramMessage(
+          ctx.chatId,
+          ctx.messageId,
+          `❌ *Publishing Failed*\n\n${errMsg}`,
+          { inline_keyboard: [[{ text: "📅 Schedule", callback_data: "menu:schedule" }, { text: "🏠 Menu", callback_data: "menu:main" }]] }
+        );
+      }
+    } catch (err: any) {
+      const errMsg = escapeMd(err.message || "Publishing failed.");
+      await editTelegramMessage(
+        ctx.chatId,
+        ctx.messageId,
+        `❌ *Publishing Failed*\n\n${errMsg}`,
+        { inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]] }
+      );
+    }
+    return;
+  }
+
+  // ── Cancel Scheduled Post ──
+  if (data.startsWith("post:cancel:")) {
+    const postId = data.replace("post:cancel:", "");
+
+    const { data: post } = await supabase
+      .from("content_posts")
+      .select("id, status, internal_title")
+      .eq("id", postId)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+
+    if (!post || post.status !== "scheduled") {
+      await editTelegramMessage(
+        ctx.chatId,
+        ctx.messageId,
+        `❌ *Cannot cancel\\.* Post not found or not scheduled\\.`,
+        { inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]] }
+      );
+      return;
+    }
+
+    await supabase
+      .from("content_posts")
+      .update({ status: "approved", scheduled_at: null })
+      .eq("id", postId);
+
+    const title = escapeMd((post.internal_title || "Post").slice(0, 40));
+    await editTelegramMessage(
+      ctx.chatId,
+      ctx.messageId,
+      `✅ *Schedule Cancelled*\n\n_${title}_ is back to approved status\\.`,
+      { inline_keyboard: [[{ text: "📅 Schedule", callback_data: "menu:schedule" }, { text: "🏠 Menu", callback_data: "menu:main" }]] }
+    );
+    return;
+  }
+
+  // ── Performance ──
+  if (data === "menu:performance") {
+    const now = new Date();
+    const currentPeriod = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+
+    const { data: usage } = await supabase
+      .from("usage_counters")
+      .select("counter_value")
+      .eq("workspace_id", workspaceId)
+      .eq("period_key", currentPeriod)
+      .maybeSingle();
+
+    const used = usage?.counter_value ?? 0;
+
+    await editTelegramMessage(
+      ctx.chatId,
+      ctx.messageId,
+      `📈 *Monthly Report \\— ${escapeMd(currentPeriod)}*\n\n` +
+      `• *Drafts Generated:* ${used} / 30\n` +
+      `• *Daily Cap:* Max 1 post/day\n` +
+      `• *Weekly Cap:* Max 7 posts/week\n` +
+      `• *Reset:* 1st of next month`,
+      { inline_keyboard: [navRow()] }
+    );
+    return;
+  }
+
+  // ── Agent Status & Controls ──
+  if (data === "menu:agent") {
+    const isPaused = !!workspace?.paused_at;
+    const modeLabel = workspace?.operating_mode === "autopilot" ? "Autopilot" : "Approval Required";
+
+    const { count: pendingCount } = await supabase
+      .from("content_posts")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
+      .in("status", ["draft", "needs_review"]);
+
+    await editTelegramMessage(
+      ctx.chatId,
+      ctx.messageId,
+      `🤖 *Agent Status*\n\n` +
+      `• *State:* ${isPaused ? "⏸️ Paused" : "▶️ Active"}\n` +
+      `• *Mode:* ${escapeMd(modeLabel)}\n` +
+      `• *Entitlement:* \`${escapeMd(entitlement)}\`\n` +
+      `• *Pending Drafts:* ${pendingCount ?? 0}`,
+      {
+        inline_keyboard: [
+          [
+            isPaused
+              ? { text: "▶️ Resume Agent", callback_data: "agent:resume" }
+              : { text: "⏸️ Pause Agent", callback_data: "agent:pause" },
+          ],
+          [{ text: "🏠 Main Menu", callback_data: "menu:main" }],
+        ],
+      }
+    );
+    return;
+  }
+
+  // ── Agent Pause (confirm) ──
+  if (data === "agent:pause") {
+    await editTelegramMessage(
+      ctx.chatId,
+      ctx.messageId,
+      `⏸️ *Pause Agent?*\n\nThis will stop autonomous drafting and operations\\. Existing scheduled posts are preserved\\.`,
+      {
+        inline_keyboard: [
+          [
+            { text: "⏸️ Yes, Pause", callback_data: "agent:pause_confirm" },
+            { text: "Cancel", callback_data: "menu:agent" },
+          ],
+        ],
+      }
+    );
+    return;
+  }
+
+  // ── Agent Pause (confirmed) ──
+  if (data === "agent:pause_confirm") {
+    await supabase
+      .from("workspaces")
+      .update({ paused_at: new Date().toISOString(), state: "paused" })
+      .eq("id", workspaceId);
+
+    await supabase.from("audit_events").insert({
+      workspace_id: workspaceId,
+      actor_type: "telegram",
+      action: "agent_paused",
+      resource_type: "workspace",
+      resource_id: workspaceId,
+      safe_metadata: { source: "telegram_callback" },
+    });
+
+    await editTelegramMessage(
+      ctx.chatId,
+      ctx.messageId,
+      `⏸️ *Agent Paused*\n\nAutonomous operations are now paused\\.`,
+      {
+        inline_keyboard: [
+          [{ text: "▶️ Resume", callback_data: "agent:resume" }],
+          [{ text: "🏠 Main Menu", callback_data: "menu:main" }],
+        ],
+      }
+    );
+    return;
+  }
+
+  // ── Agent Resume ──
+  if (data === "agent:resume") {
+    await supabase
+      .from("workspaces")
+      .update({
+        paused_at: null,
+        state: workspace?.operating_mode === "autopilot" ? "active_autopilot" : "active_approval_required",
+      })
+      .eq("id", workspaceId);
+
+    await supabase.from("audit_events").insert({
+      workspace_id: workspaceId,
+      actor_type: "telegram",
+      action: "agent_resumed",
+      resource_type: "workspace",
+      resource_id: workspaceId,
+      safe_metadata: { source: "telegram_callback" },
+    });
+
+    await editTelegramMessage(
+      ctx.chatId,
+      ctx.messageId,
+      `▶️ *Agent Resumed*\n\nAutonomous operations are now active\\.`,
+      {
+        inline_keyboard: [
+          [{ text: "🤖 Agent Status", callback_data: "menu:agent" }],
+          [{ text: "🏠 Main Menu", callback_data: "menu:main" }],
+        ],
+      }
+    );
+    return;
+  }
+
+  // ── Settings ──
+  if (data === "menu:settings") {
+    await editTelegramMessage(
+      ctx.chatId,
+      ctx.messageId,
+      `⚙️ *Settings \\— ${escapeMd(workspace?.name || "Workspace")}*\n\n` +
+      `• Entitlement: \`${escapeMd(entitlement)}\`\n` +
+      `• Mode: \`${escapeMd(workspace?.operating_mode || "approval_required")}\`\n\n` +
+      `Manage your account from the dashboard:`,
+      {
+        inline_keyboard: [
+          [{ text: "🌐 Open Settings", url: `${appUrl}/app/settings` }],
+          [{ text: "🏠 Main Menu", callback_data: "menu:main" }],
+        ],
+      }
+    );
+    return;
+  }
+
+  // ── Help ──
+  if (data === "menu:help") {
+    await editTelegramMessage(
+      ctx.chatId,
+      ctx.messageId,
+      `❓ *Help*\n\n` +
+      `*Commands:*\n` +
+      `/start \\— Main menu\n` +
+      `/status \\— Agent status\n` +
+      `/drafts \\— Review drafts\n` +
+      `/approve \\<id\\> \\— Approve a draft\n` +
+      `/reject \\<id\\> \\— Reject a draft\n` +
+      `/pause \\— Pause agent\n` +
+      `/resume \\— Resume agent\n` +
+      `/report \\— Performance report\n` +
+      `/settings \\— Account settings\n\n` +
+      `Or use the inline buttons above for a guided experience\\.`,
+      { inline_keyboard: [navRow()] }
+    );
+    return;
+  }
+
+  // ── Noop / unknown ──
+  // Just do nothing (spinner already dismissed)
 }
 
 // ─── Dispatch Outgoing Message ────────────────────────────────────────────────
@@ -598,7 +1325,6 @@ export async function sendTelegramMessage(
 ): Promise<{ ok: boolean; error?: string }> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || token.trim() === "") {
-    // If running in development without live bot credentials, log and return gracefully
     console.warn(`[telegram] sendTelegramMessage: TELEGRAM_BOT_TOKEN not configured. Message to ${chatId}: ${text}`);
     return { ok: true };
   }
@@ -607,7 +1333,7 @@ export async function sendTelegramMessage(
     const payload: any = {
       chat_id: chatId,
       text,
-      parse_mode: "Markdown",
+      parse_mode: "MarkdownV2",
     };
     if (replyMarkup) {
       payload.reply_markup = replyMarkup;
@@ -621,13 +1347,10 @@ export async function sendTelegramMessage(
 
     const data = (await response.json()) as any;
     if (!data.ok) {
-      // If Telegram rejects due to markdown entity parsing, safely fall back to plain text
-      if (
-        data.description &&
-        typeof data.description === "string" &&
-        data.description.includes("can't parse entities")
-      ) {
+      // Fallback to plain text on parse error
+      if (data.description && typeof data.description === "string" && data.description.includes("can't parse entities")) {
         delete payload.parse_mode;
+        payload.text = text.replace(/\\/g, "");
         const retryRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -640,7 +1363,6 @@ export async function sendTelegramMessage(
         }
         return { ok: true };
       }
-
       console.error("[telegram] sendMessage error:", data);
       return { ok: false, error: data.description };
     }
@@ -651,10 +1373,6 @@ export async function sendTelegramMessage(
   }
 }
 
-/**
- * Proactively notifies a linked workspace's Telegram chat.
- * Fail-safe: Catches errors so it never disrupts core business operations.
- */
 export async function notifyWorkspaceTelegram(
   workspaceId: string,
   message: { text: string; replyMarkup?: any },
@@ -684,6 +1402,33 @@ export async function notifyWorkspaceTelegram(
     console.warn(`[telegram] notifyWorkspaceTelegram error for workspace ${workspaceId}:`, err.message);
     return { ok: false, error: err.message };
   }
+}
+
+// ─── Bot Commands Registration ────────────────────────────────────────────────
+
+export async function registerBotCommands(): Promise<{ ok: boolean; description?: string }> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return { ok: false, description: "TELEGRAM_BOT_TOKEN not configured" };
+
+  const commands = [
+    { command: "start", description: "Open main menu" },
+    { command: "status", description: "Agent & workspace status" },
+    { command: "drafts", description: "Review pending drafts" },
+    { command: "approve", description: "Approve a draft post" },
+    { command: "reject", description: "Reject a draft post" },
+    { command: "pause", description: "Pause the agent" },
+    { command: "resume", description: "Resume the agent" },
+    { command: "report", description: "Monthly performance report" },
+    { command: "settings", description: "Account settings" },
+    { command: "help", description: "Show help & commands" },
+  ];
+
+  const res = await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ commands }),
+  });
+  return await res.json();
 }
 
 // ─── Webhook Management ───────────────────────────────────────────────────────

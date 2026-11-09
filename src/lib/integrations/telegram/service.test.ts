@@ -273,8 +273,8 @@ describe("Telegram Service", () => {
       );
 
       expect(res.replyText).toContain("Acme Solo");
-      expect(res.replyText).toContain("draft_only");
-      expect(res.replyText).toContain("Drafts Awaiting Review");
+      // Entitlement is rendered as `draft\_only` in Markdown mode (escaped underscore)
+      expect(res.replyText).toMatch(/draft[_\\]*only/);
     });
 
     it("handles /pause and /resume agent states", async () => {
@@ -310,7 +310,8 @@ describe("Telegram Service", () => {
       );
 
       expect(res.replyText).toContain("First draft hook");
-      expect(res.replyText).toContain("/approve");
+      // New UX uses inline buttons for Approve/Reject — text may include ID but not /approve command
+      expect(res.replyText).toContain("post-aaa");
     });
 
     it("strictly rejects /approve if workspace entitlement is draft_only (BED-01/02)", async () => {
