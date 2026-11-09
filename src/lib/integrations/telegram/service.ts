@@ -600,10 +600,19 @@ export async function handleTelegramMessage(
       };
     }
 
-    await supabase
+    const { data: approvedRows, error: approveErr } = await supabase
       .from("content_posts")
-      .update({ status: "approved", approved_at: new Date().toISOString() })
-      .eq("id", targetPost.id);
+      .update({ status: "approved" })
+      .eq("id", targetPost.id)
+      .eq("workspace_id", workspaceId)
+      .in("status", ["draft", "needs_review"])
+      .select("id");
+
+    if (approveErr || !approvedRows || approvedRows.length === 0) {
+      return {
+        replyText: "❌ This draft could not be approved\\. It may already be approved, published or rejected\\. Run `/drafts` to see current drafts\\.",
+      };
+    }
 
     await supabase.from("audit_events").insert({
       workspace_id: workspaceId,
@@ -875,10 +884,23 @@ export async function handleCallbackQuery(
       return;
     }
 
-    await supabase
+    const { data: approvedRows, error: approveErr } = await supabase
       .from("content_posts")
-      .update({ status: "approved", approved_at: new Date().toISOString() })
-      .eq("id", post.id);
+      .update({ status: "approved" })
+      .eq("id", post.id)
+      .eq("workspace_id", workspaceId)
+      .in("status", ["draft", "needs_review"])
+      .select("id");
+
+    if (approveErr || !approvedRows || approvedRows.length === 0) {
+      await editTelegramMessage(
+        ctx.chatId,
+        ctx.messageId,
+        `❌ *Could not approve this draft\\.* It may already be approved, published or rejected\\.`,
+        { inline_keyboard: [[{ text: "📝 Drafts", callback_data: "menu:drafts" }, { text: "🏠 Menu", callback_data: "menu:main" }]] }
+      );
+      return;
+    }
 
     await supabase.from("audit_events").insert({
       workspace_id: workspaceId,

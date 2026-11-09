@@ -193,6 +193,32 @@ export interface PublishLinkedInResult {
   publishedAt: string;
 }
 
+export type LinkedInPublishErrorKind =
+  | "not_connected" // no usable connection: terminal, nothing was sent
+  | "auth" // token rejected: terminal, nothing was published
+  | "rate_limited" // HTTP 429: definitively not published, safe to retry later
+  | "rejected" // other 4xx: definitively not published, terminal
+  | "ambiguous"; // request may or may not have created a post: NEVER retry blindly
+
+/**
+ * Typed publish failure. Callers must branch on `kind`, never on message text.
+ *
+ * "ambiguous" means LinkedIn may have created the post even though we did not get
+ * a trustworthy confirmation (network error, timeout, 5xx, or a success response
+ * without a post ID). It must be reconciled, not retried.
+ */
+export class LinkedInPublishError extends Error {
+  readonly kind: LinkedInPublishErrorKind;
+  constructor(kind: LinkedInPublishErrorKind, message: string) {
+    super(message);
+    this.name = "LinkedInPublishError";
+    this.kind = kind;
+  }
+}
+
+/** Upper bound for the create-post request. After this the outcome is unknown. */
+export const LINKEDIN_PUBLISH_TIMEOUT_MS = 20_000;
+
 /**
  * Publishes a post to LinkedIn personal profile via the official REST API.
  *
@@ -216,13 +242,15 @@ export async function publishPostToLinkedIn(
     .maybeSingle();
 
   if (error || !connection) {
-    throw new Error(
+    throw new LinkedInPublishError(
+      "not_connected",
       "LINKEDIN_NOT_CONNECTED: LinkedIn is not connected for this workspace. Please connect in Workspace Integrations."
     );
   }
 
   if (connection.status !== "connected" || !connection.encrypted_token_ref) {
-    throw new Error(
+    throw new LinkedInPublishError(
+      "not_connected",
       `LINKEDIN_NOT_CONNECTED: LinkedIn connection is currently '${connection.status}'. Please reconnect in Workspace Integrations.`
     );
   }
@@ -234,7 +262,8 @@ export async function publishPostToLinkedIn(
       .update({ status: "expired" })
       .eq("id", connection.id);
 
-    throw new Error(
+    throw new LinkedInPublishError(
+      "auth",
       "LINKEDIN_AUTH_EXPIRED: LinkedIn OAuth access token has expired. Please reconnect in Integrations."
     );
   }
@@ -246,7 +275,8 @@ export async function publishPostToLinkedIn(
   const apiVersion = LINKEDIN_API_VERSION;
 
   if (!memberUrn || !memberUrn.startsWith("urn:li:person:")) {
-    throw new Error(
+    throw new LinkedInPublishError(
+      "not_connected",
       `LINKEDIN_INVALID_MEMBER: Invalid member URN (${memberUrn}). Please reconnect your LinkedIn account.`
     );
   }
@@ -265,16 +295,27 @@ export async function publishPostToLinkedIn(
     "isReshareDisabledByAuthor": false,
   };
 
-  const response = await fetch("https://api.linkedin.com/rest/posts", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "LinkedIn-Version": apiVersion,
-      "X-Restli-Protocol-Version": "2.0.0",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  let response: Response;
+  try {
+    response = await fetch("https://api.linkedin.com/rest/posts", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "LinkedIn-Version": apiVersion,
+        "X-Restli-Protocol-Version": "2.0.0",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(LINKEDIN_PUBLISH_TIMEOUT_MS),
+    });
+  } catch {
+    // Network failure or timeout AFTER the request may have been delivered.
+    // We cannot know whether LinkedIn created the post.
+    throw new LinkedInPublishError(
+      "ambiguous",
+      "LINKEDIN_AMBIGUOUS_PUBLICATION: The connection to LinkedIn failed or timed out after the post was sent. The post may or may not be live."
+    );
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -286,16 +327,31 @@ export async function publishPostToLinkedIn(
         .update({ status: "expired" })
         .eq("id", connection.id);
 
-      throw new Error(
+      throw new LinkedInPublishError(
+        "auth",
         `LINKEDIN_AUTH_FAILED (${status}): LinkedIn authorization expired or lacks w_member_social scope. Reconnect required.`
       );
     }
 
     if (status === 429) {
-      throw new Error(`LINKEDIN_RATE_LIMITED (429): LinkedIn API rate limit exceeded. Retryable.`);
+      throw new LinkedInPublishError(
+        "rate_limited",
+        `LINKEDIN_RATE_LIMITED (429): LinkedIn API rate limit exceeded. Retryable.`
+      );
     }
 
-    throw new Error(`LINKEDIN_API_ERROR (${status}): ${errorText.slice(0, 200)}`);
+    if (status >= 500) {
+      // A server error does not prove the post was not created.
+      throw new LinkedInPublishError(
+        "ambiguous",
+        `LINKEDIN_AMBIGUOUS_PUBLICATION (${status}): LinkedIn returned a server error. The post may or may not be live.`
+      );
+    }
+
+    throw new LinkedInPublishError(
+      "rejected",
+      `LINKEDIN_API_ERROR (${status}): ${errorText.slice(0, 200)}`
+    );
   }
 
   // Post ID from x-restli-id header (canonical LinkedIn REST convention) or response body
@@ -310,8 +366,18 @@ export async function publishPostToLinkedIn(
     }
   }
 
+  // Only accept a real LinkedIn URN as confirmation evidence.
+  if (postId && !postId.startsWith("urn:li:")) {
+    postId = null;
+  }
+
   if (!postId) {
-    postId = `urn:li:share:${Date.now()}`;
+    // HTTP success without a usable post ID. The post was probably created, but we
+    // have no trustworthy identifier. Never invent one and never retry blindly.
+    throw new LinkedInPublishError(
+      "ambiguous",
+      "LINKEDIN_AMBIGUOUS_PUBLICATION: LinkedIn accepted the request but returned no post ID, so publication could not be confirmed."
+    );
   }
 
   return {
