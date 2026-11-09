@@ -72,7 +72,7 @@ export interface PolarConfig {
   accessToken: string;
   webhookSecret: string;
   productId: string;
-  priceId: string;
+  priceId?: string;
   server: "sandbox" | "production";
 }
 

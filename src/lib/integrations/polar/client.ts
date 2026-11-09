@@ -21,19 +21,19 @@ export const NUNUZA_SOLO_PLAN = {
 export class PolarClient {
   private readonly accessToken: string;
   private readonly productId: string;
-  private readonly priceId: string;
+  private readonly priceId?: string;
   private readonly server: "sandbox" | "production";
 
   constructor(config?: Partial<PolarConfig>) {
     this.accessToken = config?.accessToken ?? process.env.POLAR_ACCESS_TOKEN ?? "";
     this.productId = config?.productId ?? process.env.POLAR_PRODUCT_ID ?? "";
-    this.priceId = config?.priceId ?? process.env.POLAR_PRICE_ID ?? "";
+    this.priceId = config?.priceId ?? process.env.POLAR_PRICE_ID;
 
     const envServer = process.env.POLAR_SERVER?.toLowerCase();
-    if (envServer === "production") {
-      this.server = "production";
-    } else {
+    if (envServer === "sandbox") {
       this.server = "sandbox";
+    } else {
+      this.server = "production";
     }
   }
 
@@ -52,9 +52,7 @@ export class PolarClient {
       this.accessToken.trim().length > 0 &&
       !this.accessToken.includes("your-polar") &&
       this.productId &&
-      !this.productId.includes("your-polar") &&
-      this.priceId &&
-      !this.priceId.includes("your-polar")
+      !this.productId.includes("your-polar")
     );
   }
 
@@ -76,7 +74,7 @@ export class PolarClient {
   ): Promise<CheckoutSessionResult> {
     if (!this.isConfigured()) {
       throw new Error(
-        "BILLING_UNCONFIGURED: Polar billing credentials or price IDs are not configured."
+        "BILLING_UNCONFIGURED: Polar billing credentials or product ID are not configured."
       );
     }
 
@@ -86,14 +84,18 @@ export class PolarClient {
       );
     }
 
-    const payload = {
-      product_price_id: this.priceId,
+    const payload: any = {
+      product_id: this.productId,
       customer_email: options.userEmail,
       metadata: {
         workspace_id: options.workspaceId,
       },
       success_url: options.successUrl,
     };
+
+    if (this.priceId && !this.priceId.includes("placeholder")) {
+      payload.product_price_id = this.priceId;
+    }
 
     const response = await fetch(`${this.getApiBaseUrl()}/checkouts/custom/`, {
       method: "POST",

@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: "BILLING_UNCONFIGURED",
-          message: "Polar billing credentials or price IDs are not configured.",
+          message: "Polar billing credentials or product ID are not configured.",
         },
         { status: 503 }
       );

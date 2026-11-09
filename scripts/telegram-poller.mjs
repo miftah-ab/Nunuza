@@ -68,16 +68,22 @@ async function init() {
     console.error("❌ [telegram-poller] Network error contacting Telegram:", err.message);
   }
 
-  // 2. Clear webhook if active to allow getUpdates
+  // 2. Check if active webhook exists
   try {
     const webhookRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo`);
     const webhookData = await webhookRes.json();
     if (webhookData.ok && webhookData.result.url) {
-      console.log(`ℹ️ [telegram-poller] Clearing active webhook (${webhookData.result.url}) for local long-polling...`);
-      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/deleteWebhook`);
+      if (process.argv.includes("--force-delete-webhook")) {
+        console.log(`ℹ️ [telegram-poller] Clearing active webhook (${webhookData.result.url}) for local long-polling...`);
+        await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/deleteWebhook`);
+      } else {
+        console.log(`✅ [telegram-poller] Active webhook is live on: ${webhookData.result.url}`);
+        console.log("ℹ️ Telegram delivers updates serverless directly to your domain. Poller will not override live webhook without --force-delete-webhook.");
+        process.exit(0);
+      }
     }
   } catch (err) {
-    console.warn("⚠️ [telegram-poller] Could not inspect/clear webhook:", err.message);
+    console.warn("⚠️ [telegram-poller] Could not inspect webhook:", err.message);
   }
 
   console.log(`🚀 [telegram-poller] Listening for Telegram updates... Forwarding to ${TARGET_URL}`);
@@ -138,3 +144,4 @@ async function poll() {
 }
 
 init();
+
