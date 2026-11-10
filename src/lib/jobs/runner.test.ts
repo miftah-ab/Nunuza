@@ -1,209 +1,279 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { claimDueJobs, processJob, reconcileStaleJobs } from "./runner";
-import type { AgentJob } from "@/types/database";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { claimDueJobs, processJob, reconcileStaleJobs, registerJobHandler } from "./runner";
+import { backoffSeconds, isAllowedTransition, JobTransitionError } from "./state";
+import { MockSupabase, makeJob } from "@/test/mock-supabase";
 
-class MockJobDb {
-  jobs: AgentJob[] = [];
-  attempts: any[] = [];
-  workspaces: any[] = [
-    {
-      id: "ws-test",
-      name: "Test Workspace",
-      entitlement_type: "publishing_beta",
-      status: "active",
-      operating_mode: "approval_required",
-    },
-  ];
+vi.mock("@/lib/supabase/server", () => ({
+  createClient: vi.fn(),
+  createServiceClient: vi.fn(),
+}));
 
-  createClient() {
-    const db = this;
-    return {
-      from(table: string) {
-        return {
-          select(fields = "*") {
-            let data: any[] = [];
-            if (table === "agent_jobs") data = [...db.jobs];
-            else if (table === "workspaces") data = [...db.workspaces];
-            else if (table === "agent_job_attempts") data = [...db.attempts];
+describe("job state machine", () => {
+  it("uses the database enum value 'succeeded', never 'completed'", () => {
+    expect(isAllowedTransition("running", "succeeded")).toBe(true);
+    expect(isAllowedTransition("running", "completed" as any)).toBe(false);
+  });
 
-            let filtered = data;
-            const chain = {
-              eq(col: string, val: any) {
-                filtered = filtered.filter((r) => r[col] === val);
-                return chain;
-              },
-              or(expr: string) {
-                // simple parser for status.eq.queued,status.eq.failed_retryable
-                filtered = filtered.filter((r) => r.status === "queued" || r.status === "failed_retryable");
-                return chain;
-              },
-              lte(col: string, val: any) {
-                filtered = filtered.filter((r) => r[col] <= val);
-                return chain;
-              },
-              lt(col: string, val: any) {
-                filtered = filtered.filter((r) => r[col] < val);
-                return chain;
-              },
-              order() {
-                return chain;
-              },
-              limit(n: number) {
-                filtered = filtered.slice(0, n);
-                return chain;
-              },
-              async single() {
-                const item = filtered[0];
-                return item ? { data: item, error: null } : { data: null, error: new Error("Not found") };
-              },
-              then(resolve: any) {
-                return resolve({ data: filtered, error: null });
-              },
-            };
-            return chain;
-          },
-          update(updates: any) {
-            let targetRows: any[] = [];
-            if (table === "agent_jobs") targetRows = db.jobs;
+  it("does not allow leaving terminal states", () => {
+    expect(isAllowedTransition("succeeded", "running")).toBe(false);
+    expect(isAllowedTransition("failed_terminal", "queued")).toBe(false);
+    expect(isAllowedTransition("canceled", "running")).toBe(false);
+  });
 
-            let filterCol: string | null = null;
-            let filterVal: any = null;
+  it("only lets a human-resolved path leave needs_reconciliation", () => {
+    expect(isAllowedTransition("needs_reconciliation", "running")).toBe(false);
+    expect(isAllowedTransition("needs_reconciliation", "queued")).toBe(false);
+    expect(isAllowedTransition("needs_reconciliation", "succeeded")).toBe(true);
+  });
 
-            const chain = {
-              eq(col: string, val: any) {
-                filterCol = col;
-                filterVal = val;
-                return chain;
-              },
-              select() {
-                return {
-                  async single() {
-                    const r = targetRows.find((item) => (!filterCol || item[filterCol] === filterVal));
-                    if (r) Object.assign(r, updates);
-                    return { data: r || null, error: null };
-                  },
-                };
-              },
-              then(resolve: any) {
-                targetRows.forEach((r) => {
-                  if (!filterCol || r[filterCol] === filterVal) {
-                    Object.assign(r, updates);
-                  }
-                });
-                return resolve({ error: null });
-              },
-            };
-            return chain;
-          },
-          insert(rows: any | any[]) {
-            const arr = Array.isArray(rows) ? rows : [rows];
-            if (table === "agent_job_attempts") db.attempts.push(...arr);
-            return Promise.resolve({ data: arr, error: null });
-          },
-        };
-      },
-    };
-  }
-}
+  it("backs off exponentially and caps at one hour", () => {
+    expect(backoffSeconds(1)).toBe(120);
+    expect(backoffSeconds(2)).toBe(240);
+    expect(backoffSeconds(3)).toBe(480);
+    expect(backoffSeconds(20)).toBe(3600);
+  });
+});
 
-describe("Durable Job Runner & Background Execution", () => {
-  let mockDb: MockJobDb;
-
+describe("claimDueJobs (atomic claim contract)", () => {
+  let db: MockSupabase;
   beforeEach(() => {
-    mockDb = new MockJobDb();
+    db = new MockSupabase();
   });
 
-  it("claims due unleased jobs and acquires 5-minute lease", async () => {
-    const client = mockDb.createClient();
-    mockDb.jobs.push({
-      id: "job-1",
-      workspace_id: "ws-test",
-      job_type: "publish_post",
-      status: "queued",
-      idempotency_key: "key-1",
-      payload: {},
-      scheduled_for: new Date(Date.now() - 10000).toISOString(),
-      attempt_count: 0,
-      max_attempts: 3,
-      lease_until: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as any);
-
-    const claimed = await claimDueJobs({ limit: 5 }, client);
-    expect(claimed.length).toBe(1);
+  it("claims a due unleased job: running, lease in the future, attempt counted once", async () => {
+    db.jobs.push(makeJob());
+    const claimed = await claimDueJobs({ limit: 5 }, db);
+    expect(claimed).toHaveLength(1);
     expect(claimed[0].id).toBe("job-1");
-    expect(mockDb.jobs[0].status).toBe("running");
-    expect(mockDb.jobs[0].attempt_count).toBe(1);
-    expect(new Date(mockDb.jobs[0].lease_until!).getTime()).toBeGreaterThan(Date.now());
+    expect(db.jobs[0].status).toBe("running");
+    expect(db.jobs[0].attempt_count).toBe(1);
+    expect(new Date(db.jobs[0].lease_until).getTime()).toBeGreaterThan(Date.now());
   });
 
-  it("skips jobs currently leased by another active worker", async () => {
-    const client = mockDb.createClient();
-    mockDb.jobs.push({
-      id: "job-leased",
-      workspace_id: "ws-test",
-      job_type: "publish_post",
-      status: "running",
-      idempotency_key: "key-leased",
-      payload: {},
-      scheduled_for: new Date(Date.now() - 10000).toISOString(),
-      attempt_count: 1,
-      max_attempts: 3,
-      lease_until: new Date(Date.now() + 180000).toISOString(), // active lease for 3 more mins
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as any);
-
-    const claimed = await claimDueJobs({ limit: 5 }, client);
-    expect(claimed.length).toBe(0);
+  it("does not claim a job with an active lease", async () => {
+    db.jobs.push(
+      makeJob({ status: "queued", lease_until: new Date(Date.now() + 180_000).toISOString() })
+    );
+    expect(await claimDueJobs({ limit: 5 }, db)).toHaveLength(0);
   });
 
-  it("reconciles stale/orphaned jobs where worker lease expired while running", async () => {
-    const client = mockDb.createClient();
-    mockDb.jobs.push({
-      id: "job-stale",
-      workspace_id: "ws-test",
-      job_type: "publish_post",
-      status: "running",
-      idempotency_key: "key-stale",
-      payload: {},
-      scheduled_for: new Date(Date.now() - 600000).toISOString(),
-      attempt_count: 1,
-      max_attempts: 3,
-      lease_until: new Date(Date.now() - 60000).toISOString(), // expired 1 min ago
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as any);
-
-    const reconciled = await reconcileStaleJobs(client);
-    expect(reconciled).toBe(1);
-    expect(mockDb.jobs[0].status).toBe("failed_retryable");
-    expect(mockDb.jobs[0].lease_until).toBeNull();
+  it("claims a job whose lease has expired", async () => {
+    db.jobs.push(
+      makeJob({ status: "failed_retryable", lease_until: new Date(Date.now() - 1000).toISOString() })
+    );
+    expect(await claimDueJobs({ limit: 5 }, db)).toHaveLength(1);
   });
 
-  it("processes job, fails closed on unapproved publishing, and records attempt history", async () => {
-    const client = mockDb.createClient();
-    const job: AgentJob = {
-      id: "job-exec",
-      workspace_id: "ws-test",
-      job_type: "publish_post",
-      status: "running",
-      idempotency_key: "key-exec",
-      payload: { postId: "post-123" },
-      scheduled_for: new Date().toISOString(),
-      attempt_count: 1,
-      max_attempts: 3,
-      lease_until: new Date(Date.now() + 300000).toISOString(),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as any;
-    mockDb.jobs.push(job);
+  it("respects scheduled_for, including retry backoff", async () => {
+    db.jobs.push(
+      makeJob({ id: "future", scheduled_for: new Date(Date.now() + 60_000).toISOString() }),
+      makeJob({
+        id: "backoff",
+        status: "failed_retryable",
+        attempt_count: 1,
+        scheduled_for: new Date(Date.now() + 120_000).toISOString(),
+      })
+    );
+    expect(await claimDueJobs({ limit: 5 }, db)).toHaveLength(0);
+  });
 
-    const res = await processJob(job, client);
+  it("never claims jobs that are running, succeeded, canceled or needs_reconciliation", async () => {
+    for (const status of ["running", "succeeded", "failed_terminal", "canceled", "needs_reconciliation"]) {
+      db.jobs.push(makeJob({ id: `j-${status}`, status }));
+    }
+    expect(await claimDueJobs({ limit: 10 }, db)).toHaveLength(0);
+  });
+
+  it("terminalizes exhausted jobs instead of claiming them", async () => {
+    db.jobs.push(makeJob({ attempt_count: 3, max_attempts: 3, status: "failed_retryable" }));
+    const claimed = await claimDueJobs({ limit: 5 }, db);
+    expect(claimed).toHaveLength(0);
+    expect(db.jobs[0].status).toBe("failed_terminal");
+    expect(db.jobs[0].last_error_code).toBe("MAX_ATTEMPTS_EXCEEDED");
+  });
+
+  it("two workers claiming at once never receive the same job", async () => {
+    for (let i = 0; i < 5; i++) db.jobs.push(makeJob({ id: `job-${i}`, idempotency_key: `k-${i}` }));
+    const [a, b] = await Promise.all([
+      claimDueJobs({ limit: 3 }, db),
+      claimDueJobs({ limit: 3 }, db),
+    ]);
+    const ids = [...a, ...b].map((j) => j.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toHaveLength(5);
+    expect(db.jobs.every((j) => j.attempt_count === 1)).toBe(true);
+  });
+
+  it("filters by job type when requested", async () => {
+    db.jobs.push(makeJob({ id: "a", job_type: "publish_post" }), makeJob({ id: "b", job_type: "other" }));
+    const claimed = await claimDueJobs({ limit: 5, jobTypes: ["other"] }, db);
+    expect(claimed.map((j) => j.id)).toEqual(["b"]);
+  });
+
+  it("throws on database failure instead of returning an empty list", async () => {
+    db.opts.rpcError = "connection refused";
+    await expect(claimDueJobs({ limit: 5 }, db)).rejects.toThrow("claim_due_agent_jobs failed");
+  });
+});
+
+describe("processJob", () => {
+  let db: MockSupabase;
+  beforeEach(() => {
+    db = new MockSupabase();
+  });
+
+  it("marks a successful job 'succeeded' (not 'completed') and records the attempt", async () => {
+    registerJobHandler("test_ok", async (job) => ({
+      jobId: job.id,
+      success: true,
+      status: "succeeded",
+      retryable: false,
+    }));
+    const job = makeJob({ job_type: "test_ok", status: "running", attempt_count: 1 });
+    db.jobs.push(job);
+
+    const res = await processJob(job, db);
+    expect(res.success).toBe(true);
+    expect(db.jobs[0].status).toBe("succeeded");
+    expect(db.attempts).toHaveLength(1);
+    expect(db.attempts[0].attempt_number).toBe(1);
+  });
+
+  it("skips a job that is no longer running (queue redelivery after completion)", async () => {
+    const handler = vi.fn();
+    registerJobHandler("test_skip", handler);
+    db.jobs.push(makeJob({ job_type: "test_skip", status: "succeeded" }));
+
+    const res = await processJob(makeJob({ job_type: "test_skip", status: "running" }), db);
     expect(res.success).toBe(false);
-    expect(res.status).toBe("failed_terminal"); // Fail-closed per BED-03
-    expect(mockDb.attempts.length).toBe(1);
-    expect(mockDb.attempts[0].attempt_number).toBe(1);
+    expect(handler).not.toHaveBeenCalled();
+    expect(db.jobs[0].status).toBe("succeeded");
+  });
+
+  it("retries retryable failures with exponential backoff and releases the lease", async () => {
+    registerJobHandler("test_retry", async (job) => ({
+      jobId: job.id,
+      success: false,
+      status: "failed_retryable",
+      retryable: true,
+      error: "temporary",
+    }));
+    const job = makeJob({ job_type: "test_retry", status: "running", attempt_count: 1, lease_until: new Date(Date.now() + 1000).toISOString() });
+    db.jobs.push(job);
+
+    await processJob(job, db);
+    expect(db.jobs[0].status).toBe("failed_retryable");
+    expect(db.jobs[0].lease_until).toBeNull();
+    expect(Date.parse(db.jobs[0].scheduled_for)).toBeGreaterThan(Date.now() + 100_000);
+  });
+
+  it("fails terminally when retries are exhausted", async () => {
+    registerJobHandler("test_exhausted", async (job) => ({
+      jobId: job.id,
+      success: false,
+      status: "failed_retryable",
+      retryable: true,
+      error: "still failing",
+    }));
+    const job = makeJob({ job_type: "test_exhausted", status: "running", attempt_count: 3, max_attempts: 3 });
+    db.jobs.push(job);
+
+    await processJob(job, db);
+    expect(db.jobs[0].status).toBe("failed_terminal");
+  });
+
+  it("fails an unknown job type terminally", async () => {
+    const job = makeJob({ job_type: "does_not_exist", status: "running", attempt_count: 1 });
+    db.jobs.push(job);
+    const res = await processJob(job, db);
+    expect(res.status).toBe("failed_terminal");
+    expect(db.jobs[0].status).toBe("failed_terminal");
+  });
+
+  it("moves an unconfirmed outcome to needs_reconciliation and never retries it", async () => {
+    registerJobHandler("test_unconfirmed", async (job) => ({
+      jobId: job.id,
+      success: false,
+      status: "needs_reconciliation",
+      retryable: false,
+      error: "not confirmed",
+    }));
+    const job = makeJob({ job_type: "test_unconfirmed", status: "running", attempt_count: 1 });
+    db.jobs.push(job);
+    await processJob(job, db);
+    expect(db.jobs[0].status).toBe("needs_reconciliation");
+    expect(await claimDueJobs({ limit: 5 }, db)).toHaveLength(0);
+  });
+
+  it("never reports success when the database write fails", async () => {
+    registerJobHandler("test_dbfail", async (job) => ({
+      jobId: job.id,
+      success: true,
+      status: "succeeded",
+      retryable: false,
+    }));
+    const job = makeJob({ job_type: "test_dbfail", status: "running", attempt_count: 1 });
+    db.jobs.push(job);
+    db.opts.failJobUpdates = true;
+
+    await expect(processJob(job, db)).rejects.toThrow(JobTransitionError);
+    expect(db.jobs[0].status).toBe("running");
+  });
+
+  it("fails closed for a publish job whose post does not exist, and records attempt history", async () => {
+    db.tables.workspaces.push({ id: "ws-test", entitlement_type: "publishing_beta", paused_at: null });
+    const job = makeJob({ status: "running", attempt_count: 1, payload: { postId: "post-123" } });
+    db.jobs.push(job);
+
+    const res = await processJob(job, db);
+    expect(res.success).toBe(false);
+    expect(res.status).toBe("failed_terminal");
+    expect(db.jobs[0].status).toBe("failed_terminal");
+    expect(db.attempts).toHaveLength(1);
+  });
+});
+
+describe("reconcileStaleJobs", () => {
+  let db: MockSupabase;
+  const expired = () => new Date(Date.now() - 60_000).toISOString();
+  beforeEach(() => {
+    db = new MockSupabase();
+  });
+
+  it("re-queues a stale non-publish job for retry", async () => {
+    db.jobs.push(makeJob({ job_type: "other", status: "running", attempt_count: 1, lease_until: expired() }));
+    expect(await reconcileStaleJobs(db)).toBe(1);
+    expect(db.jobs[0].status).toBe("failed_retryable");
+    expect(db.jobs[0].lease_until).toBeNull();
+  });
+
+  it("fails a stale job terminally when attempts are used up", async () => {
+    db.jobs.push(makeJob({ job_type: "other", status: "running", attempt_count: 3, max_attempts: 3, lease_until: expired() }));
+    await reconcileStaleJobs(db);
+    expect(db.jobs[0].status).toBe("failed_terminal");
+  });
+
+  it("does NOT retry a publish job whose post was already 'publishing' (could double-post)", async () => {
+    db.jobs.push(makeJob({ status: "running", attempt_count: 1, lease_until: expired(), payload: { postId: "p1" } }));
+    db.posts.push({ id: "p1", workspace_id: "ws-test", status: "publishing" });
+
+    expect(await reconcileStaleJobs(db)).toBe(1);
+    expect(db.jobs[0].status).toBe("needs_reconciliation");
+    expect(db.posts[0].status).toBe("needs_reconciliation");
+  });
+
+  it("retries a stale publish job whose post never reached 'publishing'", async () => {
+    db.jobs.push(makeJob({ status: "running", attempt_count: 1, lease_until: expired(), payload: { postId: "p2" } }));
+    db.posts.push({ id: "p2", workspace_id: "ws-test", status: "scheduled" });
+
+    await reconcileStaleJobs(db);
+    expect(db.jobs[0].status).toBe("failed_retryable");
+    expect(db.posts[0].status).toBe("scheduled");
+  });
+
+  it("leaves jobs with an active lease alone", async () => {
+    db.jobs.push(makeJob({ job_type: "other", status: "running", lease_until: new Date(Date.now() + 60_000).toISOString() }));
+    expect(await reconcileStaleJobs(db)).toBe(0);
+    expect(db.jobs[0].status).toBe("running");
   });
 });

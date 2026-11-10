@@ -126,32 +126,35 @@ class MockTelegramDb {
             else if (table === "workspaces") targetRows = db.workspaces;
             else if (table === "content_posts") targetRows = db.contentPosts;
 
-            let filterCol: string | null = null;
-            let filterVal: any = null;
-            let isCol: string | null = null;
-            let isVal: any = null;
+            const filters: Array<(r: any) => boolean> = [];
+            let returning = false;
 
-            const chain = {
+            const chain: any = {
               eq(col: string, val: any) {
-                filterCol = col;
-                filterVal = val;
+                filters.push((r) => r[col] === val);
+                return chain;
+              },
+              in(col: string, vals: any[]) {
+                filters.push((r) => vals.includes(r[col]));
                 return chain;
               },
               is(col: string, val: any) {
-                isCol = col;
-                isVal = val;
+                filters.push((r) =>
+                  val === null ? r[col] === null || r[col] === undefined : r[col] === val
+                );
+                return chain;
+              },
+              select() {
+                returning = true;
                 return chain;
               },
               then(resolve: any) {
-                targetRows.forEach((r) => {
-                  let match = true;
-                  if (filterCol && r[filterCol] !== filterVal) match = false;
-                  if (isCol && (isVal === null ? r[isCol] !== null && r[isCol] !== undefined : r[isCol] !== isVal)) match = false;
-                  if (match) {
-                    Object.assign(r, updates);
-                  }
+                const matched = targetRows.filter((r) => filters.every((f) => f(r)));
+                matched.forEach((r) => Object.assign(r, updates));
+                return resolve({
+                  data: returning ? matched.map((r) => ({ id: r.id })) : null,
+                  error: null,
                 });
-                return resolve({ error: null });
               },
             };
             return chain;
@@ -342,6 +345,34 @@ describe("Telegram Service", () => {
 
       expect(res.replyText).toContain("Draft Approved!");
       expect(mockDb.contentPosts[1].status).toBe("approved");
+    });
+
+    it("does not claim approval for a draft that is not approvable (no silent failure)", async () => {
+      const client = mockDb.createClient();
+      mockDb.contentPosts[1].status = "published";
+      const { token } = await generateTelegramPairingToken("ws-222", "user-222", client);
+      await linkTelegramAccount(token, 777999, 888111, client);
+
+      const res = await handleTelegramMessage(
+        { telegramUserId: 777999, chatId: 888111, text: "/approve post-bbb" },
+        client
+      );
+
+      expect(res.replyText).not.toContain("Draft Approved!");
+      expect(mockDb.contentPosts[1].status).toBe("published");
+    });
+
+    it("never writes the nonexistent approved_at column when approving", async () => {
+      const client = mockDb.createClient();
+      const { token } = await generateTelegramPairingToken("ws-222", "user-222", client);
+      await linkTelegramAccount(token, 777999, 888111, client);
+
+      await handleTelegramMessage(
+        { telegramUserId: 777999, chatId: 888111, text: "/approve post-bbb" },
+        client
+      );
+
+      expect("approved_at" in mockDb.contentPosts[1]).toBe(false);
     });
 
     it("handles /reject and updates draft status", async () => {
