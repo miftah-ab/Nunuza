@@ -14,6 +14,7 @@ import {
   requireWorkspace,
   canSchedule,
   canPublish,
+  canUseAutopilot,
   EntitlementError,
   ForbiddenError,
 } from "@/lib/auth/workspace";
@@ -417,8 +418,12 @@ export async function executePublishJob(
     return terminal("ENTITLEMENT_INSUFFICIENT", "Workspace entitlement does not permit publishing.");
   }
 
+  if (payload.autopilot === true && (!canUseAutopilot(workspace) || workspace.state !== "active_autopilot")) {
+    return terminal("AUTOPILOT_NOT_ENABLED", "Autopilot is no longer enabled for this workspace.");
+  }
+
   // 3. Payload + post
-  const payload = job.payload as unknown as PublishPostPayload;
+  const payload = job.payload as unknown as PublishPostPayload & { autopilot?: boolean };
   if (!payload?.postId) {
     return terminal("INVALID_PAYLOAD", "Missing postId in job payload.");
   }

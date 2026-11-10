@@ -9,6 +9,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { aiService } from "@/lib/ai/service";
 import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
+import { canUseAutopilot } from "@/lib/auth/workspace";
 import type { AgentJob } from "@/types/database";
 import type { JobExecutionResult } from "./types";
 
@@ -107,24 +108,51 @@ function tokens(value: string): string[] {
     .filter((word) => !stop.has(word));
 }
 
+export interface LearningProfile {
+  approvedTerms: string[];
+  rejectedTerms: string[];
+  approvedCount: number;
+  rejectedCount: number;
+  editCount: number;
+}
+
+export function buildLearningProfile(
+  posts: Array<{ id: string; internal_title?: string | null; pillar?: string | null }>,
+  approvals: Array<{ post_id: string; action: string }>,
+  edits: Array<{ post_id: string }>
+): LearningProfile {
+  const postById = new Map(posts.map((post) => [post.id, post]));
+  const approved = new Set<string>();
+  const rejected = new Set<string>();
+  let approvedCount = 0;
+  let rejectedCount = 0;
+  for (const event of approvals) {
+    const post = postById.get(event.post_id);
+    if (!post) continue;
+    const terms = [...tokens(post.internal_title ?? ""), ...tokens(post.pillar ?? "")];
+    if (event.action === "approved") { approvedCount++; terms.forEach((term) => approved.add(term)); }
+    if (event.action === "rejected") { rejectedCount++; terms.forEach((term) => rejected.add(term)); }
+  }
+  return { approvedTerms: [...approved], rejectedTerms: [...rejected], approvedCount, rejectedCount, editCount: edits.length };
+}
+
 export function scoreOpportunity(
   item: ResearchItem,
   keywords: string[],
-  now = Date.now()
+  now = Date.now(),
+  learning?: LearningProfile
 ): ScoredOpportunity {
   const titleTokens = new Set(tokens(item.title));
-  const matchedKeywords = Array.from(new Set(keywords.flatMap(tokens)))
-    .filter((keyword) => titleTokens.has(keyword));
+  const matchedKeywords = Array.from(new Set(keywords.flatMap(tokens))).filter((keyword) => titleTokens.has(keyword));
+  const approvedMatches = learning?.approvedTerms.filter((term) => titleTokens.has(term)).length ?? 0;
+  const rejectedMatches = learning?.rejectedTerms.filter((term) => titleTokens.has(term)).length ?? 0;
   const ageHours = Math.max(0, (now - Date.parse(item.publishedAt)) / 3600000);
   const freshness = ageHours <= 24 ? 1.2 : ageHours <= 72 ? 0.8 : 0.4;
-  const evidence = item.source ? 0.8 : 0;
-  const score = matchedKeywords.length * 1.1 + freshness + evidence;
-  return {
-    ...item,
-    score: Number(score.toFixed(2)),
-    matchedKeywords,
-    relevance: score >= 4 ? "high" : score >= 2.5 ? "medium" : "low",
-  };
+  const evidence = item.source && item.evidence.length >= 35 ? 0.8 : 0;
+  const score = matchedKeywords.length * 1.1 + freshness + evidence +
+    Math.min(approvedMatches * 0.25, 0.75) - Math.min(rejectedMatches * 0.6, 1.2);
+  return { ...item, score: Number(score.toFixed(2)), matchedKeywords,
+    relevance: score >= 4 ? "high" : score >= 2.5 ? "medium" : "low" };
 }
 
 export function isDuplicateOpportunity(title: string, previousTitles: string[]): boolean {
@@ -166,7 +194,7 @@ function buildResearchQuery(strategy: any): string {
     .filter((word, index, all) => all.indexOf(word) === index)
     .slice(0, 8);
   if (keywords.length === 0) return "";
-  return keywords.slice(0, 5).join(" ");
+  return "(" + keywords.slice(0, 5).map((word) => '"' + word + '"').join(" OR ") + ")";
 }
 
 async function fetchResearch(query: string): Promise<ResearchItem[]> {
@@ -373,7 +401,7 @@ export async function executeAutonomousCycle(
 
   const research = await fetchResearch(query);
   const scored = research
-    .map((item) => scoreOpportunity(item, keywords))
+    .map((item) => scoreOpportunity(item, keywords, Date.now(), learning))
     .filter((item) => item.score >= 2.5)
     .sort((a, b) => b.score - a.score);
   const previousTitles = activeRecentPosts.map((post: any) => String(post.internal_title ?? ""));
@@ -392,21 +420,34 @@ export async function executeAutonomousCycle(
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
   }
 
-  const recentApprovalEvents = await supabase
-    .from("approval_events")
-    .select("action, reason, created_at")
-    .eq("workspace_id", workspace.id)
-    .order("created_at", { ascending: false })
-    .limit(20);
-  if (recentApprovalEvents.error) return fail("Could not load approval learning signals.");
-
-  const approvalSummary = (recentApprovalEvents.data ?? []).reduce(
-    (summary: Record<string, number>, event: any) => {
-      summary[event.action] = (summary[event.action] ?? 0) + 1;
-      return summary;
-    },
-    {}
-  );
+  const learningSince = new Date(Date.now() - 90 * 86400000).toISOString();
+  const [{ data: approvalEvents, error: approvalError }, { data: editVersions, error: editError }] =
+    await Promise.all([
+      supabase.from("approval_events").select("post_id, action, reason, created_at")
+        .eq("workspace_id", workspace.id).gte("created_at", learningSince)
+        .order("created_at", { ascending: false }).limit(100),
+      supabase.from("content_post_versions").select("post_id, change_source, created_at")
+        .eq("workspace_id", workspace.id).eq("change_source", "user_edit")
+        .gte("created_at", learningSince).limit(100),
+    ]);
+  if (approvalError || editError) return fail("Could not load internal learning signals.");
+  const signalPostIds = [...new Set([
+    ...(approvalEvents ?? []).map((event: any) => event.post_id),
+    ...(editVersions ?? []).map((version: any) => version.post_id),
+  ])];
+  let signalPosts: any[] = [];
+  if (signalPostIds.length) {
+    const { data, error } = await supabase.from("content_posts")
+      .select("id, internal_title, pillar").eq("workspace_id", workspace.id).in("id", signalPostIds);
+    if (error) return fail("Could not load posts for learning signals.");
+    signalPosts = data ?? [];
+  }
+  const learning = buildLearningProfile(signalPosts, approvalEvents ?? [], editVersions ?? []);
+  const approvalSummary = {
+    approved: learning.approvedCount, rejected: learning.rejectedCount, userEdits: learning.editCount,
+    learnedApprovedTerms: learning.approvedTerms.slice(0, 20),
+    learnedRejectedTerms: learning.rejectedTerms.slice(0, 20),
+  };
 
   const title = opportunity.title;
   const pillar = (Array.isArray(strategy.pillars) ? strategy.pillars : [])
@@ -422,8 +463,10 @@ export async function executeAutonomousCycle(
       "Research source: " + opportunity.source,
       "Source title: " + title,
       "Source URL: " + opportunity.url,
+      "Publisher URL: " + opportunity.sourceUrl,
+      "Source evidence excerpt (untrusted): " + opportunity.evidence,
       "Published: " + opportunity.publishedAt,
-      "Retrieved: " + new Date().toISOString(),
+      "Retrieved: " + opportunity.retrievedAt,
       "Relevance score: " + opportunity.score,
       "Matched business keywords: " + opportunity.matchedKeywords.join(", "),
       "Write a useful, original perspective for this workspace's audience. Attribute factual claims to the source. Do not claim facts not supported by the source title and metadata.",
@@ -460,8 +503,23 @@ export async function executeAutonomousCycle(
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
   }
 
-  const autopilot = workspace.state === "active_autopilot" && workspace.operating_mode === "autopilot";
+  const autopilot = canUseAutopilot(workspace) && workspace.state === "active_autopilot";
   const approvalMode = workspace.state === "active_approval_required" && workspace.operating_mode === "approval_required";
+  if (autopilot) {
+    const { data: connection, error: connectionError } = await supabase.from("integration_connections")
+      .select("status, expires_at, granted_scopes").eq("workspace_id", workspace.id)
+      .eq("provider", "linkedin").maybeSingle();
+    const scopes = Array.isArray(connection?.granted_scopes) ? connection.granted_scopes : [];
+    const ready = !connectionError && connection?.status === "connected" &&
+      (!connection.expires_at || new Date(connection.expires_at).getTime() > Date.now()) &&
+      scopes.includes("w_member_social");
+    if (!ready) {
+      await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {
+        cycleDate, decision: "no_op", reason: "autopilot_linkedin_connection_or_scope_unavailable",
+      });
+      return { jobId: job.id, success: true, status: "succeeded", retryable: false };
+    }
+  }
   if (!autopilot && !approvalMode) {
     return fail("Workspace operating mode and state do not agree; refusing autonomous action.", false);
   }
@@ -475,8 +533,8 @@ export async function executeAutonomousCycle(
       text: generated.text.slice(0, 3000),
       internal_title: title.slice(0, 180),
       pillar: pillarName ?? null,
-      source_notes: "Source: " + opportunity.source + "\n" + opportunity.url + "\nPublished: " + opportunity.publishedAt,
-      status: autopilot ? "approved" : "draft",
+      source_notes: "Source: " + opportunity.source + "\nArticle: " + opportunity.url + "\nPublisher: " + opportunity.sourceUrl + "\nPublished: " + opportunity.publishedAt + "\nEvidence: " + opportunity.evidence,
+      status: autopilot ? "approved" : "needs_review",
       scheduled_at: autopilot ? new Date().toISOString() : null,
       version: 1,
     })
@@ -512,6 +570,16 @@ export async function executeAutonomousCycle(
     console.error("[agent-cycle] Draft saved but usage counter increment failed: " + usageIncrementError.message);
   }
 
+  for (const candidate of scored.slice(0, 5)) {
+    await recordAgentEvent(supabase, workspace.id, "agent_research_candidate", {
+      cycleDate, title: candidate.title, source: candidate.source,
+      sourceUrl: candidate.sourceUrl, articleUrl: candidate.url,
+      publishedAt: candidate.publishedAt, retrievedAt: candidate.retrievedAt,
+      evidence: candidate.evidence.slice(0, 800), relevanceScore: candidate.score,
+      confidence: candidate.relevance, matchedKeywords: candidate.matchedKeywords,
+    });
+  }
+
   await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {
     cycleDate,
     decision: autopilot ? "queue_autopilot_publish" : "create_review_draft",
@@ -542,6 +610,7 @@ export async function executeAutonomousCycle(
         userId: workspace.owner_user_id,
         targetProvider: "linkedin",
         scheduledFor: new Date().toISOString(),
+        autopilot: true,
       },
       scheduled_for: new Date().toISOString(),
       attempt_count: 0,
