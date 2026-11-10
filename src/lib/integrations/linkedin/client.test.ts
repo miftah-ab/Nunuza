@@ -15,6 +15,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   getLinkedInAuthorizationUrl,
+  exchangeLinkedInCode,
   publishPostToLinkedIn,
   LinkedInPublishError,
   LINKEDIN_API_VERSION,
@@ -80,6 +81,49 @@ describe("LinkedIn Client & Crypto Suite", () => {
     });
   });
 
+  describe("OAuth granted-scope verification", () => {
+    it("rejects an OAuth token that lacks the publishing permission", async () => {
+      vi.spyOn(global, "fetch").mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: async () => ({ access_token: "token", expires_in: 3600, scope: "openid profile email" }),
+      } as any);
+      await expect(exchangeLinkedInCode("code")).rejects.toThrow("did not grant w_member_social");
+    });
+
+    it("uses official token introspection when OAuth omits scope", async () => {
+      const fetchSpy = vi.spyOn(global, "fetch")
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: async () => ({ access_token: "token", expires_in: 3600 }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: async () => ({ active: true, scope: "w_member_social,openid,profile,email" }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: async () => ({ sub: "member-123", name: "Test Member" }),
+        } as any);
+      const result = await exchangeLinkedInCode("code");
+      expect(result.memberUrn).toBe("urn:li:person:member-123");
+      expect(result.grantedScopes).toContain("w_member_social");
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+    });
+
+    it("never manufactures a member URN when LinkedIn userinfo omits sub", async () => {
+      vi.spyOn(global, "fetch")
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: async () => ({ access_token: "token", expires_in: 3600, scope: "w_member_social openid profile email" }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: async () => ({ name: "Test Member" }),
+        } as any);
+      await expect(exchangeLinkedInCode("code")).rejects.toThrow("valid member identifier");
+    });
+  });
+
   describe("publishPostToLinkedIn", () => {
     const validMemberUrn = "urn:li:person:testMember123";
     const sampleToken = "AQV_valid_access_token_linkedin";
@@ -132,6 +176,7 @@ describe("LinkedIn Client & Crypto Suite", () => {
                     status: "connected",
                     encrypted_token_ref: validEncryptedRef,
                     external_account_id: validMemberUrn,
+                    granted_scopes: ["w_member_social", "openid", "profile", "email"],
                     expires_at: new Date(Date.now() - 3600000).toISOString(), // 1 hr ago
                   },
                   error: null,
@@ -168,6 +213,7 @@ describe("LinkedIn Client & Crypto Suite", () => {
                     status: "connected",
                     encrypted_token_ref: validEncryptedRef,
                     external_account_id: validMemberUrn,
+                    granted_scopes: ["w_member_social", "openid", "profile", "email"],
                     expires_at: new Date(Date.now() + 86400000).toISOString(),
                     metadata: { apiVersion: "202410" },
                   },
@@ -237,6 +283,7 @@ describe("LinkedIn Client & Crypto Suite", () => {
                     status: "connected",
                     encrypted_token_ref: validEncryptedRef,
                     external_account_id: validMemberUrn,
+                    granted_scopes: ["w_member_social", "openid", "profile", "email"],
                     expires_at: new Date(Date.now() + 86400000).toISOString(),
                   },
                   error: null,
@@ -279,6 +326,7 @@ describe("LinkedIn Client & Crypto Suite", () => {
                     status: "connected",
                     encrypted_token_ref: validEncryptedRef,
                     external_account_id: validMemberUrn,
+                    granted_scopes: ["w_member_social", "openid", "profile", "email"],
                     expires_at: new Date(Date.now() + 86400000).toISOString(),
                   },
                   error: null,
@@ -320,6 +368,7 @@ describe("LinkedIn Client & Crypto Suite", () => {
                     status: "connected",
                     encrypted_token_ref: validEncryptedRef,
                     external_account_id: validMemberUrn,
+                    granted_scopes: ["w_member_social", "openid", "profile", "email"],
                     expires_at: new Date(Date.now() + 86400000).toISOString(),
                   },
                   error: null,
