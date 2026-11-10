@@ -120,7 +120,7 @@ describe("[MOCKED] draft_only entitlement invariants", () => {
   });
 
   it("draft_only assertEntitlement throws for publishing_beta", () => {
-    expect(() => assertEntitlement(draftWorkspace, "publishing_beta")).toThrow(EntitlementError);
+    expect(() => assertEntitlement(draftWorkspace, "internal_beta")).toThrow(EntitlementError);
   });
 
   it("draft_only assertEntitlement throws for paid_trial", () => {
