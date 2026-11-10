@@ -4,6 +4,7 @@ import {
   isAutonomousEntitlementEligible,
   isAutonomousWorkspaceActive,
   isDuplicateOpportunity,
+  isValidCycleDate,
   matchesStrategyExclusion,
   parseResearchFeed,
   scoreOpportunity,
@@ -11,6 +12,15 @@ import {
 } from "./intelligence";
 
 const NOW = Date.parse("2026-11-10T12:00:00.000Z");
+
+describe("autonomous cycle payload validation", () => {
+  it("accepts real UTC calendar dates and rejects malformed or impossible dates", () => {
+    expect(isValidCycleDate("2026-11-10")).toBe(true);
+    expect(isValidCycleDate("2026-02-30")).toBe(false);
+    expect(isValidCycleDate("10-11-2026")).toBe(false);
+    expect(isValidCycleDate(20261110)).toBe(false);
+  });
+});
 
 describe("autonomous intelligence primitives", () => {
   it("allows only current beta and paid entitlements to run autonomous cycles", () => {
