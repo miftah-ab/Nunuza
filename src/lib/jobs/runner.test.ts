@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { claimDueJobs, processJob, reconcileStaleJobs, registerJobHandler } from "./runner";
+import { claimDueJobs, isClaimedAgentJobEnvelope, processJob, reconcileStaleJobs, registerJobHandler } from "./runner";
 import { backoffSeconds, isAllowedTransition, JobTransitionError } from "./state";
 import { MockSupabase, makeJob } from "@/test/mock-supabase";
 import type { AgentJob } from "@/types/database";
@@ -8,6 +8,29 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(),
   createServiceClient: vi.fn(),
 }));
+
+describe("claimed queue envelope validation", () => {
+  it("accepts a complete running claim returned by the database", () => {
+    const job = makeJob({
+      status: "running",
+      attempt_count: 1,
+      lease_until: new Date(Date.now() + 60_000).toISOString(),
+    });
+    expect(isClaimedAgentJobEnvelope(job)).toBe(true);
+  });
+
+  it("rejects unclaimed, malformed, and exhausted queue messages", () => {
+    expect(isClaimedAgentJobEnvelope(null)).toBe(false);
+    expect(isClaimedAgentJobEnvelope({ id: "x", workspace_id: "w" })).toBe(false);
+    expect(isClaimedAgentJobEnvelope(makeJob({ status: "queued" }))).toBe(false);
+    expect(isClaimedAgentJobEnvelope(makeJob({
+      status: "running",
+      attempt_count: 4,
+      max_attempts: 3,
+      lease_until: new Date(Date.now() + 60_000).toISOString(),
+    }))).toBe(false);
+  });
+});
 
 describe("job state machine", () => {
   it("uses the database enum value 'succeeded', never 'completed'", () => {
