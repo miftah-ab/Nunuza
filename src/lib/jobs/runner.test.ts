@@ -289,6 +289,24 @@ describe("processJob", () => {
     expect(db.jobs[0].status).toBe("failed_terminal");
   });
 
+  it("preserves canceled safety-gate outcomes as canceled", async () => {
+    registerJobHandler("test_canceled", async (job) => ({
+      jobId: job.id,
+      success: false,
+      status: "canceled",
+      retryable: false,
+      error: "workspace paused",
+    }));
+    const job = makeJob({ job_type: "test_canceled", status: "running", attempt_count: 1 });
+    db.jobs.push(job);
+
+    const result = await processJob(job, db);
+
+    expect(result.status).toBe("canceled");
+    expect(db.jobs[0].status).toBe("canceled");
+    expect(db.jobs[0].last_error_code).toBe("JOB_CANCELED");
+  });
+
   it("moves an unconfirmed outcome to needs_reconciliation and never retries it", async () => {
     registerJobHandler("test_unconfirmed", async (job) => ({
       jobId: job.id,
