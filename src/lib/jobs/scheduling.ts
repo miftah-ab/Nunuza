@@ -332,7 +332,8 @@ async function casPostStatus(
 
 export async function executePublishJob(
   job: AgentJob,
-  supabaseOverride?: any
+  supabaseOverride?: any,
+  options: { deferJobFinalization?: boolean } = {}
 ): Promise<JobExecutionResult> {
   const supabase = supabaseOverride || createServiceClient();
 
@@ -555,15 +556,16 @@ export async function executePublishJob(
     return fail("needs_reconciliation", false, message);
   }
 
-  try {
-    await transitionJob(supabase, job.id, "running", "succeeded", {
-      finished_at: new Date().toISOString(),
-      lease_until: null,
-      safe_error_message: null,
-    });
-  } catch (jobErr: any) {
-    // The post is durably published. The runner re-attempts this bookkeeping write.
-    console.error(`[publisher] Post ${post.id} published but job ${job.id} could not be marked succeeded: ${jobErr?.message}`);
+  if (!options.deferJobFinalization) {
+    try {
+      await transitionJob(supabase, job.id, "running", "succeeded", {
+        finished_at: new Date().toISOString(),
+        lease_until: null,
+        safe_error_message: null,
+      });
+    } catch (jobErr: any) {
+      console.error(`[publisher] Post ${post.id} published but job ${job.id} could not be marked succeeded: ${jobErr?.message}`);
+    }
   }
 
   await logAuditEvent({
