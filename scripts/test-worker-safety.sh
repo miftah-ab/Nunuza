@@ -117,7 +117,7 @@ WS4="10000000-0000-0000-0000-000000000004"
 q -c "INSERT INTO workspaces VALUES ('$WS4')" >/dev/null
 for n in $(seq 1 80); do
   ID=$(printf "50000000-0000-0000-0000-%012d" "$n")
-  q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status) VALUES ('$ID','$WS4','agent_cycle','queued')" >/dev/null
+  q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status) VALUES ('$ID','$WS4','usage_reservation_test','queued')" >/dev/null
 done
 for w in $(seq 1 8); do
   (
@@ -138,7 +138,7 @@ SAME=$(q -c "SELECT reserve_draft_usage('50000000-0000-0000-0000-000000000001','
 COUNT_AFTER_RETRY=$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$WS4' AND metric='draft_items_created'")
 [ "$COUNT_AFTER_RETRY" = "30" ] || fail "same-job retry must not increment usage twice"
 q -c "SELECT release_draft_usage('50000000-0000-0000-0000-000000000001')" >/dev/null
-q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status) VALUES ('50000000-0000-0000-0000-000000000081','$WS4','agent_cycle','queued')" >/dev/null
+q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status) VALUES ('50000000-0000-0000-0000-000000000081','$WS4','usage_reservation_test','queued')" >/dev/null
 NEXT=$(q -c "SELECT reserve_draft_usage('50000000-0000-0000-0000-000000000081','$WS4',current_date,current_date + 30,30)")
 [ "$NEXT" = "t" ] || fail "released reservation must allow one new reservation"
 echo "ok: monthly draft usage is atomic and retry-idempotent"
