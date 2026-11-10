@@ -313,8 +313,17 @@ describe("Telegram Service", () => {
       );
 
       expect(res.replyText).toContain("First draft hook");
-      // New UX uses inline buttons for Approve/Reject — text may include ID but not /approve command
       expect(res.replyText).toContain("post-aaa");
+      mockDb.contentPosts.push({
+        id: "post-needs-review", workspace_id: "ws-111",
+        internal_title: "Agent generated review draft", text: "Review this agent draft",
+        status: "needs_review", created_at: new Date().toISOString(),
+      });
+      const reviewRes = await handleTelegramMessage(
+        { telegramUserId: 555666, chatId: 777888, text: "/drafts" },
+        client
+      );
+      expect(reviewRes.replyText).toContain("Agent generated review draft");
     });
 
     it("strictly rejects /approve if workspace entitlement is draft_only (BED-01/02)", async () => {
