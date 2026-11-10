@@ -49,11 +49,54 @@ export class MockSupabase {
   }
 
   rpc(name: string, args: any) {
-    if (name !== "claim_due_agent_jobs") {
-      return Promise.resolve({ data: null, error: { message: `unknown rpc ${name}` } });
-    }
     if (this.opts.rpcError) {
       return Promise.resolve({ data: null, error: { message: this.opts.rpcError } });
+    }
+    if (name === "claim_workspace_publish_slot") {
+      const now = Date.now();
+      const target = this.posts.find((post) =>
+        post.id === args.p_post_id && post.workspace_id === args.p_workspace_id
+      );
+      if (!target || !["approved", "scheduled"].includes(target.status)) {
+        return Promise.resolve({ data: [{ allowed: false, reason: "POST_NOT_ELIGIBLE" }], error: null });
+      }
+      const dayStart = new Date(now);
+      dayStart.setUTCHours(0, 0, 0, 0);
+      const dayEnd = dayStart.getTime() + 86400000;
+      const weekStart = now - 7 * 86400000;
+      const timestampFor = (post: Row) => {
+        if (post.status === "published") return Date.parse(post.published_at ?? "");
+        if (post.status === "scheduled") return Date.parse(post.scheduled_at ?? "");
+        return Date.parse(post.updated_at ?? post.created_at ?? "");
+      };
+      const inDailyWindow = (post: Row) => {
+        const stamp = timestampFor(post);
+        return Number.isFinite(stamp) && stamp >= dayStart.getTime() && stamp < dayEnd;
+      };
+      const inWeeklyWindow = (post: Row) => {
+        const stamp = timestampFor(post);
+        return Number.isFinite(stamp) && stamp >= weekStart && stamp <= now + 7 * 86400000;
+      };
+      const others = this.posts.filter((post) =>
+        post.workspace_id === args.p_workspace_id && post.id !== args.p_post_id
+      );
+      const daily = others.filter((post) =>
+        ["published", "scheduled", "publishing", "needs_reconciliation"].includes(post.status) && inDailyWindow(post)
+      ).length;
+      if (daily >= 1) {
+        return Promise.resolve({ data: [{ allowed: false, reason: "DAILY_CAP_REACHED" }], error: null });
+      }
+      const weekly = others.filter((post) =>
+        ["published", "scheduled", "publishing", "needs_reconciliation"].includes(post.status) && inWeeklyWindow(post)
+      ).length;
+      if (weekly >= 7) {
+        return Promise.resolve({ data: [{ allowed: false, reason: "WEEKLY_CAP_REACHED" }], error: null });
+      }
+      Object.assign(target, { status: "publishing", updated_at: new Date(now).toISOString() });
+      return Promise.resolve({ data: [{ allowed: true, reason: null }], error: null });
+    }
+    if (name !== "claim_due_agent_jobs") {
+      return Promise.resolve({ data: null, error: { message: \`unknown rpc \${name}\` } });
     }
     const now = Date.now();
     const types: string[] | null = args.p_job_types ?? null;
