@@ -208,10 +208,10 @@ export function scoreOpportunity(
   // explained in the excerpt.
   const evidenceTokens = new Set(tokens(item.title + " " + item.evidence));
   const matchedKeywords = Array.from(new Set(keywords.flatMap(tokens))).filter((keyword) => evidenceTokens.has(keyword));
-  const approvedMatches = learning?.approvedTerms.filter((term) => titleTokens.has(term)).length ?? 0;
-  const rejectedMatches = learning?.rejectedTerms.filter((term) => titleTokens.has(term)).length ?? 0;
-  const preferredEditMatches = learning?.preferredEditTerms.filter((term) => titleTokens.has(term)).length ?? 0;
-  const avoidedEditMatches = learning?.avoidedEditTerms.filter((term) => titleTokens.has(term)).length ?? 0;
+  const approvedMatches = learning?.approvedTerms.filter((term) => evidenceTokens.has(term)).length ?? 0;
+  const rejectedMatches = learning?.rejectedTerms.filter((term) => evidenceTokens.has(term)).length ?? 0;
+  const preferredEditMatches = learning?.preferredEditTerms.filter((term) => evidenceTokens.has(term)).length ?? 0;
+  const avoidedEditMatches = learning?.avoidedEditTerms.filter((term) => evidenceTokens.has(term)).length ?? 0;
   const ageHours = Math.max(0, (now - Date.parse(item.publishedAt)) / 3600000);
   const freshness = ageHours <= 24 ? 1.2 : ageHours <= 72 ? 0.8 : 0.4;
   const evidence = item.source && item.evidence.length >= 35 && !!item.sourceUrl ? 0.8 : 0;
