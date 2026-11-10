@@ -445,7 +445,14 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
           if (postId && postStatus === "publishing") {
             const { data: updatedPost, error: postUpdErr } = await supabase
               .from("content_posts")
-              .update({ status: "needs_reconciliation", updated_at: nowIso })
+              .update({
+                status: "needs_reconciliation",
+                updated_at: nowIso,
+                ...(typeof (job.payload as any)?.linkedin_post_urn === "string" &&
+                    (job.payload as any).linkedin_post_urn.startsWith("urn:li:")
+                  ? { linkedin_post_id: (job.payload as any).linkedin_post_urn }
+                  : {}),
+              })
               .eq("id", postId)
               .eq("workspace_id", job.workspace_id)
               .eq("status", "publishing")
@@ -518,19 +525,31 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
 
     const { data: post, error: postReadError } = await supabase
       .from("content_posts")
-      .select("status")
+      .select("status, linkedin_post_id")
       .eq("id", postId)
       .eq("workspace_id", reconciliationJob.workspace_id)
       .maybeSingle();
 
-    if (postReadError || !post || post.status !== "publishing") continue;
+    const confirmedUrn = typeof (reconciliationJob.payload as any)?.linkedin_post_urn === "string" &&
+      (reconciliationJob.payload as any).linkedin_post_urn.startsWith("urn:li:")
+      ? (reconciliationJob.payload as any).linkedin_post_urn as string
+      : null;
+    if (postReadError || !post) continue;
+    const needsStatusRepair = post.status === "publishing";
+    const needsUrnRepair = Boolean(confirmedUrn && !post.linkedin_post_id &&
+      ["publishing", "needs_reconciliation"].includes(post.status));
+    if (!needsStatusRepair && !needsUrnRepair) continue;
 
     const { data: repairedPost, error: repairError } = await supabase
       .from("content_posts")
-      .update({ status: "needs_reconciliation", updated_at: nowIso })
+      .update({
+        status: "needs_reconciliation",
+        updated_at: nowIso,
+        ...(confirmedUrn ? { linkedin_post_id: confirmedUrn } : {}),
+      })
       .eq("id", postId)
       .eq("workspace_id", reconciliationJob.workspace_id)
-      .eq("status", "publishing")
+      .eq("status", post.status)
       .select("id");
 
     if (repairError) {
