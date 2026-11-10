@@ -214,7 +214,9 @@ export function scoreOpportunity(
   const avoidedEditMatches = learning?.avoidedEditTerms.filter((term) => evidenceTokens.has(term)).length ?? 0;
   const ageHours = Math.max(0, (now - Date.parse(item.publishedAt)) / 3600000);
   const freshness = ageHours <= 24 ? 1.2 : ageHours <= 72 ? 0.8 : 0.4;
-  const evidence = item.source && item.evidence.length >= 35 && !!item.sourceUrl ? 0.8 : 0;
+  const evidence = item.source && !!item.sourceUrl
+    ? item.evidence.length >= 240 ? 1 : item.evidence.length >= 100 ? 0.75 : 0.45
+    : 0;
   const valueTerms = new Set(["cost", "risk", "revenue", "growth", "save", "reduce", "improve", "customer", "market", "regulation", "deadline", "price", "hiring", "funding", "tax", "security", "problem", "profit"]);
   const valueMatches = tokens(item.title + " " + item.evidence).filter((term) => valueTerms.has(term)).length;
   const potentialValue = Math.min(valueMatches * 0.15, 0.6);
@@ -626,7 +628,8 @@ export async function executeAutonomousCycle(
   const eligibleByBrand = ranked.filter((item) => !matchesStrategyExclusion(item, strategyExclusions));
   for (const candidate of ranked.slice(0, 5)) {
     const brandExcluded = matchesStrategyExclusion(candidate, strategyExclusions);
-    const eligible = candidate.score >= 2.5 && !brandExcluded;
+    const insufficientEvidence = candidate.scoreBreakdown.evidenceQuality < 0.6;
+    const eligible = candidate.score >= 2.5 && !brandExcluded && !insufficientEvidence;
     await recordAgentEvent(supabase, workspace.id, "agent_research_candidate", {
       cycleDate, title: candidate.title, source: candidate.source,
       sourceUrl: candidate.sourceUrl, articleUrl: candidate.url,
@@ -635,7 +638,12 @@ export async function executeAutonomousCycle(
       confidence: candidate.relevance, matchedKeywords: candidate.matchedKeywords,
       scoreBreakdown: candidate.scoreBreakdown,
       eligible,
-      decisionReason: brandExcluded ? "strategy_exclusion" : eligible ? "relevance_threshold_met" : "below_relevance_threshold",
+      decision: brandExcluded ? "reject" : insufficientEvidence ? "more_research_required" : eligible ? "consider" : "monitor",
+      decisionReason: brandExcluded
+        ? "strategy_exclusion"
+        : insufficientEvidence
+          ? "insufficient_evidence_more_research_required"
+          : eligible ? "relevance_threshold_met" : "below_relevance_threshold",
     });
   }
   const scored = eligibleByBrand.filter((item) => item.score >= 2.5);
@@ -663,8 +671,23 @@ export async function executeAutonomousCycle(
   if (!opportunity) {
     await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {
       cycleDate,
-      decision: "no_op",
-      reason: research.length === 0 ? "no_fresh_research" : "no_relevant_non_repetitive_opportunity",
+      decision: research.length === 0
+        ? "no_op"
+        : excludedByBrand.length === ranked.length
+          ? "reject"
+          : ranked.some((item) => item.scoreBreakdown.evidenceQuality < 0.6)
+            ? "more_research_required"
+            : scored.length > 0 ? "monitor" : "no_op",
+      reason: research.length === 0
+        ? "no_fresh_research"
+        : excludedByBrand.length === ranked.length
+          ? "all_candidates_excluded_by_brand"
+          : ranked.some((item) => item.scoreBreakdown.evidenceQuality < 0.6)
+            ? "evidence_too_thin_for_a_reliable_post"
+            : scored.length > 0
+              ? "all_relevant_opportunities_are_repetitive"
+              : "no_candidate_met_the_relevance_threshold",
+      nextAction: "wait_for_next_daily_cycle",
       researchCount: research.length,
       candidateCount: scored.length,
       excludedByBrandCount: excludedByBrand.length,
