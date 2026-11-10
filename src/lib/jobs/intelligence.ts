@@ -695,14 +695,24 @@ export async function executeAutonomousCycle(
     .single();
 
   if (postError || !post) {
-    const { error: releaseError } = await supabase.rpc("release_draft_usage", {
-      p_job_id: job.id,
-    });
-    if (releaseError) console.error("[agent-cycle] Could not release draft usage reservation:", releaseError.message);
+    // A unique conflict means another execution of this same cycle already
+    // created the post. Keep this job's idempotent usage reservation.
     if (postError?.code === "23505") {
       return { jobId: job.id, success: true, status: "succeeded", retryable: false };
     }
-    return fail("Could not save the agent-generated post: " + (postError?.message ?? "unknown database error"));
+
+    // Release only for explicit database rejections where Postgres confirms
+    // the insert did not commit. Network/transport failures are ambiguous:
+    // retain the reservation so a retry can recover a possibly-created post.
+    const errorCode = typeof postError?.code === "string" ? postError.code : "";
+    const definitelyRejected = /^(22|23|42501)/.test(errorCode);
+    if (definitelyRejected) {
+      const { error: releaseError } = await supabase.rpc("release_draft_usage", {
+        p_job_id: job.id,
+      });
+      if (releaseError) console.error("[agent-cycle] Could not release draft usage reservation:", releaseError.message);
+    }
+    return fail("Could not save the agent-generated post: " + (postError?.message ?? "unknown or ambiguous database response"));
   }
 
   const { error: versionError } = await supabase.from("content_post_versions").insert({
