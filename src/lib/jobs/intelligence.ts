@@ -19,6 +19,20 @@ const ELIGIBLE_ENTITLEMENTS = [
   "paid_active",
 ] as const;
 const ACTIVE_STATES = ["active_approval_required", "active_autopilot"] as const;
+
+/** Only current beta/paid entitlements may run autonomous cycles. Legacy
+ * publishing_beta/internal_test remain manual compatibility entitlements. */
+export function isAutonomousEntitlementEligible(entitlement: string): boolean {
+  return (ELIGIBLE_ENTITLEMENTS as readonly string[]).includes(entitlement);
+}
+
+export function isAutonomousWorkspaceActive(workspace: {
+  state: string;
+  paused_at?: string | null;
+}): boolean {
+  return !workspace.paused_at && (ACTIVE_STATES as readonly string[]).includes(workspace.state);
+}
+
 const MAX_FEED_ITEMS = 20;
 const RESEARCH_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -402,14 +416,14 @@ export async function executeAutonomousCycle(
     .eq("id", job.workspace_id)
     .single();
   if (workspaceError || !workspace) return fail("Workspace not found.", false);
-  if (workspace.paused_at || !ACTIVE_STATES.includes(workspace.state)) {
+  if (!isAutonomousWorkspaceActive(workspace)) {
     await recordAgentEvent(supabase, workspace.id, "agent_cycle_skipped", {
       reason: "workspace_paused_or_inactive",
       cycleDate: (job.payload as any)?.cycleDate,
     });
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
   }
-  if (!ELIGIBLE_ENTITLEMENTS.includes(workspace.entitlement_type)) {
+  if (!isAutonomousEntitlementEligible(workspace.entitlement_type)) {
     return fail("Workspace entitlement no longer permits autonomous operation.", false);
   }
 
