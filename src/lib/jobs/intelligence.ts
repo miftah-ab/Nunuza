@@ -258,6 +258,19 @@ export async function enqueueAutonomousCycles(supabaseOverride?: any): Promise<{
   const cycleDate = new Date().toISOString().slice(0, 10);
 
   for (const workspace of workspaces ?? []) {
+    const { data: activeCycles, error: activeCycleError } = await supabase
+      .from("agent_jobs")
+      .select("id")
+      .eq("workspace_id", workspace.id)
+      .eq("job_type", "agent_cycle")
+      .in("status", ["queued", "running", "failed_retryable"])
+      .limit(1);
+    if (activeCycleError) throw new Error("Could not check active cycles for workspace " + workspace.id);
+    if (activeCycles?.length) {
+      skipped++;
+      continue;
+    }
+
     const [{ data: strategy, error: strategyError }, { data: linkedin, error: linkedinError }] =
       await Promise.all([
         supabase.from("content_strategies").select("id").eq("workspace_id", workspace.id).maybeSingle(),
@@ -470,7 +483,7 @@ export async function executeAutonomousCycle(
       "Retrieved: " + opportunity.retrievedAt,
       "Relevance score: " + opportunity.score,
       "Matched business keywords: " + opportunity.matchedKeywords.join(", "),
-      "Write a useful, original perspective for this workspace's audience. Attribute factual claims to the source. Do not claim facts not supported by the source title and metadata.",
+      "Write a useful, original perspective for this workspace's audience. Attribute factual claims to the source. Do not claim facts not supported by the source title and evidence excerpt.",
       "Recent internal approval signals: " + JSON.stringify(approvalSummary),
     ].join("\n"),
     targetLength: "medium",
