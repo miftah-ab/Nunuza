@@ -203,8 +203,11 @@ export function scoreOpportunity(
   now = Date.now(),
   learning?: LearningProfile
 ): ScoredOpportunity {
-  const titleTokens = new Set(tokens(item.title));
-  const matchedKeywords = Array.from(new Set(keywords.flatMap(tokens))).filter((keyword) => titleTokens.has(keyword));
+  // Match both the headline and the publisher's evidence excerpt. A useful
+  // story can have a generic headline while the actual customer problem is
+  // explained in the excerpt.
+  const evidenceTokens = new Set(tokens(item.title + " " + item.evidence));
+  const matchedKeywords = Array.from(new Set(keywords.flatMap(tokens))).filter((keyword) => evidenceTokens.has(keyword));
   const approvedMatches = learning?.approvedTerms.filter((term) => titleTokens.has(term)).length ?? 0;
   const rejectedMatches = learning?.rejectedTerms.filter((term) => titleTokens.has(term)).length ?? 0;
   const preferredEditMatches = learning?.preferredEditTerms.filter((term) => titleTokens.has(term)).length ?? 0;
@@ -611,9 +614,14 @@ export async function executeAutonomousCycle(
   const ranked = research
     .map((item) => scoreOpportunity(item, keywords, Date.now(), learning))
     .sort((a, b) => b.score - a.score);
-  const strategyExclusions = Array.isArray(strategy.exclusions)
-    ? strategy.exclusions.filter((value: unknown): value is string => typeof value === "string")
-    : [];
+  const strategyExclusions = [
+    ...(Array.isArray(strategy.exclusions)
+      ? strategy.exclusions.filter((value: unknown): value is string => typeof value === "string")
+      : []),
+    ...(Array.isArray(voice?.exclusions)
+      ? voice.exclusions.filter((value: unknown): value is string => typeof value === "string")
+      : []),
+  ];
   const excludedByBrand = ranked.filter((item) => matchesStrategyExclusion(item, strategyExclusions));
   const eligibleByBrand = ranked.filter((item) => !matchesStrategyExclusion(item, strategyExclusions));
   for (const candidate of ranked.slice(0, 5)) {
