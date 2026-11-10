@@ -48,7 +48,7 @@ describe("POST /api/posts/[id]/schedule", () => {
     owner_user_id: "user-beta",
     name: "Beta Studio",
     state: "active_approval_required",
-    entitlement_type: "publishing_beta",
+    entitlement_type: "internal_beta",
     operating_mode: "approval_required",
     paused_at: null,
     created_at: new Date().toISOString(),
