@@ -262,6 +262,7 @@ async function recordAgentEvent(
     actor_type: "system",
     action,
     resource_type: "agent_cycle",
+    resource_id: typeof metadata.postId === "string" ? metadata.postId : null,
     safe_metadata: metadata,
   });
   if (error) throw new Error("Could not persist agent decision: " + error.message);
@@ -392,12 +393,86 @@ export async function executeAutonomousCycle(
   const cycleKey = workspace.id + ":" + cycleDate;
   const existingCyclePost = await supabase
     .from("content_posts")
-    .select("id, internal_title, status")
+    .select("id, internal_title, status, text, pillar")
     .eq("workspace_id", workspace.id)
     .eq("agent_cycle_key", cycleKey)
     .maybeSingle();
   if (existingCyclePost.error) return fail("Could not check cycle idempotency.");
   if (existingCyclePost.data) {
+    // A previous worker may have crashed after inserting the post but before
+    // saving its version, recording the decision, or enqueueing Autopilot.
+    const existingPost = existingCyclePost.data;
+    const { data: version, error: versionLookupError } = await supabase
+      .from("content_post_versions")
+      .select("id")
+      .eq("workspace_id", workspace.id)
+      .eq("post_id", existingPost.id)
+      .eq("version_number", 1)
+      .maybeSingle();
+    if (versionLookupError) return fail("Could not verify the recovered post version.");
+    if (!version) {
+      const { error: versionRepairError } = await supabase.from("content_post_versions").insert({
+        workspace_id: workspace.id,
+        post_id: existingPost.id,
+        version_number: 1,
+        text: existingPost.text,
+        change_source: "ai_generation",
+        changed_by: workspace.owner_user_id,
+      });
+      if (versionRepairError && versionRepairError.code !== "23505") {
+        return fail("Could not repair the recovered post version.");
+      }
+    }
+
+    const recoveredAutopilot = workspace.state === "active_autopilot" &&
+      workspace.operating_mode === "autopilot" && canUseAutopilot(workspace);
+    if (recoveredAutopilot && existingPost.status === "approved") {
+      const publishKey = "publish-" + workspace.id + "-" + existingPost.id;
+      const { error: publishJobError } = await supabase.from("agent_jobs").insert({
+        workspace_id: workspace.id,
+        job_type: "publish_post",
+        status: "queued",
+        idempotency_key: publishKey,
+        payload: {
+          postId: existingPost.id,
+          workspaceId: workspace.id,
+          userId: workspace.owner_user_id,
+          targetProvider: "linkedin",
+          scheduledFor: new Date().toISOString(),
+          autopilot: true,
+        },
+        scheduled_for: new Date().toISOString(),
+        attempt_count: 0,
+        max_attempts: 3,
+      });
+      if (publishJobError && publishJobError.code !== "23505") {
+        return fail("Recovered post exists but its Autopilot publish job could not be queued.");
+      }
+    }
+
+    const { data: priorDecision, error: decisionLookupError } = await supabase
+      .from("audit_events")
+      .select("id")
+      .eq("workspace_id", workspace.id)
+      .eq("resource_id", existingPost.id)
+      .eq("action", "agent_cycle_decision")
+      .maybeSingle();
+    if (decisionLookupError) return fail("Could not verify the recovered agent decision.");
+    if (!priorDecision) {
+      await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {
+        cycleDate,
+        decision: recoveredAutopilot ? "queue_autopilot_publish" : "create_review_draft",
+        reason: "recovered_after_worker_interruption",
+        postId: existingPost.id,
+        sourceTitle: existingPost.internal_title,
+      });
+      await notifyWorkspaceTelegram(workspace.id, {
+        text: recoveredAutopilot
+          ? "Nunuza recovered an interrupted Autopilot cycle and queued the existing post: " + existingPost.internal_title
+          : "Nunuza recovered an interrupted cycle and saved the existing draft for review: " + existingPost.internal_title + ". Use /drafts in Telegram or open your dashboard.",
+      }, supabase);
+    }
+
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
   }
 
