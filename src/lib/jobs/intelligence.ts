@@ -446,6 +446,16 @@ export async function executeAutonomousCycle(
     .map((item) => scoreOpportunity(item, keywords, Date.now(), learning))
     .filter((item) => item.score >= 2.5)
     .sort((a, b) => b.score - a.score);
+  for (const candidate of scored.slice(0, 5)) {
+    await recordAgentEvent(supabase, workspace.id, "agent_research_candidate", {
+      cycleDate, title: candidate.title, source: candidate.source,
+      sourceUrl: candidate.sourceUrl, articleUrl: candidate.url,
+      publishedAt: candidate.publishedAt, retrievedAt: candidate.retrievedAt,
+      evidence: candidate.evidence.slice(0, 800), relevanceScore: candidate.score,
+      confidence: candidate.relevance, matchedKeywords: candidate.matchedKeywords,
+    });
+  }
+
   const previousTitles = activeRecentPosts.map((post: any) => String(post.internal_title ?? ""));
   const opportunity = scored.find((item) => !isDuplicateOpportunity(item.title, previousTitles));
 
@@ -593,16 +603,6 @@ export async function executeAutonomousCycle(
     return fail("Could not save the generated post version: " + versionError.message);
   }
 
-  for (const candidate of scored.slice(0, 5)) {
-    await recordAgentEvent(supabase, workspace.id, "agent_research_candidate", {
-      cycleDate, title: candidate.title, source: candidate.source,
-      sourceUrl: candidate.sourceUrl, articleUrl: candidate.url,
-      publishedAt: candidate.publishedAt, retrievedAt: candidate.retrievedAt,
-      evidence: candidate.evidence.slice(0, 800), relevanceScore: candidate.score,
-      confidence: candidate.relevance, matchedKeywords: candidate.matchedKeywords,
-    });
-  }
-
   await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {
     cycleDate,
     decision: autopilot ? "queue_autopilot_publish" : "create_review_draft",
@@ -618,6 +618,7 @@ export async function executeAutonomousCycle(
     aiProvider: generated.providerUsed,
     aiModel: generated.modelUsed,
     approvalSignals: approvalSummary,
+    externalMetricsAvailability: "unavailable_restricted_linkedin_r_member_social",
   });
 
   if (autopilot) {
