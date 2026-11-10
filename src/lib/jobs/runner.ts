@@ -398,6 +398,7 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
             .from("content_posts")
             .select("status, linkedin_post_id")
             .eq("id", postId)
+            .eq("workspace_id", job.workspace_id)
             .single();
           if (postErr || !post) {
             throw new Error(`Could not read post ${postId}: ${postErr?.message ?? "not found"}`);
