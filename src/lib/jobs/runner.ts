@@ -191,6 +191,10 @@ export async function processJob(
     max_attempts: maxAttempts,
     lease_until: renewedLeaseUntil,
   } as AgentJob;
+  const jobGuard = () => ({
+    attemptCount,
+    leaseUntil: liveJob.lease_until ?? undefined,
+  });
 
   let result: JobExecutionResult;
   let heartbeatInFlight: Promise<void> | null = null;
@@ -324,26 +328,30 @@ export async function processJob(
         finished_at: finishedTime.toISOString(),
         lease_until: null,
         safe_error_message: null,
-      });
+      }, jobGuard());
     } else if (result.status === "needs_reconciliation") {
       await transitionJob(supabase, liveJob.id, "running", "needs_reconciliation", {
         lease_until: null,
         last_error_code: "NEEDS_RECONCILIATION",
         safe_error_message: result.error ?? "Outcome could not be confirmed.",
-      });
+      }, jobGuard());
     } else if (result.retryable && attemptCount < maxAttempts) {
       await markJobRetryable(
         supabase,
         { id: liveJob.id, attempt_count: attemptCount },
         result.error ?? "Retryable error.",
-        "RETRYABLE_ERROR"
+        "RETRYABLE_ERROR",
+        "running",
+        jobGuard()
       );
     } else {
       await markJobTerminal(
         supabase,
         liveJob.id,
         result.error ?? "Job failed.",
-        "TERMINAL_ERROR"
+        "TERMINAL_ERROR",
+        "running",
+        jobGuard()
       );
     }
   } else if (result.success && after.status !== "succeeded") {
@@ -406,13 +414,13 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
               lease_until: null,
               last_error_code: "PUBLISHED_POST_ID_MISSING",
               safe_error_message: "The post is marked published but has no confirmed LinkedIn post ID. Reconciliation is required.",
-            });
+            }, { attemptCount: job.attempt_count, leaseUntil: job.lease_until ?? undefined });
           } else {
             await transitionJob(supabase, job.id, "running", "succeeded", {
               finished_at: nowIso,
               lease_until: null,
               safe_error_message: null,
-            });
+            }, { attemptCount: job.attempt_count, leaseUntil: job.lease_until ?? undefined });
           }
           reconciledCount++;
           continue;
@@ -463,7 +471,9 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
           supabase,
           job.id,
           "Job lease expired and max attempts reached.",
-          "LEASE_EXPIRED_MAX_ATTEMPTS"
+          "LEASE_EXPIRED_MAX_ATTEMPTS",
+          "running",
+          { attemptCount: job.attempt_count, leaseUntil: job.lease_until ?? undefined }
         );
       } else {
         await transitionJob(supabase, job.id, "running", "failed_retryable", {
@@ -471,7 +481,7 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
           lease_until: null,
           last_error_code: "LEASE_EXPIRED",
           safe_error_message: "Worker lease expired. Re-enqueued for retry.",
-        });
+        }, { attemptCount: job.attempt_count, leaseUntil: job.lease_until ?? undefined });
       }
       reconciledCount++;
     } catch (err: any) {
