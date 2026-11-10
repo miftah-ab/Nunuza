@@ -623,6 +623,7 @@ export async function executeAutonomousCycle(
   if (priorResearchError) return fail("Could not load recent research history.");
 
   const previousResearchTitles = (priorResearchEvents ?? [])
+    .filter((event: any) => event.safe_metadata?.cycleDate !== cycleDate)
     .map((event: any) => event.safe_metadata?.title)
     .filter((title: unknown): title is string => typeof title === "string");
   const previousTitles = [
