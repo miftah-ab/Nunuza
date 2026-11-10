@@ -90,6 +90,7 @@ END;
 $$;
 
 CREATE OR REPLACE FUNCTION public.reserve_draft_usage(
+  p_job_id UUID,
   p_workspace_id UUID,
   p_period_start DATE,
   p_period_end DATE,
@@ -99,12 +100,33 @@ RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
-AS $$
+AS $
 DECLARE
   v_count INTEGER;
+  v_job_workspace UUID;
+  v_payload JSONB;
+  v_reserved_period DATE;
 BEGIN
   IF p_limit IS NULL OR p_limit < 1 THEN
     RAISE EXCEPTION 'p_limit must be positive';
+  END IF;
+
+  SELECT workspace_id, payload INTO v_job_workspace, v_payload
+    FROM public.agent_jobs WHERE id = p_job_id FOR UPDATE;
+  IF NOT FOUND OR v_job_workspace <> p_workspace_id THEN
+    RAISE EXCEPTION 'agent job does not belong to the requested workspace';
+  END IF;
+
+  IF v_payload ? 'draft_usage_reserved_period' THEN
+    v_reserved_period := (v_payload->>'draft_usage_reserved_period')::DATE;
+    IF v_reserved_period = p_period_start THEN
+      RETURN TRUE;
+    END IF;
+    UPDATE public.usage_counters
+       SET count = GREATEST(count - 1, 0), updated_at = NOW()
+     WHERE workspace_id = p_workspace_id
+       AND metric = 'draft_items_created'
+       AND period_start = v_reserved_period;
   END IF;
 
   INSERT INTO public.usage_counters (workspace_id, metric, period_start, period_end, count)
@@ -117,36 +139,61 @@ BEGIN
   WHERE public.usage_counters.count < p_limit
   RETURNING count INTO v_count;
 
-  RETURN v_count IS NOT NULL;
-END;
-$$;
+  IF v_count IS NULL THEN
+    UPDATE public.agent_jobs
+       SET payload = payload - 'draft_usage_reserved_period', updated_at = NOW()
+     WHERE id = p_job_id;
+    RETURN FALSE;
+  END IF;
 
-CREATE OR REPLACE FUNCTION public.release_draft_usage(
-  p_workspace_id UUID,
-  p_period_start DATE
-)
+  UPDATE public.agent_jobs
+     SET payload = jsonb_set(payload, '{draft_usage_reserved_period}', to_jsonb(p_period_start::TEXT), TRUE),
+         updated_at = NOW()
+   WHERE id = p_job_id;
+  RETURN TRUE;
+END;
+$;
+
+CREATE OR REPLACE FUNCTION public.release_draft_usage(p_job_id UUID)
 RETURNS VOID
-LANGUAGE SQL
+LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
-AS $$
+AS $
+DECLARE
+  v_workspace_id UUID;
+  v_payload JSONB;
+  v_period_start DATE;
+BEGIN
+  SELECT workspace_id, payload INTO v_workspace_id, v_payload
+    FROM public.agent_jobs WHERE id = p_job_id FOR UPDATE;
+  IF NOT FOUND OR NOT (v_payload ? 'draft_usage_reserved_period') THEN
+    RETURN;
+  END IF;
+
+  v_period_start := (v_payload->>'draft_usage_reserved_period')::DATE;
   UPDATE public.usage_counters
      SET count = GREATEST(count - 1, 0), updated_at = NOW()
-   WHERE workspace_id = p_workspace_id
+   WHERE workspace_id = v_workspace_id
      AND metric = 'draft_items_created'
-     AND period_start = p_period_start;
-$$;
+     AND period_start = v_period_start;
+
+  UPDATE public.agent_jobs
+     SET payload = payload - 'draft_usage_reserved_period', updated_at = NOW()
+   WHERE id = p_job_id;
+END;
+$;
 
 REVOKE EXECUTE ON FUNCTION public.claim_workspace_publish_slot(UUID, UUID)
   FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.reserve_draft_usage(UUID, DATE, DATE, INTEGER)
+REVOKE EXECUTE ON FUNCTION public.reserve_draft_usage(UUID, UUID, DATE, DATE, INTEGER)
   FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.release_draft_usage(UUID, DATE)
+REVOKE EXECUTE ON FUNCTION public.release_draft_usage(UUID)
   FROM PUBLIC, anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION public.claim_workspace_publish_slot(UUID, UUID) TO service_role;
-GRANT EXECUTE ON FUNCTION public.reserve_draft_usage(UUID, DATE, DATE, INTEGER) TO service_role;
-GRANT EXECUTE ON FUNCTION public.release_draft_usage(UUID, DATE) TO service_role;
+GRANT EXECUTE ON FUNCTION public.reserve_draft_usage(UUID, UUID, DATE, DATE, INTEGER) TO service_role;
+GRANT EXECUTE ON FUNCTION public.release_draft_usage(UUID) TO service_role;
 
 
 -- The cron-level check is an optimization; this index is the concurrency guarantee.
