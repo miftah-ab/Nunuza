@@ -612,7 +612,23 @@ export async function executeAutonomousCycle(
   }
   const scored = eligibleByBrand.filter((item) => item.score >= 2.5);
 
-  const previousTitles = activeRecentPosts.map((post: any) => String(post.internal_title ?? ""));
+  const consideredSince = new Date(Date.now() - 14 * 86400000).toISOString();
+  const { data: priorResearchEvents, error: priorResearchError } = await supabase
+    .from("audit_events")
+    .select("safe_metadata")
+    .eq("workspace_id", workspace.id)
+    .eq("action", "agent_research_candidate")
+    .gte("created_at", consideredSince)
+    .limit(200);
+  if (priorResearchError) return fail("Could not load recent research history.");
+
+  const previousResearchTitles = (priorResearchEvents ?? [])
+    .map((event: any) => event.safe_metadata?.title)
+    .filter((title: unknown): title is string => typeof title === "string");
+  const previousTitles = [
+    ...activeRecentPosts.map((post: any) => String(post.internal_title ?? "")),
+    ...previousResearchTitles,
+  ];
   const opportunity = scored.find((item) => !isDuplicateOpportunity(item.title, previousTitles));
 
   if (!opportunity) {
