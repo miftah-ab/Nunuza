@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { claimDueJobs, processJob, reconcileStaleJobs, registerJobHandler } from "./runner";
 import { backoffSeconds, isAllowedTransition, JobTransitionError } from "./state";
 import { MockSupabase, makeJob } from "@/test/mock-supabase";
+import type { AgentJob } from "@/types/database";
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(),
