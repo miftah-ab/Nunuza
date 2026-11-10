@@ -34,7 +34,7 @@ export type JobHandler = (job: AgentJob, supabase: any) => Promise<JobExecutionR
 
 /** Registered handlers. Each job_type that may be queued must be present here. */
 const handlers: Record<string, JobHandler> = {
-  publish_post: (job, supabase) => executePublishJob(job, supabase),
+  publish_post: (job, supabase) => executePublishJob(job, supabase, { deferJobFinalization: true }),
   agent_cycle: (job, supabase) => executeAutonomousCycle(job, supabase),
 };
 
@@ -276,13 +276,32 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
         if (postId) {
           const { data: post, error: postErr } = await supabase
             .from("content_posts")
-            .select("status")
+            .select("status, linkedin_post_id")
             .eq("id", postId)
             .single();
           if (postErr || !post) {
             throw new Error(`Could not read post ${postId}: ${postErr?.message ?? "not found"}`);
           }
           postStatus = post.status;
+          var postLinkedInId: string | null = post.linkedin_post_id ?? null;
+        }
+
+        if (postStatus === "published") {
+          if (!postLinkedInId) {
+            await transitionJob(supabase, job.id, "running", "needs_reconciliation", {
+              lease_until: null,
+              last_error_code: "PUBLISHED_POST_ID_MISSING",
+              safe_error_message: "The post is marked published but has no confirmed LinkedIn post ID. Reconciliation is required.",
+            });
+          } else {
+            await transitionJob(supabase, job.id, "running", "succeeded", {
+              finished_at: nowIso,
+              lease_until: null,
+              safe_error_message: null,
+            });
+          }
+          reconciledCount++;
+          continue;
         }
 
         if (postStatus === "publishing" || postStatus === "needs_reconciliation") {
