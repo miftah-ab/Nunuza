@@ -273,6 +273,7 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
       if (job.job_type === "publish_post") {
         const postId = (job.payload as any)?.postId as string | undefined;
         let postStatus: string | null = null;
+        let postLinkedInId: string | null = null;
         if (postId) {
           const { data: post, error: postErr } = await supabase
             .from("content_posts")
@@ -283,7 +284,7 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
             throw new Error(`Could not read post ${postId}: ${postErr?.message ?? "not found"}`);
           }
           postStatus = post.status;
-          var postLinkedInId: string | null = post.linkedin_post_id ?? null;
+          postLinkedInId = post.linkedin_post_id ?? null;
         }
 
         if (postStatus === "published") {
