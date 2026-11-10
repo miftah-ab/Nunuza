@@ -660,10 +660,19 @@ export async function handleTelegramMessage(
       };
     }
 
-    await supabase
+    const { data: rejectedRows, error: rejectError } = await supabase
       .from("content_posts")
-      .update({ status: "rejected", rejection_reason: reason })
-      .eq("id", targetPost.id);
+      .update({ status: "rejected" })
+      .eq("id", targetPost.id)
+      .eq("workspace_id", workspaceId)
+      .in("status", ["draft", "needs_review"])
+      .select("id");
+
+    if (rejectError || !rejectedRows?.length) {
+      return {
+        replyText: "❌ This draft could not be rejected. It may already have changed status. Run /drafts to refresh.",
+      };
+    }
 
     const { error: rejectionSignalError } = await supabase.from("approval_events").insert({
       workspace_id: workspaceId, post_id: targetPost.id, actor_type: "telegram",
@@ -982,10 +991,23 @@ export async function handleCallbackQuery(
       return;
     }
 
-    await supabase
+    const { data: rejectedRows, error: rejectError } = await supabase
       .from("content_posts")
-      .update({ status: "rejected", rejection_reason: "Rejected via Telegram" })
-      .eq("id", post.id);
+      .update({ status: "rejected" })
+      .eq("id", post.id)
+      .eq("workspace_id", workspaceId)
+      .in("status", ["draft", "needs_review"])
+      .select("id");
+
+    if (rejectError || !rejectedRows?.length) {
+      await editTelegramMessage(
+        ctx.chatId,
+        ctx.messageId,
+        "❌ *Could not reject this draft\\.* It may already have changed status\\.",
+        { inline_keyboard: [[{ text: "📝 Drafts", callback_data: "menu:drafts" }]] }
+      );
+      return;
+    }
 
     const { error: callbackRejectionSignalError } = await supabase.from("approval_events").insert({
       workspace_id: workspaceId, post_id: post.id, actor_type: "telegram",
