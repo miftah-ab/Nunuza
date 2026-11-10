@@ -401,6 +401,7 @@ export async function executePublishJob(
     }
   }
   const maxAttempts = job.max_attempts || 3;
+  const payload = job.payload as unknown as PublishPostPayload & { autopilot?: boolean };
 
   const terminal = async (code: string, message: string) => {
     await markJobTerminal(supabase, job.id, message, code);
@@ -423,7 +424,6 @@ export async function executePublishJob(
   }
 
   // 3. Payload + post
-  const payload = job.payload as unknown as PublishPostPayload & { autopilot?: boolean };
   if (!payload?.postId) {
     return terminal("INVALID_PAYLOAD", "Missing postId in job payload.");
   }
