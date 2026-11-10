@@ -33,7 +33,7 @@ describe("entitlementPermits()", () => {
     expect(entitlementPermits("draft_only", "draft_only")).toBe(true);
   });
 
-  it("draft_only does NOT permit publishing_beta", () => {
+  it("draft_only does NOT permit internal_beta", () => {
     expect(entitlementPermits("draft_only", "internal_beta")).toBe(false);
   });
 
@@ -41,7 +41,7 @@ describe("entitlementPermits()", () => {
     expect(entitlementPermits("draft_only", "paid_trial")).toBe(false);
   });
 
-  it("publishing_beta permits publishing_beta", () => {
+  it("internal_beta permits internal_beta", () => {
     expect(entitlementPermits("internal_beta", "internal_beta")).toBe(true);
   });
 
@@ -108,7 +108,7 @@ describe("assertEntitlementIn()", () => {
     ).toThrow(EntitlementError);
   });
 
-  it("throws for draft_only even if publishing_beta is allowed", () => {
+  it("throws for draft_only even if internal_beta is allowed", () => {
     expect(() =>
       assertEntitlementIn(ws("draft_only"), ["internal_beta", "paid_active"])
     ).toThrow(EntitlementError);
@@ -124,8 +124,7 @@ describe("canPublish()", () => {
     ["suspended",        false],
     ["expired",          false],
     ["internal_beta",    true],
-    ["internal_beta",  true],
-        ["paid_trial",       true],
+    ["paid_trial",       true],
     ["paid_active",      true],
   ];
 
