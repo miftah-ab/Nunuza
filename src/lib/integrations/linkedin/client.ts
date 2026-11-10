@@ -13,7 +13,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { logAuditEvent } from "@/lib/db/workspace";
 import type { IntegrationConnection } from "@/types/database";
 
-export const LINKEDIN_API_VERSION = "202608";
+export const LINKEDIN_API_VERSION = "202610";
 export const LINKEDIN_SCOPES = ["w_member_social", "openid", "profile", "email"];
 
 export function getLinkedInAuthorizationUrl(state: string): string {
