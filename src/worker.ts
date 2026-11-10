@@ -9,7 +9,7 @@
  * - scheduled(): Cron Trigger handler reconciling stale jobs and claiming due work
  */
 
-import { claimDueJobs, processJob, reconcileStaleJobs } from "@/lib/jobs/runner";
+import { claimDueJobs, isClaimedAgentJobEnvelope, processJob, reconcileStaleJobs } from "@/lib/jobs/runner";
 import { enqueueAutonomousCycles } from "@/lib/jobs/intelligence";
 import type { AgentJob } from "@/types/database";
 
@@ -42,21 +42,25 @@ export default {
     _env: CloudflareBindings
   ): Promise<void> {
     for (const message of batch.messages) {
-      const job = message.body as AgentJob;
-      if (job && job.id && job.workspace_id) {
-        try {
-          const result = await processJob(job);
+      if (!isClaimedAgentJobEnvelope(message.body)) {
+        // Malformed or unclaimed messages are poison messages, not retryable jobs.
+        // Log only a fixed reason; never serialize untrusted payloads or secrets.
+        console.error("[worker-queue] Discarded invalid claimed-job envelope.");
+        message.ack();
+        continue;
+      }
+
+      const job: AgentJob = message.body;
+      try {
+        const result = await processJob(job);
           if (result.success || !result.retryable) {
             message.ack();
           } else {
             message.retry();
           }
-        } catch (err) {
-          console.error(`[worker-queue] Failed to process job ${job.id}:`, err);
-          message.retry();
-        }
-      } else {
-        message.ack();
+      } catch (err) {
+        console.error(`[worker-queue] Failed to process job ${job.id}:`, err);
+        message.retry();
       }
     }
   },
