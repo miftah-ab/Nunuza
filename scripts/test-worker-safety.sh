@@ -137,7 +137,9 @@ SAME=$(q -c "SELECT reserve_draft_usage('50000000-0000-0000-0000-000000000001','
 [ "$SAME" = "t" ] || fail "retrying the same job reservation must remain successful"
 COUNT_AFTER_RETRY=$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$WS4' AND metric='draft_items_created'")
 [ "$COUNT_AFTER_RETRY" = "30" ] || fail "same-job retry must not increment usage twice"
-q -c "SELECT release_draft_usage('50000000-0000-0000-0000-000000000001')" >/dev/null
+q -c "UPDATE agent_jobs SET status='failed_terminal' WHERE id='50000000-0000-0000-0000-000000000001'" >/dev/null
+COUNT_AFTER_TERMINAL=$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$WS4' AND metric='draft_items_created'")
+[ "$COUNT_AFTER_TERMINAL" = "29" ] || fail "terminal job must release its unused draft reservation"
 q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status) VALUES ('50000000-0000-0000-0000-000000000081','$WS4','usage_reservation_test','queued')" >/dev/null
 NEXT=$(q -c "SELECT reserve_draft_usage('50000000-0000-0000-0000-000000000081','$WS4',current_date,current_date + 30,30)")
 [ "$NEXT" = "t" ] || fail "released reservation must allow one new reservation"
