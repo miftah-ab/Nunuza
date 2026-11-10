@@ -164,10 +164,25 @@ DECLARE
   v_workspace_id UUID;
   v_payload JSONB;
   v_period_start DATE;
+  v_cycle_date TEXT;
 BEGIN
   SELECT workspace_id, payload INTO v_workspace_id, v_payload
     FROM public.agent_jobs WHERE id = p_job_id FOR UPDATE;
   IF NOT FOUND OR NOT (v_payload ? 'draft_usage_reserved_period') THEN
+    RETURN;
+  END IF;
+
+  -- A response can be lost after the post INSERT committed. In that case the
+  -- cycle key proves usage was consumed; only clear the reservation marker.
+  v_cycle_date := v_payload->>'cycleDate';
+  IF v_cycle_date IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.content_posts
+     WHERE workspace_id = v_workspace_id
+       AND agent_cycle_key = v_workspace_id::TEXT || ':' || v_cycle_date
+  ) THEN
+    UPDATE public.agent_jobs
+       SET payload = payload - 'draft_usage_reserved_period', updated_at = NOW()
+     WHERE id = p_job_id;
     RETURN;
   END IF;
 
