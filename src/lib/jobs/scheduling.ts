@@ -388,6 +388,25 @@ export async function executePublishJob(
     if (options.deferJobFinalization) return;
     await markJobTerminal(supabase, job.id, message, errorCode, "running", jobGuard());
   };
+  const persistJobPayloadPatch = async (patch: Record<string, unknown>) => {
+    let query = supabase
+      .from("agent_jobs")
+      .update({
+        payload: { ...(job.payload as Record<string, unknown>), ...patch },
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", job.id)
+      .eq("status", "running")
+      .eq("attempt_count", attemptCount);
+    if (job.lease_until) query = query.eq("lease_until", job.lease_until);
+    const { data, error } = await query.select("id");
+    if (error || !Array.isArray(data) || data.length === 0) {
+      throw new Error(
+        `Could not persist LinkedIn publication evidence for job ${job.id}: ${error?.message ?? "lease ownership changed"}`
+      );
+    }
+    job.payload = { ...(job.payload as Record<string, unknown>), ...patch };
+  };
   const maxAttempts = job.max_attempts || 3;
   const payload = job.payload as unknown as PublishPostPayload & { autopilot?: boolean };
 
@@ -621,11 +640,11 @@ export async function executePublishJob(
     const message =
       `LinkedIn confirmed the post (${result.linkedinPostId}) but Nunuza could not save that. ` +
       `Check the post in Nunuza and confirm it as published.`;
+    await persistJobPayloadPatch({ linkedin_post_urn: result.linkedinPostId });
     await transitionOutcome("needs_reconciliation", {
       lease_until: null,
       last_error_code: "PERSIST_FAILED_AFTER_PUBLISH",
       safe_error_message: message,
-      payload: { ...(job.payload as Record<string, unknown>), linkedin_post_urn: result.linkedinPostId },
     });
     await casPostStatus(supabase, job.workspace_id, post.id, ["publishing"], { status: "needs_reconciliation" });
     return fail("needs_reconciliation", false, message);
