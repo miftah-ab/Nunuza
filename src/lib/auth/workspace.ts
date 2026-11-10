@@ -249,8 +249,11 @@ export function canPublish(workspace: Pick<Workspace, "entitlement_type">): bool
 export function canUseAutopilot(
   workspace: Pick<Workspace, "entitlement_type" | "operating_mode">
 ): boolean {
+  // Autopilot is restricted to the current, explicitly authorized entitlement
+  // model. Legacy publishing_beta/internal_test remain manual-publishing
+  // compatibility states and must never inherit unattended execution.
   return (
-    canPublish(workspace) &&
+    ["internal_beta", "paid_trial", "paid_active"].includes(workspace.entitlement_type) &&
     workspace.operating_mode === "autopilot"
   );
 }
