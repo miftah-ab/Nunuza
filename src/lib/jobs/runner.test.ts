@@ -362,7 +362,7 @@ describe("processJob", () => {
   });
 
   it("fails closed for a publish job whose post does not exist, and records attempt history", async () => {
-    db.tables.workspaces.push({ id: "ws-test", entitlement_type: "publishing_beta", paused_at: null });
+    db.tables.workspaces.push({ id: "ws-test", entitlement_type: "internal_beta", paused_at: null });
     const job = makeJob({ status: "running", attempt_count: 1, payload: { postId: "post-123" } });
     db.jobs.push(job);
 
@@ -410,6 +410,21 @@ describe("reconcileStaleJobs", () => {
     await reconcileStaleJobs(db);
     expect(db.jobs[0].status).toBe("failed_retryable");
     expect(db.posts[0].status).toBe("scheduled");
+  });
+
+  it("repairs a post left in publishing after its job entered needs_reconciliation", async () => {
+    db.jobs.push(makeJob({
+      status: "needs_reconciliation",
+      job_type: "publish_post",
+      attempt_count: 1,
+      payload: { postId: "p3" },
+      lease_until: null,
+    }));
+    db.posts.push({ id: "p3", workspace_id: "ws-test", status: "publishing" });
+
+    expect(await reconcileStaleJobs(db)).toBe(1);
+    expect(db.jobs[0].status).toBe("needs_reconciliation");
+    expect(db.posts[0].status).toBe("needs_reconciliation");
   });
 
   it("leaves jobs with an active lease alone", async () => {
