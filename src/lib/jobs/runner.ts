@@ -32,6 +32,31 @@ export interface ClaimJobsOptions {
 
 export type JobHandler = (job: AgentJob, supabase: any) => Promise<JobExecutionResult>;
 
+/**
+ * Queue messages cross a trust boundary. Validate the persisted claim envelope
+ * before casting or touching the database. Payload-specific validation remains
+ * inside each handler, where the job type is known.
+ */
+export function isClaimedAgentJobEnvelope(value: unknown): value is AgentJob {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const job = value as Record<string, unknown>;
+  const leaseUntil = typeof job.lease_until === "string"
+    ? Date.parse(job.lease_until)
+    : Number.NaN;
+
+  return (
+    typeof job.id === "string" && job.id.length > 0 &&
+    typeof job.workspace_id === "string" && job.workspace_id.length > 0 &&
+    typeof job.job_type === "string" && job.job_type.length > 0 &&
+    job.status === "running" &&
+    !!job.payload && typeof job.payload === "object" && !Array.isArray(job.payload) &&
+    Number.isInteger(job.attempt_count) && Number(job.attempt_count) > 0 &&
+    Number.isInteger(job.max_attempts) && Number(job.max_attempts) > 0 &&
+    Number(job.attempt_count) <= Number(job.max_attempts) &&
+    Number.isFinite(leaseUntil)
+  );
+}
+
 /** Registered handlers. Each job_type that may be queued must be present here. */
 const handlers: Record<string, JobHandler> = {
   publish_post: (job, supabase) => executePublishJob(job, supabase, { deferJobFinalization: true }),
