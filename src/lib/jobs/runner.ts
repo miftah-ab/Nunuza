@@ -385,8 +385,6 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
   if (error) {
     throw new Error(`[runner] Stale job lookup failed: ${error.message}`);
   }
-  if (!staleJobs || staleJobs.length === 0) return 0;
-
   let reconciledCount = 0;
 
   for (const job of staleJobs as AgentJob[]) {
@@ -427,14 +425,21 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
         }
 
         if (postStatus === "publishing" || postStatus === "needs_reconciliation") {
-          // Persist the post's ambiguous state before closing its job. If this
-          // write fails, keep the job recoverable instead of leaving the post
-          // and job in contradictory states.
+          // Fence out the expired worker first. A heartbeat that renewed the
+          // lease after the stale scan must win over this recovery attempt.
+          await transitionJob(supabase, job.id, "running", "needs_reconciliation", {
+            lease_until: null,
+            last_error_code: "WORKER_DIED_DURING_PUBLISH",
+            safe_error_message:
+              "The worker stopped while publishing. The post may already be live on LinkedIn. Check your LinkedIn profile and confirm the outcome in Nunuza.",
+          }, { attemptCount: job.attempt_count, leaseUntil: job.lease_until ?? undefined });
+
           if (postId && postStatus === "publishing") {
             const { data: updatedPost, error: postUpdErr } = await supabase
               .from("content_posts")
-              .update({ status: "needs_reconciliation" })
+              .update({ status: "needs_reconciliation", updated_at: nowIso })
               .eq("id", postId)
+              .eq("workspace_id", job.workspace_id)
               .eq("status", "publishing")
               .select("id");
             if (postUpdErr) {
@@ -447,6 +452,7 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
                 .from("content_posts")
                 .select("status")
                 .eq("id", postId)
+                .eq("workspace_id", job.workspace_id)
                 .single();
               if (latestErr || latestPost?.status !== "needs_reconciliation") {
                 throw new Error(
@@ -455,12 +461,6 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
               }
             }
           }
-          await transitionJob(supabase, job.id, "running", "needs_reconciliation", {
-            lease_until: null,
-            last_error_code: "WORKER_DIED_DURING_PUBLISH",
-            safe_error_message:
-              "The worker stopped while publishing. The post may already be live on LinkedIn. Check your LinkedIn profile and confirm the outcome in Nunuza.",
-          });
           reconciledCount++;
           continue;
         }
@@ -488,6 +488,48 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
       // One bad job must not stop reconciliation of the others, but it must be visible.
       console.error(`[runner] Failed to reconcile stale job ${job.id}: ${err?.message}`);
     }
+  }
+
+  // Repair a previous partial reconciliation where the job was safely
+  // closed but the post status update failed. Only touch publishing posts
+  // whose own job is already awaiting human reconciliation.
+  const { data: reconciliationJobs, error: reconciliationJobsError } = await supabase
+    .from("agent_jobs")
+    .select("workspace_id, payload")
+    .eq("job_type", "publish_post")
+    .eq("status", "needs_reconciliation")
+    .limit(100);
+
+  if (reconciliationJobsError) {
+    throw new Error(`[runner] Reconciliation repair lookup failed: ${reconciliationJobsError.message}`);
+  }
+
+  for (const reconciliationJob of reconciliationJobs ?? []) {
+    const postId = (reconciliationJob.payload as any)?.postId as string | undefined;
+    if (!postId || !reconciliationJob.workspace_id) continue;
+
+    const { data: post, error: postReadError } = await supabase
+      .from("content_posts")
+      .select("status")
+      .eq("id", postId)
+      .eq("workspace_id", reconciliationJob.workspace_id)
+      .maybeSingle();
+
+    if (postReadError || !post || post.status !== "publishing") continue;
+
+    const { data: repairedPost, error: repairError } = await supabase
+      .from("content_posts")
+      .update({ status: "needs_reconciliation", updated_at: nowIso })
+      .eq("id", postId)
+      .eq("workspace_id", reconciliationJob.workspace_id)
+      .eq("status", "publishing")
+      .select("id");
+
+    if (repairError) {
+      console.error(`[runner] Could not repair reconciliation state for post ${postId}: ${repairError.message}`);
+      continue;
+    }
+    if (Array.isArray(repairedPost) && repairedPost.length > 0) reconciledCount++;
   }
 
   return reconciledCount;
