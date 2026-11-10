@@ -349,20 +349,28 @@ export async function executePublishJob(
   if (job.status === "queued") {
     try {
       attemptCount = job.attempt_count + 1;
+      const inlineLeaseUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
       await transitionJob(supabase, job.id, "queued", "running", {
         started_at: new Date().toISOString(),
-        lease_until: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+        lease_until: inlineLeaseUntil,
         attempt_count: attemptCount,
-      });
+      }, { attemptCount: job.attempt_count });
+      job.status = "running";
+      job.attempt_count = attemptCount;
+      job.lease_until = inlineLeaseUntil;
     } catch {
       return fail(job.status, false, "Could not acquire job lease.");
     }
   }
+  const jobGuard = () => ({
+    attemptCount,
+    leaseUntil: job.lease_until ?? undefined,
+  });
   const maxAttempts = job.max_attempts || 3;
   const payload = job.payload as unknown as PublishPostPayload & { autopilot?: boolean };
 
   const terminal = async (code: string, message: string) => {
-    await markJobTerminal(supabase, job.id, message, code);
+    await markJobTerminal(supabase, job.id, message, code, "running", jobGuard());
     return fail("failed_terminal", false, message);
   };
 
@@ -405,7 +413,7 @@ export async function executePublishJob(
       lease_until: null,
       last_error_code: "WORKSPACE_PAUSED",
       safe_error_message: "Agent is paused. The post was not published. Resume and reschedule it.",
-    });
+    }, jobGuard());
     return fail("canceled", false, "Agent is paused. The post was not published.");
   }
 
@@ -417,7 +425,7 @@ export async function executePublishJob(
       finished_at: new Date().toISOString(),
       lease_until: null,
       safe_error_message: null,
-    });
+    }, jobGuard());
     return {
       jobId: job.id,
       success: true,
@@ -438,7 +446,7 @@ export async function executePublishJob(
       lease_until: null,
       last_error_code: "POST_NOT_ELIGIBLE",
       safe_error_message: message,
-    });
+    }, jobGuard());
     return fail("canceled", false, message);
   }
 
@@ -454,7 +462,7 @@ export async function executePublishJob(
   if (slotError) {
     const message = "Could not safely reserve the workspace publishing slot: " + slotError.message;
     if (attemptCount < maxAttempts) {
-      await markJobRetryable(supabase, { id: job.id, attempt_count: attemptCount }, message, "PUBLISH_SLOT_CHECK_FAILED");
+      await markJobRetryable(supabase, { id: job.id, attempt_count: attemptCount }, message, "PUBLISH_SLOT_CHECK_FAILED", "running", jobGuard());
       return fail("failed_retryable", true, message);
     }
     return terminal("PUBLISH_SLOT_CHECK_FAILED", message);
@@ -473,7 +481,7 @@ export async function executePublishJob(
       lease_until: null,
       last_error_code: reason,
       safe_error_message: message,
-    });
+    }, jobGuard());
     if (post.status === "scheduled") {
       await casPostStatus(supabase, job.workspace_id, post.id, ["scheduled"], {
         status: "approved",
@@ -507,7 +515,7 @@ export async function executePublishJob(
         lease_until: null,
         last_error_code: "PUBLICATION_UNCONFIRMED",
         safe_error_message: userMessage,
-      });
+      }, jobGuard());
       await logAuditEvent({
         workspaceId: job.workspace_id,
         actorType: "system",
@@ -529,7 +537,7 @@ export async function executePublishJob(
     // Definitively NOT published: put the post back, then retry or fail.
     if (kind === "rate_limited" && attemptCount < maxAttempts) {
       await casPostStatus(supabase, job.workspace_id, post.id, ["publishing"], { status: priorStatus });
-      await markJobRetryable(supabase, { id: job.id, attempt_count: attemptCount }, errorMsg, "LINKEDIN_RATE_LIMITED");
+      await markJobRetryable(supabase, { id: job.id, attempt_count: attemptCount }, errorMsg, "LINKEDIN_RATE_LIMITED", "running", jobGuard());
       return fail("failed_retryable", true, errorMsg);
     }
 
@@ -538,7 +546,9 @@ export async function executePublishJob(
       supabase,
       job.id,
       errorMsg,
-      kind === "auth" || kind === "not_connected" ? "LINKEDIN_INTEGRATION_ERROR" : "PUBLISH_FAILED"
+      kind === "auth" || kind === "not_connected" ? "LINKEDIN_INTEGRATION_ERROR" : "PUBLISH_FAILED",
+      "running",
+      jobGuard()
     );
     notifyWorkspaceTelegram(job.workspace_id, {
       text:
@@ -569,7 +579,7 @@ export async function executePublishJob(
       last_error_code: "PERSIST_FAILED_AFTER_PUBLISH",
       safe_error_message: message,
       payload: { ...(job.payload as Record<string, unknown>), linkedin_post_urn: result.linkedinPostId },
-    });
+    }, jobGuard());
     await casPostStatus(supabase, job.workspace_id, post.id, ["publishing"], { status: "needs_reconciliation" });
     return fail("needs_reconciliation", false, message);
   }
@@ -580,7 +590,7 @@ export async function executePublishJob(
         finished_at: new Date().toISOString(),
         lease_until: null,
         safe_error_message: null,
-      });
+      }, jobGuard());
     } catch (jobErr: any) {
       console.error(`[publisher] Post ${post.id} published but job ${job.id} could not be marked succeeded: ${jobErr?.message}`);
     }
