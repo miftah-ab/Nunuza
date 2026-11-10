@@ -28,7 +28,8 @@ CREATE TABLE public.agent_jobs (
   workspace_id UUID NOT NULL REFERENCES public.workspaces(id),
   job_type TEXT NOT NULL,
   status TEXT NOT NULL,
-  payload JSONB NOT NULL DEFAULT '{}'::JSONB
+  payload JSONB NOT NULL DEFAULT '{}'::JSONB,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE TABLE public.content_posts (
   id UUID PRIMARY KEY,
@@ -36,6 +37,7 @@ CREATE TABLE public.content_posts (
   status post_status NOT NULL,
   scheduled_at TIMESTAMPTZ,
   published_at TIMESTAMPTZ,
+  agent_cycle_key TEXT,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE TABLE public.usage_counters (
