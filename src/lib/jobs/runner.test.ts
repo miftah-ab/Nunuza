@@ -205,6 +205,32 @@ describe("processJob", () => {
     expect(await claimDueJobs({ limit: 5 }, db)).toHaveLength(0);
   });
 
+  it("executes only one handler for duplicate deliveries of the same running lease", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const handler = vi.fn(async (job: AgentJob) => {
+      await gate;
+      return { jobId: job.id, success: true, status: "succeeded" as const, retryable: false };
+    });
+    registerJobHandler("test_duplicate_delivery", handler);
+    const job = makeJob({
+      job_type: "test_duplicate_delivery",
+      status: "running",
+      attempt_count: 1,
+    });
+    db.jobs.push({ ...job });
+
+    const first = processJob(job, db);
+    const duplicate = processJob(job, db);
+    await Promise.resolve();
+    release();
+    await Promise.all([first, duplicate]);
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(db.attempts).toHaveLength(1);
+    expect(db.jobs[0].status).toBe("succeeded");
+  });
+
   it("does not finalize a job when durable attempt history cannot be recorded", async () => {
     registerJobHandler("test_attempt_log_failure", async (job) => ({
       jobId: job.id,
