@@ -162,7 +162,7 @@ export function buildLearningProfile(
     avoidedEditTerms: [...removedTermCounts].filter(([, count]) => count >= 2).map(([term]) => term),
     approvedCount,
     rejectedCount,
-    editCount: versionsByPost.size,
+    editCount: edits.filter((version) => version.change_source === "user_edit").length,
   };
 }
 
