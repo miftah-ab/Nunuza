@@ -81,7 +81,7 @@ export async function processJob(
   // that already finished, was canceled or was reconciled must not run again.
   const { data: current, error: readErr } = await supabase
     .from("agent_jobs")
-    .select("id, status, attempt_count, max_attempts")
+    .select("id, status, attempt_count, max_attempts, lease_until")
     .eq("id", job.id)
     .single();
 
@@ -100,7 +100,45 @@ export async function processJob(
 
   const attemptCount: number = current.attempt_count ?? job.attempt_count;
   const maxAttempts: number = current.max_attempts ?? job.max_attempts;
-  const liveJob = { ...job, attempt_count: attemptCount, max_attempts: maxAttempts } as AgentJob;
+  const expectedLeaseUntil = job.lease_until;
+  if (!expectedLeaseUntil || current.lease_until !== expectedLeaseUntil) {
+    return {
+      jobId: job.id,
+      success: false,
+      status: "running",
+      retryable: false,
+      error: "Duplicate or expired queue delivery skipped; another execution owns the lease.",
+    };
+  }
+
+  const renewedLeaseUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  const { data: executionStarted, error: executionStartError } = await supabase.rpc("begin_agent_job_execution", {
+    p_job_id: job.id,
+    p_attempt_count: attemptCount,
+    p_expected_lease_until: expectedLeaseUntil,
+    p_new_lease_until: renewedLeaseUntil,
+  });
+  if (executionStartError) {
+    throw new JobTransitionError(
+      `[runner] Could not acquire execution lease for job ${job.id}: ${executionStartError.message}`
+    );
+  }
+  if (executionStarted !== true) {
+    return {
+      jobId: job.id,
+      success: false,
+      status: "running",
+      retryable: false,
+      error: "Duplicate or expired queue delivery skipped; another execution owns the lease.",
+    };
+  }
+
+  const liveJob = {
+    ...job,
+    attempt_count: attemptCount,
+    max_attempts: maxAttempts,
+    lease_until: renewedLeaseUntil,
+  } as AgentJob;
 
   let result: JobExecutionResult;
   try {
