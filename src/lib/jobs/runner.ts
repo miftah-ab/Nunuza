@@ -329,6 +329,13 @@ export async function processJob(
         lease_until: null,
         safe_error_message: null,
       }, jobGuard());
+    } else if (result.status === "canceled") {
+      await transitionJob(supabase, liveJob.id, "running", "canceled", {
+        finished_at: finishedTime.toISOString(),
+        lease_until: null,
+        last_error_code: "JOB_CANCELED",
+        safe_error_message: result.error ?? "Job was canceled by a safety gate.",
+      }, jobGuard());
     } else if (result.status === "needs_reconciliation") {
       await transitionJob(supabase, liveJob.id, "running", "needs_reconciliation", {
         lease_until: null,
