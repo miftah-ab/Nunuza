@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { claimDueJobs, isClaimedAgentJobEnvelope, processJob, reconcileStaleJobs, registerJobHandler, renewAgentJobLease } from "./runner";
-import { backoffSeconds, isAllowedTransition, JobTransitionError } from "./state";
+import { backoffSeconds, isAllowedTransition, JobTransitionError, transitionJob } from "./state";
 import { MockSupabase, makeJob } from "@/test/mock-supabase";
 import type { AgentJob } from "@/types/database";
 
@@ -48,6 +48,32 @@ describe("job state machine", () => {
     expect(isAllowedTransition("needs_reconciliation", "running")).toBe(false);
     expect(isAllowedTransition("needs_reconciliation", "queued")).toBe(false);
     expect(isAllowedTransition("needs_reconciliation", "succeeded")).toBe(true);
+  });
+
+  it("fences state transitions by the exact attempt and lease", async () => {
+    const db = new MockSupabase();
+    const lease = new Date(Date.now() + 60_000).toISOString();
+    db.jobs.push(makeJob({ status: "running", attempt_count: 2, lease_until: lease }));
+
+    await expect(transitionJob(
+      db,
+      "job-1",
+      "running",
+      "succeeded",
+      {},
+      { attemptCount: 1, leaseUntil: lease }
+    )).rejects.toThrow(JobTransitionError);
+
+    expect(db.jobs[0].status).toBe("running");
+    await transitionJob(
+      db,
+      "job-1",
+      "running",
+      "succeeded",
+      {},
+      { attemptCount: 2, leaseUntil: lease }
+    );
+    expect(db.jobs[0].status).toBe("succeeded");
   });
 
   it("backs off exponentially and caps at one hour", () => {
@@ -183,6 +209,33 @@ describe("processJob", () => {
     expect(db.jobs[0].status).toBe("succeeded");
     expect(db.attempts).toHaveLength(1);
     expect(db.attempts[0].attempt_number).toBe(1);
+  });
+
+  it("does not finalize a job after another attempt has taken ownership", async () => {
+    registerJobHandler("test_lease_lost", async (job, supabase) => {
+      supabase.jobs[0].attempt_count = job.attempt_count + 1;
+      supabase.jobs[0].lease_until = new Date(Date.now() + 60_000).toISOString();
+      return {
+        jobId: job.id,
+        success: true,
+        status: "succeeded",
+        retryable: false,
+      };
+    });
+    const job = makeJob({
+      job_type: "test_lease_lost",
+      status: "running",
+      attempt_count: 1,
+      lease_until: new Date(Date.now() + 60_000).toISOString(),
+    });
+    db.jobs.push(job);
+
+    const result = await processJob(job, db);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("lease was lost");
+    expect(db.jobs[0].status).toBe("running");
+    expect(db.attempts).toHaveLength(0);
   });
 
   it("skips a job that is no longer running (queue redelivery after completion)", async () => {
