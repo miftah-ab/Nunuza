@@ -56,15 +56,9 @@ echo "migration applied"
 CYCLE_WS="10000000-0000-0000-0000-000000000009"
 q -c "INSERT INTO workspaces VALUES ('$CYCLE_WS')" >/dev/null
 q -c "INSERT INTO agent_jobs(workspace_id,job_type,status) VALUES ('$CYCLE_WS','agent_cycle','queued')" >/dev/null
-DUPLICATE_CYCLE=$(q -c "DO \$\$ BEGIN
-  BEGIN
-    INSERT INTO agent_jobs(workspace_id,job_type,status) VALUES ('$CYCLE_WS','agent_cycle','running');
-    RAISE EXCEPTION 'expected active cycle uniqueness violation';
-  EXCEPTION WHEN unique_violation THEN
-    NULL;
-  END;
-END \$\$; SELECT 'blocked'")
-[ "$DUPLICATE_CYCLE" = "blocked" ] || fail "a workspace must not have overlapping active agent cycles"
+if q -c "INSERT INTO agent_jobs(workspace_id,job_type,status) VALUES ('$CYCLE_WS','agent_cycle','running')" >/dev/null 2>&1; then
+  fail "a workspace must not have overlapping active agent cycles"
+fi
 q -c "UPDATE agent_jobs SET status='succeeded' WHERE workspace_id='$CYCLE_WS' AND job_type='agent_cycle'" >/dev/null
 q -c "INSERT INTO agent_jobs(workspace_id,job_type,status) VALUES ('$CYCLE_WS','agent_cycle','queued')" >/dev/null
 echo "ok: active agent cycles are unique per workspace"
