@@ -72,7 +72,7 @@ WS2="10000000-0000-0000-0000-000000000002"
 q -c "INSERT INTO workspaces VALUES ('$WS2')" >/dev/null
 q -c "INSERT INTO content_posts(id,workspace_id,status,scheduled_at) VALUES
 ('30000000-0000-0000-0000-000000000001','$WS2','scheduled',date_trunc('day',now()) + interval '2 hours'),
-('30000000-0000-0000-0000-000000000002','$WS2','approved')" >/dev/null
+('30000000-0000-0000-0000-000000000002','$WS2','approved',NULL)" >/dev/null
 DAILY=$(q -c "SELECT allowed FROM claim_workspace_publish_slot('$WS2','30000000-0000-0000-0000-000000000002')")
 [ "$DAILY" = "f" ] || fail "scheduled post must reserve the daily slot"
 echo "ok: scheduled posts reserve the daily slot"
