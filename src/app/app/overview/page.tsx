@@ -244,7 +244,10 @@ export default async function OverviewPage() {
         const score = typeof metadata.relevanceScore === "number"
           ? `Relevance ${metadata.relevanceScore.toFixed(1)}`
           : null;
-        detail = [typeof metadata.source === "string" ? metadata.source : null, score, reason]
+        const evidence = typeof metadata.evidence === "string"
+          ? metadata.evidence.replace(/\s+/g, " ").slice(0, 150)
+          : null;
+        detail = [typeof metadata.source === "string" ? metadata.source : null, score, reason, evidence]
           .filter(Boolean).join(" · ");
         const sourceUrl = typeof metadata.articleUrl === "string"
           ? metadata.articleUrl
