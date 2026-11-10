@@ -717,8 +717,9 @@ export async function executeAutonomousCycle(
       .select("status, expires_at, granted_scopes").eq("workspace_id", workspace.id)
       .eq("provider", "linkedin").maybeSingle();
     const scopes = Array.isArray(connection?.granted_scopes) ? connection.granted_scopes : [];
+    const expiry = connection?.expires_at ? new Date(connection.expires_at).getTime() : Number.NaN;
     const ready = !connectionError && connection?.status === "connected" &&
-      (!connection.expires_at || new Date(connection.expires_at).getTime() > Date.now()) &&
+      Number.isFinite(expiry) && expiry > Date.now() &&
       scopes.includes("w_member_social");
     if (!ready) {
       await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {
