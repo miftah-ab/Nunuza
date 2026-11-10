@@ -120,6 +120,30 @@ describe("autonomous intelligence primitives", () => {
     expect(rejected.score).toBeLessThan(baseline.score);
   });
 
+  it("matches strategy and learned preferences in publisher evidence, not only headlines", () => {
+    const item = {
+      title: "Industry update",
+      url: "https://news.google.com/example",
+      sourceUrl: "https://example.com/",
+      source: "Example",
+      evidence: "Small business owners are facing rising customer acquisition costs and cash flow pressure.",
+      publishedAt: new Date(NOW - 3600000).toISOString(),
+      retrievedAt: new Date(NOW).toISOString(),
+    } satisfies ResearchItem;
+    const scored = scoreOpportunity(item, ["small business"], NOW, {
+      approvedTerms: ["cash", "flow"],
+      rejectedTerms: [],
+      preferredEditTerms: [],
+      avoidedEditTerms: [],
+      approvedCount: 1,
+      rejectedCount: 0,
+      editCount: 0,
+    });
+    expect(scored.matchedKeywords).toContain("small");
+    expect(scored.matchedKeywords).toContain("business");
+    expect(scored.scoreBreakdown.approvalPreference).toBeGreaterThan(0);
+  });
+
   it("scores evidence quality and potential value and rejects excluded brand topics", () => {
     const item = {
       title: "Small business security risks and cost savings",
