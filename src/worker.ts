@@ -74,9 +74,15 @@ export default {
       (async () => {
         try {
           // 1. Reconcile any orphaned/stale jobs whose lease expired while running
-          const reconciled = await reconcileStaleJobs();
-          if (reconciled > 0) {
-            console.warn(`[worker-scheduled] Reconciled ${reconciled} stale agent jobs.`);
+          try {
+            const reconciled = await reconcileStaleJobs();
+            if (reconciled > 0) {
+              console.warn(`[worker-scheduled] Reconciled ${reconciled} stale agent jobs.`);
+            }
+          } catch (reconcileError) {
+            // Recovery failures should be retried on the next cron tick, but
+            // must not block due jobs that are safe to process now.
+            console.error("[worker-scheduled] Could not reconcile stale jobs:", reconcileError);
           }
 
           // 2. Enqueue one idempotent autonomous operating cycle per eligible
