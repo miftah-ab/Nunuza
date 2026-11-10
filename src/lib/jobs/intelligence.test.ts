@@ -92,6 +92,8 @@ describe("autonomous intelligence primitives", () => {
       rejectedTerms: ["business", "finance"],
       approvedCount: 0,
       rejectedCount: 2,
+      preferredEditTerms: [],
+      avoidedEditTerms: [],
       editCount: 0,
     });
     expect(learned.score).toBeGreaterThan(baseline.score);
