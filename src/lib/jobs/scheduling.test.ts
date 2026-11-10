@@ -207,7 +207,13 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
         workspace_id: "ws-beta",
         status: "running",
         attempt_count: 1,
-        payload: { postId: "post-101" },
+        payload: {
+          postId: "post-101",
+          workspaceId: "ws-beta",
+          userId: "user-1",
+          targetProvider: "linkedin",
+          scheduledFor: new Date().toISOString(),
+        },
         ...jobOverrides,
       }) as AgentJob;
       db.jobs.push(job);
@@ -416,7 +422,13 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
         workspace_id: "ws-beta",
         status: "queued",
         attempt_count: 0,
-        payload: { postId: "post-101" },
+        payload: {
+          postId: "post-101",
+          workspaceId: "ws-beta",
+          userId: "user-1",
+          targetProvider: "linkedin",
+          scheduledFor: new Date().toISOString(),
+        },
       });
       db.jobs[0] = queued;
       vi.mocked(publishPostToLinkedIn).mockResolvedValue({
