@@ -56,8 +56,16 @@ function decodeXml(value: string): string {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;|&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)))
+    .replace(/&#(\d+);/g, (_, code) => {
+      const point = Number(code);
+      return Number.isInteger(point) && point >= 0 && point <= 0x10ffff &&
+        !(point >= 0xd800 && point <= 0xdfff) ? String.fromCodePoint(point) : "";
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => {
+      const point = parseInt(code, 16);
+      return Number.isInteger(point) && point >= 0 && point <= 0x10ffff &&
+        !(point >= 0xd800 && point <= 0xdfff) ? String.fromCodePoint(point) : "";
+    })
     .replace(/<[^>]*>/g, "")
     .replace(/\s+/g, " ")
     .trim();
