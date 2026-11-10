@@ -52,6 +52,19 @@ export class MockSupabase {
     if (this.opts.rpcError) {
       return Promise.resolve({ data: null, error: { message: this.opts.rpcError } });
     }
+    if (name === "begin_agent_job_execution") {
+      const target = this.jobs.find((candidate) => candidate.id === args.p_job_id);
+      const expected = args.p_expected_lease_until;
+      const valid = !!target &&
+        target.status === "running" &&
+        target.attempt_count === args.p_attempt_count &&
+        target.lease_until === expected &&
+        Date.parse(target.lease_until) > Date.now();
+      if (valid) {
+        target.lease_until = args.p_new_lease_until;
+      }
+      return Promise.resolve({ data: valid, error: null });
+    }
     if (name === "claim_workspace_publish_slot") {
       const now = Date.now();
       const target = this.posts.find((post) =>
@@ -227,11 +240,12 @@ export class MockSupabase {
 }
 
 export function makeJob(overrides: Row = {}): any {
+  const status = overrides.status ?? "queued";
   return {
     id: "job-1",
     workspace_id: "ws-test",
     job_type: "publish_post",
-    status: "queued",
+    status,
     idempotency_key: "key-1",
     payload: {},
     scheduled_for: new Date(Date.now() - 10_000).toISOString(),
@@ -239,7 +253,7 @@ export function makeJob(overrides: Row = {}): any {
     finished_at: null,
     attempt_count: 0,
     max_attempts: 3,
-    lease_until: null,
+    lease_until: status === "running" ? new Date(Date.now() + 5 * 60 * 1000).toISOString() : null,
     correlation_id: "corr-1",
     last_error_code: null,
     safe_error_message: null,
