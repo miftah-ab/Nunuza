@@ -1,7 +1,16 @@
 -- Consolidate retired beta entitlements and remove legacy enum values.
--- publishing_beta was the legacy private-beta publishing entitlement and maps to
--- internal_beta. internal_test was a one-time acceptance-test entitlement; it
--- must NOT be upgraded to full beta access, so it is downgraded to draft_only.
+-- publishing_beta allowed human-approved publishing but did not allow unattended
+-- Autopilot. It maps to internal_beta only after Autopilot is explicitly disabled.
+-- internal_test was a one-time acceptance-test entitlement; it must NOT be
+-- upgraded to full beta access, so it is downgraded to draft_only.
+UPDATE public.workspaces
+SET operating_mode = 'approval_required',
+    state = CASE
+      WHEN state = 'active_autopilot' THEN 'active_approval_required'::public.agent_state
+      ELSE state
+    END
+WHERE entitlement_type::text = 'publishing_beta';
+
 UPDATE public.workspaces
 SET entitlement_type = CASE entitlement_type::text
   WHEN 'publishing_beta' THEN 'internal_beta'
