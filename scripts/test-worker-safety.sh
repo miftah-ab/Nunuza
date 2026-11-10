@@ -83,7 +83,7 @@ q -c "INSERT INTO workspaces VALUES ('$WS3')" >/dev/null
 q -c "INSERT INTO content_posts(id,workspace_id,status,published_at,updated_at)
 SELECT ('40000000-0000-0000-0000-' || lpad(g::text,12,'0'))::uuid,
        '$WS3','published',now() - (g || ' days')::interval,now() - (g || ' days')::interval
-FROM generate_series(1,7) g" >/dev/null
+FROM generate_series(0,6) g" >/dev/null
 q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES
 ('40000000-0000-0000-0000-000000000008','$WS3','approved')" >/dev/null
 WEEK=$(q -c "SELECT allowed FROM claim_workspace_publish_slot('$WS3','40000000-0000-0000-0000-000000000008')")
