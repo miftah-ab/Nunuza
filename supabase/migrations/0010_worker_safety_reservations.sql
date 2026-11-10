@@ -216,3 +216,28 @@ CREATE UNIQUE INDEX IF NOT EXISTS agent_jobs_one_active_cycle_per_workspace_uidx
   ON public.agent_jobs (workspace_id)
   WHERE job_type = 'agent_cycle'
     AND status IN ('queued', 'running', 'failed_retryable');
+
+
+-- If an autonomous job exhausts retries or is canceled before creating a post,
+-- release its reserved monthly usage. The release function preserves usage when
+-- the idempotent agent_cycle_key proves a post was already committed.
+CREATE OR REPLACE FUNCTION public.release_agent_job_usage_on_terminal()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.status IN ('failed_terminal', 'canceled')
+     AND OLD.status IS DISTINCT FROM NEW.status THEN
+    PERFORM public.release_draft_usage(NEW.id);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS agent_jobs_release_draft_usage_on_terminal ON public.agent_jobs;
+CREATE TRIGGER agent_jobs_release_draft_usage_on_terminal
+AFTER UPDATE OF status ON public.agent_jobs
+FOR EACH ROW
+EXECUTE FUNCTION public.release_agent_job_usage_on_terminal();
