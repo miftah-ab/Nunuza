@@ -47,11 +47,11 @@ function parseGrantedScopes(value: string | undefined): string[] {
   if (!value) return [];
   let decoded = value;
   try {
-    decoded = decodeURIComponent(value.replace(/\\+/g, " "));
+    decoded = decodeURIComponent(value.replace(/\+/g, " "));
   } catch {
     // Keep the provider's original scope string; parsing below remains safe.
   }
-  return decoded.split(/[\\s,]+/).map((scope) => scope.trim()).filter(Boolean);
+  return decoded.split(/[\s,]+/).map((scope) => scope.trim()).filter(Boolean);
 }
 
 export async function exchangeLinkedInCode(code: string): Promise<TokenExchangeResult> {
