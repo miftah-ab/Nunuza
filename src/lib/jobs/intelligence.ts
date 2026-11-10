@@ -861,11 +861,16 @@ export async function executeAutonomousCycle(
       return fail("Post was created but the publish job could not be queued: " + publishJobError.message);
     }
     await notifyWorkspaceTelegram(workspace.id, {
-      text: "Nunuza found a timely opportunity and queued a post under your enabled Autopilot settings: " + title,
+      text: "Nunuza found a timely opportunity and queued a post under your enabled Autopilot settings: " + title +
+        "\nWhy now: it matches your strategy terms " + opportunity.matchedKeywords.join(", ") +
+        "\nEvidence: " + opportunity.url,
     }, supabase);
   } else {
     await notifyWorkspaceTelegram(workspace.id, {
-      text: "Nunuza found a relevant opportunity and created a draft for your review: " + title + ". Use /drafts in Telegram or open your dashboard.",
+      text: "Nunuza found a relevant opportunity and created a draft for your review: " + title +
+        "\nWhy now: it matches your strategy terms " + opportunity.matchedKeywords.join(", ") +
+        "\nEvidence: " + opportunity.url +
+        "\nUse /drafts in Telegram or open your dashboard.",
     }, supabase);
   }
 
