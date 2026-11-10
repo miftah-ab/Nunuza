@@ -26,8 +26,11 @@ const RESEARCH_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export interface ResearchItem {
   title: string;
   url: string;
+  sourceUrl: string;
   source: string;
+  evidence: string;
   publishedAt: string;
+  retrievedAt: string;
 }
 
 export interface ScoredOpportunity extends ResearchItem {
@@ -52,7 +55,7 @@ function decodeXml(value: string): string {
 }
 
 function tagValue(xml: string, tag: string): string {
-  const match = xml.match(new RegExp("<" + tag + "(?:\\\\s[^>]*)?>([\\\\s\\\\S]*?)</" + tag + ">", "i"));
+  const match = xml.match(new RegExp("<" + tag + "(?:\\s[^>]*)?>([\\s\\S]*?)</" + tag + ">", "i"));
   return match ? decodeXml(match[1]) : "";
 }
 
@@ -65,23 +68,30 @@ export function parseResearchFeed(xml: string, now = Date.now()): ResearchItem[]
     const title = tagValue(block, "title");
     const link = tagValue(block, "link");
     const pubDate = tagValue(block, "pubDate");
-    const sourceMatch = block.match(/<source\b[^>]*>([\s\S]*?)<\/source>/i);
-    const source = sourceMatch ? decodeXml(sourceMatch[1]) : "";
+    const description = tagValue(block, "description");
+    const sourceMatch = block.match(/<source\b([^>]*)>([\s\S]*?)<\/source>/i);
+    const source = sourceMatch ? decodeXml(sourceMatch[2]) : "";
+    const sourceUrlMatch = sourceMatch?.[1].match(/\burl=["']([^"']+)["']/i);
     const timestamp = Date.parse(pubDate);
-    if (!title || !source || !Number.isFinite(timestamp)) continue;
+    if (!title || !source || !description || description.length < 35 || !Number.isFinite(timestamp)) continue;
     if (timestamp > now + 60 * 60 * 1000 || now - timestamp > RESEARCH_MAX_AGE_MS) continue;
     let parsedUrl: URL;
+    let parsedSourceUrl: URL;
     try {
       parsedUrl = new URL(link);
+      parsedSourceUrl = new URL(sourceUrlMatch ? decodeXml(sourceUrlMatch[1]) : link);
     } catch {
       continue;
     }
-    if (parsedUrl.protocol !== "https:") continue;
+    if (parsedUrl.protocol !== "https:" || parsedSourceUrl.protocol !== "https:") continue;
     items.push({
       title: title.slice(0, 240),
       url: parsedUrl.toString(),
+      sourceUrl: parsedSourceUrl.toString(),
       source: source.slice(0, 100),
+      evidence: description.slice(0, 1200),
       publishedAt: new Date(timestamp).toISOString(),
+      retrievedAt: new Date(now).toISOString(),
     });
   }
   return items;
