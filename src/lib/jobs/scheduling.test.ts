@@ -387,12 +387,25 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
       expect(vi.mocked(publishPostToLinkedIn)).not.toHaveBeenCalled();
     });
 
-    it("never publishes a post that is already published", async () => {
+    it("requires reconciliation for a published post without a trustworthy LinkedIn ID", async () => {
       const { db, job } = seed("published");
 
       const outcome = await executePublishJob(job, db);
 
-      expect(outcome.status).toBe("canceled");
+      expect(outcome.status).toBe("needs_reconciliation");
+      expect(db.jobs[0].status).toBe("needs_reconciliation");
+      expect(db.posts[0].status).toBe("published");
+      expect(vi.mocked(publishPostToLinkedIn)).not.toHaveBeenCalled();
+    });
+
+    it("never retries a post left in publishing by an expired worker", async () => {
+      const { db, job } = seed("publishing");
+
+      const outcome = await executePublishJob(job, db);
+
+      expect(outcome.status).toBe("needs_reconciliation");
+      expect(db.jobs[0].status).toBe("needs_reconciliation");
+      expect(db.posts[0].status).toBe("needs_reconciliation");
       expect(vi.mocked(publishPostToLinkedIn)).not.toHaveBeenCalled();
     });
 
