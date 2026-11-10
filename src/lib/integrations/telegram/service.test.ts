@@ -54,6 +54,7 @@ class MockTelegramDb {
     },
   ];
   auditEvents: any[] = [];
+  approvalEvents: any[] = [];
   usageCounters: any[] = [];
 
   createClient() {
@@ -73,6 +74,10 @@ class MockTelegramDb {
             const chain = {
               eq(col: string, val: any) {
                 filtered = filtered.filter((row) => row[col] === val);
+                return chain;
+              },
+              in(col: string, vals: any[]) {
+                filtered = filtered.filter((row) => vals.includes(row[col]));
                 return chain;
               },
               is(col: string, val: any) {
@@ -116,6 +121,7 @@ class MockTelegramDb {
             if (table === "link_tokens") db.linkTokens.push(...inserted);
             else if (table === "telegram_links") db.telegramLinks.push(...inserted);
             else if (table === "audit_events") db.auditEvents.push(...inserted);
+            else if (table === "approval_events") db.approvalEvents.push(...inserted);
             else if (table === "content_posts") db.contentPosts.push(...inserted);
             return Promise.resolve({ data: inserted, error: null });
           },
@@ -396,7 +402,8 @@ describe("Telegram Service", () => {
 
       expect(res.replyText).toContain("Draft Rejected");
       expect(mockDb.contentPosts[0].status).toBe("rejected");
-      expect(mockDb.contentPosts[0].rejection_reason).toBe("Needs a punchier opening");
+      expect(mockDb.approvalEvents[0].reason).toBe("Needs a punchier opening");
+      expect(mockDb.approvalEvents[0].action).toBe("rejected");
     });
   });
 });
