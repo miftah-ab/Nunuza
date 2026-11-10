@@ -100,7 +100,7 @@ RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
-AS $
+AS $function$
 DECLARE
   v_count INTEGER;
   v_job_workspace UUID;
@@ -152,14 +152,14 @@ BEGIN
    WHERE id = p_job_id;
   RETURN TRUE;
 END;
-$;
+$function$;
 
 CREATE OR REPLACE FUNCTION public.release_draft_usage(p_job_id UUID)
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
-AS $
+AS $function$
 DECLARE
   v_workspace_id UUID;
   v_payload JSONB;
@@ -197,7 +197,7 @@ BEGIN
      SET payload = payload - 'draft_usage_reserved_period', updated_at = NOW()
    WHERE id = p_job_id;
 END;
-$;
+$function$;
 
 REVOKE EXECUTE ON FUNCTION public.claim_workspace_publish_slot(UUID, UUID)
   FROM PUBLIC, anon, authenticated;
