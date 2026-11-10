@@ -111,6 +111,8 @@ function tokens(value: string): string[] {
 export interface LearningProfile {
   approvedTerms: string[];
   rejectedTerms: string[];
+  preferredEditTerms: string[];
+  avoidedEditTerms: string[];
   approvedCount: number;
   rejectedCount: number;
   editCount: number;
@@ -119,11 +121,13 @@ export interface LearningProfile {
 export function buildLearningProfile(
   posts: Array<{ id: string; internal_title?: string | null; pillar?: string | null }>,
   approvals: Array<{ post_id: string; action: string }>,
-  edits: Array<{ post_id: string }>
+  edits: Array<{ post_id: string; change_source?: string; text?: string | null; version_number?: number }>
 ): LearningProfile {
   const postById = new Map(posts.map((post) => [post.id, post]));
   const approved = new Set<string>();
   const rejected = new Set<string>();
+  const addedTermCounts = new Map<string, number>();
+  const removedTermCounts = new Map<string, number>();
   let approvedCount = 0;
   let rejectedCount = 0;
   for (const event of approvals) {
@@ -133,7 +137,33 @@ export function buildLearningProfile(
     if (event.action === "approved") { approvedCount++; terms.forEach((term) => approved.add(term)); }
     if (event.action === "rejected") { rejectedCount++; terms.forEach((term) => rejected.add(term)); }
   }
-  return { approvedTerms: [...approved], rejectedTerms: [...rejected], approvedCount, rejectedCount, editCount: edits.length };
+
+  const versionsByPost = new Map<string, typeof edits>();
+  for (const version of edits) {
+    const versions = versionsByPost.get(version.post_id) ?? [];
+    versions.push(version);
+    versionsByPost.set(version.post_id, versions);
+  }
+  for (const versions of versionsByPost.values()) {
+    versions.sort((a, b) => (a.version_number ?? 0) - (b.version_number ?? 0));
+    const generated = versions.find((version) => version.change_source === "ai_generation") ?? versions[0];
+    const finalEdit = [...versions].reverse().find((version) => version.change_source === "user_edit");
+    if (!generated?.text || !finalEdit?.text) continue;
+    const before = new Set(tokens(generated.text));
+    const after = new Set(tokens(finalEdit.text));
+    for (const term of after) if (!before.has(term)) addedTermCounts.set(term, (addedTermCounts.get(term) ?? 0) + 1);
+    for (const term of before) if (!after.has(term)) removedTermCounts.set(term, (removedTermCounts.get(term) ?? 0) + 1);
+  }
+
+  return {
+    approvedTerms: [...approved],
+    rejectedTerms: [...rejected],
+    preferredEditTerms: [...addedTermCounts].filter(([, count]) => count >= 2).map(([term]) => term),
+    avoidedEditTerms: [...removedTermCounts].filter(([, count]) => count >= 2).map(([term]) => term),
+    approvedCount,
+    rejectedCount,
+    editCount: versionsByPost.size,
+  };
 }
 
 export function scoreOpportunity(
@@ -146,11 +176,14 @@ export function scoreOpportunity(
   const matchedKeywords = Array.from(new Set(keywords.flatMap(tokens))).filter((keyword) => titleTokens.has(keyword));
   const approvedMatches = learning?.approvedTerms.filter((term) => titleTokens.has(term)).length ?? 0;
   const rejectedMatches = learning?.rejectedTerms.filter((term) => titleTokens.has(term)).length ?? 0;
+  const preferredEditMatches = learning?.preferredEditTerms.filter((term) => titleTokens.has(term)).length ?? 0;
+  const avoidedEditMatches = learning?.avoidedEditTerms.filter((term) => titleTokens.has(term)).length ?? 0;
   const ageHours = Math.max(0, (now - Date.parse(item.publishedAt)) / 3600000);
   const freshness = ageHours <= 24 ? 1.2 : ageHours <= 72 ? 0.8 : 0.4;
   const evidence = item.source && item.evidence.length >= 35 ? 0.8 : 0;
   const score = matchedKeywords.length * 1.1 + freshness + evidence +
-    Math.min(approvedMatches * 0.25, 0.75) - Math.min(rejectedMatches * 0.6, 1.2);
+    Math.min(approvedMatches * 0.25, 0.75) - Math.min(rejectedMatches * 0.6, 1.2) +
+    Math.min(preferredEditMatches * 0.15, 0.45) - Math.min(avoidedEditMatches * 0.15, 0.45);
   return { ...item, score: Number(score.toFixed(2)), matchedKeywords,
     relevance: score >= 4 ? "high" : score >= 2.5 ? "medium" : "low" };
 }
@@ -420,9 +453,9 @@ export async function executeAutonomousCycle(
       supabase.from("approval_events").select("post_id, action, reason, created_at")
         .eq("workspace_id", workspace.id).gte("created_at", learningSince)
         .order("created_at", { ascending: false }).limit(100),
-      supabase.from("content_post_versions").select("post_id, change_source, created_at")
-        .eq("workspace_id", workspace.id).eq("change_source", "user_edit")
-        .gte("created_at", learningSince).limit(100),
+      supabase.from("content_post_versions").select("post_id, change_source, text, version_number, created_at")
+        .eq("workspace_id", workspace.id).in("change_source", ["ai_generation", "user_edit"])
+        .gte("created_at", learningSince).order("created_at", { ascending: true }).limit(200),
     ]);
   if (approvalError || editError) return fail("Could not load internal learning signals.");
   const signalPostIds = [...new Set([
@@ -441,21 +474,25 @@ export async function executeAutonomousCycle(
     approved: learning.approvedCount, rejected: learning.rejectedCount, userEdits: learning.editCount,
     learnedApprovedTerms: learning.approvedTerms.slice(0, 20),
     learnedRejectedTerms: learning.rejectedTerms.slice(0, 20),
+    preferredEditTerms: learning.preferredEditTerms.slice(0, 20),
+    avoidedEditTerms: learning.avoidedEditTerms.slice(0, 20),
   };
 
-  const scored = research
+  const ranked = research
     .map((item) => scoreOpportunity(item, keywords, Date.now(), learning))
-    .filter((item) => item.score >= 2.5)
     .sort((a, b) => b.score - a.score);
-  for (const candidate of scored.slice(0, 5)) {
+  for (const candidate of ranked.slice(0, 10)) {
     await recordAgentEvent(supabase, workspace.id, "agent_research_candidate", {
       cycleDate, title: candidate.title, source: candidate.source,
       sourceUrl: candidate.sourceUrl, articleUrl: candidate.url,
       publishedAt: candidate.publishedAt, retrievedAt: candidate.retrievedAt,
       evidence: candidate.evidence.slice(0, 800), relevanceScore: candidate.score,
       confidence: candidate.relevance, matchedKeywords: candidate.matchedKeywords,
+      eligible: candidate.score >= 2.5,
+      decisionReason: candidate.score >= 2.5 ? "relevance_threshold_met" : "below_relevance_threshold",
     });
   }
+  const scored = ranked.filter((item) => item.score >= 2.5);
 
   const previousTitles = activeRecentPosts.map((post: any) => String(post.internal_title ?? ""));
   const opportunity = scored.find((item) => !isDuplicateOpportunity(item.title, previousTitles));
@@ -469,6 +506,7 @@ export async function executeAutonomousCycle(
       candidateCount: scored.length,
       query,
       retrievedAt: new Date().toISOString(),
+      externalMetricsAvailability: "unavailable_restricted_linkedin_r_member_social",
     });
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
   }
