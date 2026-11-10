@@ -152,12 +152,14 @@ export function buildLearningProfile(
     versions.push(version);
     versionsByPost.set(version.post_id, versions);
   }
-  for (const versions of versionsByPost.values()) {
+  for (const [postId, versions] of versionsByPost) {
+    const post = postById.get(postId);
+    if (!post?.text) continue;
     versions.sort((a, b) => (a.version_number ?? 0) - (b.version_number ?? 0));
     const generated = versions.find((version) => version.change_source === "ai_generation") ?? versions[0];
     // Version rows are pre-edit snapshots. Compare the AI original with the
     // current post body, which is the actual final user-edited content.
-    if (!generated?.text || !post.text) continue;
+    if (!generated?.text) continue;
     const before = new Set(tokens(generated.text));
     const after = new Set(tokens(post.text));
     for (const term of after) if (!before.has(term)) addedTermCounts.set(term, (addedTermCounts.get(term) ?? 0) + 1);
