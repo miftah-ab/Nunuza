@@ -614,6 +614,11 @@ export async function handleTelegramMessage(
       };
     }
 
+    const { error: approvalSignalError } = await supabase.from("approval_events").insert({
+      workspace_id: workspaceId, post_id: targetPost.id, actor_type: "telegram", action: "approved",
+    });
+    if (approvalSignalError) console.error("[telegram] Approval learning signal failed:", approvalSignalError.message);
+
     await supabase.from("audit_events").insert({
       workspace_id: workspaceId,
       actor_type: "telegram",
@@ -659,6 +664,12 @@ export async function handleTelegramMessage(
       .from("content_posts")
       .update({ status: "rejected", rejection_reason: reason })
       .eq("id", targetPost.id);
+
+    const { error: rejectionSignalError } = await supabase.from("approval_events").insert({
+      workspace_id: workspaceId, post_id: targetPost.id, actor_type: "telegram",
+      action: "rejected", reason,
+    });
+    if (rejectionSignalError) console.error("[telegram] Rejection learning signal failed:", rejectionSignalError.message);
 
     await supabase.from("audit_events").insert({
       workspace_id: workspaceId,
@@ -902,6 +913,11 @@ export async function handleCallbackQuery(
       return;
     }
 
+    const { error: callbackApprovalSignalError } = await supabase.from("approval_events").insert({
+      workspace_id: workspaceId, post_id: post.id, actor_type: "telegram", action: "approved",
+    });
+    if (callbackApprovalSignalError) console.error("[telegram] Approval learning signal failed:", callbackApprovalSignalError.message);
+
     await supabase.from("audit_events").insert({
       workspace_id: workspaceId,
       actor_type: "telegram",
@@ -970,6 +986,12 @@ export async function handleCallbackQuery(
       .from("content_posts")
       .update({ status: "rejected", rejection_reason: "Rejected via Telegram" })
       .eq("id", post.id);
+
+    const { error: callbackRejectionSignalError } = await supabase.from("approval_events").insert({
+      workspace_id: workspaceId, post_id: post.id, actor_type: "telegram",
+      action: "rejected", reason: "Rejected via Telegram",
+    });
+    if (callbackRejectionSignalError) console.error("[telegram] Rejection learning signal failed:", callbackRejectionSignalError.message);
 
     await supabase.from("audit_events").insert({
       workspace_id: workspaceId,

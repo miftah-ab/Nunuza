@@ -183,6 +183,21 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 
     if (error) throw error;
 
+    if (nextStatus === "approved" || nextStatus === "rejected") {
+      const { error: signalError } = await supabase.from("approval_events").insert({
+        workspace_id: workspace.id, post_id: id, actor_type: "user",
+        actor_id: workspace.owner_user_id, action: nextStatus,
+        reason: nextStatus === "rejected" ? "Rejected in dashboard" : null,
+      });
+      if (signalError) console.error("[posts] Approval learning signal failed:", signalError.message);
+    } else if (textChanged) {
+      const { error: signalError } = await supabase.from("approval_events").insert({
+        workspace_id: workspace.id, post_id: id, actor_type: "user",
+        actor_id: workspace.owner_user_id, action: "revised", reason: "Edited in dashboard",
+      });
+      if (signalError) console.error("[posts] Edit learning signal failed:", signalError.message);
+    }
+
     return ok(data);
   } catch (err) {
     return apiError(err);
