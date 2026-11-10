@@ -11,6 +11,16 @@ SET operating_mode = 'approval_required',
     END
 WHERE entitlement_type::text = 'publishing_beta';
 
+-- The one-time internal_test entitlement is retired completely: remove its
+-- beta access mode, disable unattended operation, and pause the workspace.
+UPDATE public.workspaces
+SET entitlement_type = 'draft_only',
+    access_mode = 'commercial',
+    operating_mode = 'approval_required',
+    state = 'paused',
+    paused_at = COALESCE(paused_at, NOW())
+WHERE entitlement_type::text = 'internal_test';
+
 UPDATE public.workspaces
 SET entitlement_type = CASE entitlement_type::text
   WHEN 'publishing_beta' THEN 'internal_beta'
