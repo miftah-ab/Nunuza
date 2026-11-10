@@ -23,6 +23,12 @@ CREATE TYPE post_status AS ENUM (
   'failed','rejected','canceled','needs_reconciliation'
 );
 CREATE TABLE public.workspaces (id UUID PRIMARY KEY);
+CREATE TABLE public.agent_jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID NOT NULL REFERENCES public.workspaces(id),
+  job_type TEXT NOT NULL,
+  status TEXT NOT NULL
+);
 CREATE TABLE public.content_posts (
   id UUID PRIMARY KEY,
   workspace_id UUID NOT NULL REFERENCES public.workspaces(id),
@@ -45,6 +51,23 @@ SQL
 
 q -f "$MIGRATION" >/dev/null
 echo "migration applied"
+
+# The partial unique index is the race-safe guard for overlapping workspace cycles.
+CYCLE_WS="10000000-0000-0000-0000-000000000009"
+q -c "INSERT INTO workspaces VALUES ('$CYCLE_WS')" >/dev/null
+q -c "INSERT INTO agent_jobs(workspace_id,job_type,status) VALUES ('$CYCLE_WS','agent_cycle','queued')" >/dev/null
+DUPLICATE_CYCLE=$(q -c "DO \\$\\$ BEGIN
+  BEGIN
+    INSERT INTO agent_jobs(workspace_id,job_type,status) VALUES ('$CYCLE_WS','agent_cycle','running');
+    RAISE EXCEPTION 'expected active cycle uniqueness violation';
+  EXCEPTION WHEN unique_violation THEN
+    NULL;
+  END;
+END \\$\\$; SELECT 'blocked'")
+[ "$DUPLICATE_CYCLE" = "blocked" ] || fail "a workspace must not have overlapping active agent cycles"
+q -c "UPDATE agent_jobs SET status='succeeded' WHERE workspace_id='$CYCLE_WS' AND job_type='agent_cycle'" >/dev/null
+q -c "INSERT INTO agent_jobs(workspace_id,job_type,status) VALUES ('$CYCLE_WS','agent_cycle','queued')" >/dev/null
+echo "ok: active agent cycles are unique per workspace"
 
 WS="10000000-0000-0000-0000-000000000001"
 q -c "INSERT INTO workspaces VALUES ('$WS')" >/dev/null
