@@ -663,6 +663,7 @@ export async function executeAutonomousCycle(
   }
 
   const { data: usageReserved, error: usageReserveError } = await supabase.rpc("reserve_draft_usage", {
+    p_job_id: job.id,
     p_workspace_id: workspace.id,
     p_period_start: periodStart,
     p_period_end: periodEnd,
@@ -695,8 +696,7 @@ export async function executeAutonomousCycle(
 
   if (postError || !post) {
     const { error: releaseError } = await supabase.rpc("release_draft_usage", {
-      p_workspace_id: workspace.id,
-      p_period_start: periodStart,
+      p_job_id: job.id,
     });
     if (releaseError) console.error("[agent-cycle] Could not release draft usage reservation:", releaseError.message);
     if (postError?.code === "23505") {
