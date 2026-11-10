@@ -220,8 +220,7 @@ export class PolarService {
     if (
       currentWs &&
       (currentWs.access_mode === "private_beta" ||
-        currentWs.entitlement_type === "internal_beta" ||
-        currentWs.entitlement_type === "publishing_beta")
+        currentWs.entitlement_type === "internal_beta")
     ) {
       // Do not alter or downgrade private beta tester workspace
       await supabase
@@ -352,11 +351,7 @@ export class PolarService {
       .maybeSingle();
 
     const entitlement = (workspace?.entitlement_type as EntitlementType) ?? "suspended";
-    const accessMode = (
-      entitlement === "internal_beta" ||
-      entitlement === "publishing_beta" ||
-      entitlement === "internal_test"
-    ) ? "private_beta" : "commercial";
+    const accessMode = entitlement === "internal_beta" ? "private_beta" : "commercial";
 
     return {
       planName: "Nunuza Solo",
