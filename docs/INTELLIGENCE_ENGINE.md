@@ -48,3 +48,9 @@ The official LinkedIn Member Post Statistics API exposes impressions, members re
 - Relevance and confidence labels are heuristic ranking bands, not calibrated probabilities or verified fact checks. A feed excerpt is evidence to draft from, not proof that every claim in the article is correct.
 - Internal approvals, rejections, and edits influence future ranking. External performance evaluation and causal learning remain unavailable without an approved LinkedIn analytics permission.
 - The CI workflow validates type checking, lint, unit tests, production build, PostgreSQL publishing reservations, and concurrent job claiming. It does not perform a live end-to-end test against a real LinkedIn account, Telegram bot, Groq/OpenRouter credentials, or a production Supabase project.
+
+
+## Dependency security note
+
+- The unused optional `rclone.js` peer was removed from development dependencies; the application does not configure OpenNext R2 remote cache, so this removed its otherwise-unused `adm-zip` dependency path.
+- The nested `glob` used by `@node-minify/core` is pinned to patched `10.5.0` to address the high-severity CLI command-injection advisory. The OpenNext adapter still brings a separate `glob@13` dependency with a moderate AbortSignal-cancellation advisory; its upstream-compatible fix is `14.0.2`, which is outside the adapter's current `^13` range. Do not force a major override without validating the adapter. The production audit gate therefore fails on high-severity findings while the moderate upstream-pinned advisory remains tracked.
