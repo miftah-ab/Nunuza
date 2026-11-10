@@ -81,9 +81,15 @@ export default {
 
           // 2. Enqueue one idempotent autonomous operating cycle per eligible
           // workspace/day. The existing job runner remains the only executor.
-          const cycles = await enqueueAutonomousCycles();
-          if (cycles.queued > 0) {
-            console.info(`[worker-scheduled] Enqueued ${cycles.queued} autonomous workspace cycles.`);
+          try {
+            const cycles = await enqueueAutonomousCycles();
+            if (cycles.queued > 0) {
+              console.info(`[worker-scheduled] Enqueued ${cycles.queued} autonomous workspace cycles.`);
+            }
+          } catch (cycleError) {
+            // Intelligence discovery is additive: a research/eligibility failure
+            // must never block existing scheduled posts from being processed.
+            console.error("[worker-scheduled] Could not enqueue autonomous cycles:", cycleError);
           }
 
           // 3. Claim due jobs from database
