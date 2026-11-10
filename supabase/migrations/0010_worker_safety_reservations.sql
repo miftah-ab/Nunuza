@@ -241,3 +241,37 @@ CREATE TRIGGER agent_jobs_release_draft_usage_on_terminal
 AFTER UPDATE OF status ON public.agent_jobs
 FOR EACH ROW
 EXECUTE FUNCTION public.release_agent_job_usage_on_terminal();
+
+
+-- Queue delivery is at-least-once. This compare-and-set extends the claimed
+-- lease exactly once so duplicate deliveries of the same claim cannot execute
+-- the handler concurrently. A later database claim supplies a fresh lease.
+CREATE OR REPLACE FUNCTION public.begin_agent_job_execution(
+  p_job_id UUID,
+  p_attempt_count INTEGER,
+  p_expected_lease_until TIMESTAMPTZ,
+  p_new_lease_until TIMESTAMPTZ
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  UPDATE public.agent_jobs
+     SET lease_until = p_new_lease_until,
+         updated_at = NOW()
+   WHERE id = p_job_id
+     AND status = 'running'
+     AND attempt_count = p_attempt_count
+     AND lease_until = p_expected_lease_until
+     AND lease_until > NOW()
+     AND p_new_lease_until > NOW();
+  RETURN FOUND;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.begin_agent_job_execution(UUID, INTEGER, TIMESTAMPTZ, TIMESTAMPTZ)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.begin_agent_job_execution(UUID, INTEGER, TIMESTAMPTZ, TIMESTAMPTZ)
+  TO service_role;
