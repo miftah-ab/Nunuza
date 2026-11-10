@@ -14,6 +14,7 @@
 
 import { createServiceClient } from "@/lib/supabase/server";
 import { executePublishJob } from "./scheduling";
+import { executeAutonomousCycle } from "./intelligence";
 import {
   JobTransitionError,
   markJobRetryable,
@@ -34,6 +35,7 @@ export type JobHandler = (job: AgentJob, supabase: any) => Promise<JobExecutionR
 /** Registered handlers. Each job_type that may be queued must be present here. */
 const handlers: Record<string, JobHandler> = {
   publish_post: (job, supabase) => executePublishJob(job, supabase),
+  agent_cycle: (job, supabase) => executeAutonomousCycle(job, supabase),
 };
 
 export function registerJobHandler(jobType: string, handler: JobHandler): void {

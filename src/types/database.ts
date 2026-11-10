@@ -144,6 +144,7 @@ export interface ContentPost {
   id: string;
   workspace_id: string;
   plan_id: string | null;
+  agent_cycle_key?: string | null;
   text: string;
   internal_title: string | null;
   pillar: string | null;

@@ -10,6 +10,7 @@
  */
 
 import { claimDueJobs, processJob, reconcileStaleJobs } from "@/lib/jobs/runner";
+import { enqueueAutonomousCycles } from "@/lib/jobs/intelligence";
 import type { AgentJob } from "@/types/database";
 
 // Next.js request handler provided at runtime by OpenNext
@@ -78,10 +79,17 @@ export default {
             console.warn(`[worker-scheduled] Reconciled ${reconciled} stale agent jobs.`);
           }
 
-          // 2. Claim due jobs from database
+          // 2. Enqueue one idempotent autonomous operating cycle per eligible
+          // workspace/day. The existing job runner remains the only executor.
+          const cycles = await enqueueAutonomousCycles();
+          if (cycles.queued > 0) {
+            console.info(`[worker-scheduled] Enqueued ${cycles.queued} autonomous workspace cycles.`);
+          }
+
+          // 3. Claim due jobs from database
           const dueJobs = await claimDueJobs({ limit: 10, leaseMinutes: 5 });
 
-          // 3. Dispatch jobs to queue if bound, or process inline
+          // 4. Dispatch jobs to queue if bound, or process inline
           for (const job of dueJobs) {
             if (env?.AGENT_JOBS_QUEUE?.send) {
               await env.AGENT_JOBS_QUEUE.send(job);
