@@ -17,8 +17,6 @@ const ELIGIBLE_ENTITLEMENTS = [
   "internal_beta",
   "paid_trial",
   "paid_active",
-  "publishing_beta",
-  "internal_test",
 ] as const;
 const ACTIVE_STATES = ["active_approval_required", "active_autopilot"] as const;
 const MAX_FEED_ITEMS = 20;
