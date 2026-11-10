@@ -27,6 +27,22 @@ interface CombinedActivityItem {
   status?: string;
   timestamp: string;
   details?: string;
+  sourceUrl?: string;
+  evidence?: string;
+  decision?: string;
+  reason?: string;
+  confidence?: string;
+  matchedKeywords?: string[];
+}
+
+function safeHttpsUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export default async function ActivityPage() {
@@ -63,15 +79,12 @@ export default async function ActivityPage() {
     if (jobsRes.error) throw new Error(jobsRes.error.message);
 
     const auditItems: CombinedActivityItem[] = (auditRes.data ?? []).map((a: any) => {
-      let detailsString: string | undefined = undefined;
-      if (a.safe_metadata && typeof a.safe_metadata === "object") {
-        const pairs = Object.entries(a.safe_metadata)
-          .filter(([_, v]) => v !== undefined && v !== null && typeof v !== "object")
-          .map(([k, v]) => `${k}: ${v}`);
-        if (pairs.length > 0) {
-          detailsString = pairs.join(" · ");
-        }
-      }
+      const metadata = a.safe_metadata && typeof a.safe_metadata === "object" ? a.safe_metadata : {};
+      const excluded = new Set(["evidence", "sourceUrl", "articleUrl", "matchedKeywords", "approvalSignals"]);
+      const pairs = Object.entries(metadata)
+        .filter(([key, value]) => !excluded.has(key) && value !== undefined && value !== null && typeof value !== "object")
+        .map(([key, value]) => `${key}: ${value}`);
+      const detailsString = pairs.length > 0 ? pairs.join(" · ") : undefined;
 
       return {
         id: `audit-${a.id}`,
@@ -81,6 +94,14 @@ export default async function ActivityPage() {
         resource: a.resource_type,
         timestamp: a.created_at,
         details: detailsString,
+        sourceUrl: safeHttpsUrl(metadata.sourceUrl) ?? safeHttpsUrl(metadata.articleUrl),
+        evidence: typeof metadata.evidence === "string" ? metadata.evidence : undefined,
+        decision: typeof metadata.decision === "string" ? metadata.decision : undefined,
+        reason: typeof metadata.reason === "string" ? metadata.reason : typeof metadata.decisionReason === "string" ? metadata.decisionReason : undefined,
+        confidence: typeof metadata.confidence === "string" ? metadata.confidence : undefined,
+        matchedKeywords: Array.isArray(metadata.matchedKeywords)
+          ? metadata.matchedKeywords.filter((value: unknown): value is string => typeof value === "string").slice(0, 8)
+          : undefined,
       };
     });
 
@@ -176,6 +197,28 @@ export default async function ActivityPage() {
                       <p className="text-[11px] text-ink-secondary mt-1 font-mono truncate max-w-lg">
                         {item.details}
                       </p>
+                    )}
+                    {item.evidence && (
+                      <p className="text-xs text-ink-secondary mt-2 max-w-2xl leading-relaxed">
+                        <span className="font-semibold text-ink">Evidence:</span> {item.evidence}
+                      </p>
+                    )}
+                    {(item.decision || item.reason || item.confidence) && (
+                      <p className="text-xs text-ink-secondary mt-1">
+                        {item.decision && <span className="font-semibold text-ink">{item.decision.replace(/_/g, " ")}</span>}
+                        {item.reason && <span>{item.decision ? " · " : ""}{item.reason.replace(/_/g, " ")}</span>}
+                        {item.confidence && <span> · confidence: {item.confidence}</span>}
+                      </p>
+                    )}
+                    {item.matchedKeywords && item.matchedKeywords.length > 0 && (
+                      <p className="text-[11px] text-ink-secondary mt-1">
+                        Matched business context: {item.matchedKeywords.join(", ")}
+                      </p>
+                    )}
+                    {item.sourceUrl && (
+                      <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex text-xs text-forest underline mt-2">
+                        Open source
+                      </a>
                     )}
                   </div>
                 </div>
