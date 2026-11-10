@@ -402,6 +402,12 @@ export async function enqueueAutonomousCycles(supabaseOverride?: any): Promise<{
   return { queued, skipped };
 }
 
+export function isValidCycleDate(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) return false;
+  const timestamp = Date.parse(value + "T00:00:00.000Z");
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value;
+}
+
 export async function executeAutonomousCycle(
   job: AgentJob,
   supabaseOverride?: any
@@ -414,6 +420,12 @@ export async function executeAutonomousCycle(
     retryable,
     error,
   });
+
+  const requestedCycleDate = (job.payload as any)?.cycleDate;
+  if (requestedCycleDate !== undefined && !isValidCycleDate(requestedCycleDate)) {
+    return fail("Invalid autonomous cycle date payload.", false);
+  }
+  const cycleDate = requestedCycleDate ?? new Date().toISOString().slice(0, 10);
 
   const { data: workspace, error: workspaceError } = await supabase
     .from("workspaces")
@@ -449,7 +461,6 @@ export async function executeAutonomousCycle(
     .limit(50);
   if (postsError) return fail("Could not load publishing history.");
 
-  const cycleDate = String((job.payload as any)?.cycleDate ?? new Date().toISOString().slice(0, 10));
   const cycleKey = workspace.id + ":" + cycleDate;
   const existingCyclePost = await supabase
     .from("content_posts")
