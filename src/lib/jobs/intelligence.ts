@@ -730,6 +730,7 @@ export async function executeAutonomousCycle(
   await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {
     cycleDate,
     decision: autopilot ? "queue_autopilot_publish" : "create_review_draft",
+    reason: "Fresh evidence matched workspace strategy terms: " + opportunity.matchedKeywords.join(", ") + ".",
     postId: post.id,
     sourceTitle: opportunity.title,
     sourceUrl: opportunity.sourceUrl,
