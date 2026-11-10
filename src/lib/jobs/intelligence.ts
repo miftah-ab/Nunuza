@@ -38,6 +38,14 @@ export interface ScoredOpportunity extends ResearchItem {
   score: number;
   matchedKeywords: string[];
   relevance: "high" | "medium" | "low";
+  scoreBreakdown: {
+    businessAudienceRelevance: number;
+    timeliness: number;
+    evidenceQuality: number;
+    potentialValue: number;
+    approvalPreference: number;
+    editPreference: number;
+  };
 }
 
 function decodeXml(value: string): string {
@@ -180,12 +188,36 @@ export function scoreOpportunity(
   const avoidedEditMatches = learning?.avoidedEditTerms.filter((term) => titleTokens.has(term)).length ?? 0;
   const ageHours = Math.max(0, (now - Date.parse(item.publishedAt)) / 3600000);
   const freshness = ageHours <= 24 ? 1.2 : ageHours <= 72 ? 0.8 : 0.4;
-  const evidence = item.source && item.evidence.length >= 35 ? 0.8 : 0;
-  const score = matchedKeywords.length * 1.1 + freshness + evidence +
-    Math.min(approvedMatches * 0.25, 0.75) - Math.min(rejectedMatches * 0.6, 1.2) +
-    Math.min(preferredEditMatches * 0.15, 0.45) - Math.min(avoidedEditMatches * 0.15, 0.45);
-  return { ...item, score: Number(score.toFixed(2)), matchedKeywords,
-    relevance: score >= 4 ? "high" : score >= 2.5 ? "medium" : "low" };
+  const evidence = item.source && item.evidence.length >= 35 && !!item.sourceUrl ? 0.8 : 0;
+  const valueTerms = new Set(["cost", "risk", "revenue", "growth", "save", "reduce", "improve", "customer", "market", "regulation", "deadline", "price", "hiring", "funding", "tax", "security", "problem", "profit"]);
+  const valueMatches = tokens(item.title + " " + item.evidence).filter((term) => valueTerms.has(term)).length;
+  const potentialValue = Math.min(valueMatches * 0.15, 0.6);
+  const approvalPreference = Math.min(approvedMatches * 0.25, 0.75) - Math.min(rejectedMatches * 0.6, 1.2);
+  const editPreference = Math.min(preferredEditMatches * 0.15, 0.45) - Math.min(avoidedEditMatches * 0.15, 0.45);
+  const businessAudienceRelevance = matchedKeywords.length * 1.1;
+  const score = businessAudienceRelevance + freshness + evidence + potentialValue + approvalPreference + editPreference;
+  return {
+    ...item,
+    score: Number(score.toFixed(2)),
+    matchedKeywords,
+    relevance: score >= 4 ? "high" : score >= 2.5 ? "medium" : "low",
+    scoreBreakdown: {
+      businessAudienceRelevance: Number(businessAudienceRelevance.toFixed(2)),
+      timeliness: freshness,
+      evidenceQuality: evidence,
+      potentialValue: Number(potentialValue.toFixed(2)),
+      approvalPreference: Number(approvalPreference.toFixed(2)),
+      editPreference: Number(editPreference.toFixed(2)),
+    },
+  };
+}
+
+export function matchesStrategyExclusion(item: ResearchItem, exclusions: string[]): boolean {
+  const contentTokens = new Set(tokens(item.title + " " + item.evidence));
+  return exclusions.some((phrase) => {
+    const exclusionTokens = tokens(phrase);
+    return exclusionTokens.length > 0 && exclusionTokens.every((term) => contentTokens.has(term));
+  });
 }
 
 export function isDuplicateOpportunity(title: string, previousTitles: string[]): boolean {
@@ -563,11 +595,17 @@ export async function executeAutonomousCycle(
       publishedAt: candidate.publishedAt, retrievedAt: candidate.retrievedAt,
       evidence: candidate.evidence.slice(0, 800), relevanceScore: candidate.score,
       confidence: candidate.relevance, matchedKeywords: candidate.matchedKeywords,
+      scoreBreakdown: candidate.scoreBreakdown,
       eligible: candidate.score >= 2.5,
       decisionReason: candidate.score >= 2.5 ? "relevance_threshold_met" : "below_relevance_threshold",
     });
   }
-  const scored = ranked.filter((item) => item.score >= 2.5);
+  const strategyExclusions = Array.isArray(strategy.exclusions)
+    ? strategy.exclusions.filter((value: unknown): value is string => typeof value === "string")
+    : [];
+  const excludedByBrand = ranked.filter((item) => matchesStrategyExclusion(item, strategyExclusions));
+  const eligibleByBrand = ranked.filter((item) => !matchesStrategyExclusion(item, strategyExclusions));
+  const scored = eligibleByBrand.filter((item) => item.score >= 2.5);
 
   const previousTitles = activeRecentPosts.map((post: any) => String(post.internal_title ?? ""));
   const opportunity = scored.find((item) => !isDuplicateOpportunity(item.title, previousTitles));
@@ -579,6 +617,7 @@ export async function executeAutonomousCycle(
       reason: research.length === 0 ? "no_fresh_research" : "no_relevant_non_repetitive_opportunity",
       researchCount: research.length,
       candidateCount: scored.length,
+      excludedByBrandCount: excludedByBrand.length,
       query,
       retrievedAt: new Date().toISOString(),
       externalMetricsAvailability: "unavailable_restricted_linkedin_r_member_social",
