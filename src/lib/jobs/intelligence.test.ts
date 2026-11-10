@@ -11,13 +11,13 @@ const NOW = Date.parse("2026-11-10T12:00:00.000Z");
 
 describe("autonomous intelligence primitives", () => {
   it("extracts publisher URL, evidence, and timestamps from a fresh RSS item", () => {
-    const xml = \`<rss><channel><item>
+    const xml = `<rss><channel><item>
       <title>New small business lending rules announced</title>
       <link>https://news.google.com/rss/articles/example</link>
       <pubDate>Tue, 10 Nov 2026 11:00:00 GMT</pubDate>
       <description><![CDATA[Regulators announced new lending rules affecting small business owners.]]></description>
       <source url="https://www.reuters.com">Reuters</source>
-    </item></channel></rss>\`;
+    </item></channel></rss>`;
     const items = parseResearchFeed(xml, NOW);
     expect(items).toHaveLength(1);
     expect(items[0].source).toBe("Reuters");
@@ -27,15 +27,15 @@ describe("autonomous intelligence primitives", () => {
   });
 
   it("rejects stale, insecure, and evidence-free research items", () => {
-    const stale = \`<item><title>Old business news</title><link>https://news.google.com/a</link>
+    const stale = `<item><title>Old business news</title><link>https://news.google.com/a</link>
       <pubDate>Tue, 01 Sep 2026 11:00:00 GMT</pubDate><description>Old article summary long enough to pass length.</description>
-      <source url="https://example.com">Example</source></item>\`;
-    const insecure = \`<item><title>Unsafe news</title><link>http://news.google.com/a</link>
+      <source url="https://example.com">Example</source></item>`;
+    const insecure = `<item><title>Unsafe news</title><link>http://news.google.com/a</link>
       <pubDate>Tue, 10 Nov 2026 11:00:00 GMT</pubDate><description>Article summary long enough to pass length.</description>
-      <source url="https://example.com">Example</source></item>\`;
-    const noEvidence = \`<item><title>No evidence</title><link>https://news.google.com/a</link>
+      <source url="https://example.com">Example</source></item>`;
+    const noEvidence = `<item><title>No evidence</title><link>https://news.google.com/a</link>
       <pubDate>Tue, 10 Nov 2026 11:00:00 GMT</pubDate><description>Short</description>
-      <source url="https://example.com">Example</source></item>\`;
+      <source url="https://example.com">Example</source></item>`;
     expect(parseResearchFeed(stale, NOW)).toHaveLength(0);
     expect(parseResearchFeed(insecure, NOW)).toHaveLength(0);
     expect(parseResearchFeed(noEvidence, NOW)).toHaveLength(0);
