@@ -143,7 +143,12 @@ export async function processJob(
       : null,
   });
   if (attemptErr) {
-    console.error(`[runner] Failed to record attempt for job ${liveJob.id}: ${attemptErr.message}`);
+    // Attempt history is part of the durable execution record. Do not finalize
+    // a job (especially a successful side effect) when its outcome could not
+    // be durably recorded. Leave the lease intact for stale-job reconciliation.
+    throw new JobTransitionError(
+      `[runner] Failed to record attempt for job ${liveJob.id}: ${attemptErr.message}`
+    );
   }
 
   // Finalize only if the handler left the job in 'running'.
@@ -241,22 +246,40 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
         }
 
         if (postStatus === "publishing" || postStatus === "needs_reconciliation") {
+          // Persist the post's ambiguous state before closing its job. If this
+          // write fails, keep the job recoverable instead of leaving the post
+          // and job in contradictory states.
+          if (postId && postStatus === "publishing") {
+            const { data: updatedPost, error: postUpdErr } = await supabase
+              .from("content_posts")
+              .update({ status: "needs_reconciliation" })
+              .eq("id", postId)
+              .eq("status", "publishing")
+              .select("id");
+            if (postUpdErr) {
+              throw new Error(
+                `Could not mark post ${postId} needs_reconciliation: ${postUpdErr.message}`
+              );
+            }
+            if (!Array.isArray(updatedPost) || updatedPost.length === 0) {
+              const { data: latestPost, error: latestErr } = await supabase
+                .from("content_posts")
+                .select("status")
+                .eq("id", postId)
+                .single();
+              if (latestErr || latestPost?.status !== "needs_reconciliation") {
+                throw new Error(
+                  `Post ${postId} changed before reconciliation could be persisted.`
+                );
+              }
+            }
+          }
           await transitionJob(supabase, job.id, "running", "needs_reconciliation", {
             lease_until: null,
             last_error_code: "WORKER_DIED_DURING_PUBLISH",
             safe_error_message:
               "The worker stopped while publishing. The post may already be live on LinkedIn. Check your LinkedIn profile and confirm the outcome in Nunuza.",
           });
-          if (postId && postStatus === "publishing") {
-            const { error: postUpdErr } = await supabase
-              .from("content_posts")
-              .update({ status: "needs_reconciliation" })
-              .eq("id", postId)
-              .eq("status", "publishing");
-            if (postUpdErr) {
-              console.error(`[runner] Could not mark post ${postId} needs_reconciliation: ${postUpdErr.message}`);
-            }
-          }
           reconciledCount++;
           continue;
         }

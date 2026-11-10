@@ -14,6 +14,7 @@
 
 export interface MockDbOptions {
   failJobUpdates?: boolean;
+  failAttemptInsert?: boolean;
   /** Fail post updates whose patch matches (simulates a failed save after a LinkedIn publish). */
   failPostUpdateWhen?: (patch: Record<string, any>) => boolean;
   rpcError?: string | null;
@@ -171,6 +172,9 @@ export class MockSupabase {
       select: (_fields?: string) => query("select"),
       update: (updates: Row) => query("update", updates),
       insert: (row: Row | Row[]) => {
+        if (table === "agent_job_attempts" && db.opts.failAttemptInsert) {
+          return Promise.resolve({ data: null, error: { message: "simulated attempt insert failure" } });
+        }
         const arr = Array.isArray(row) ? row : [row];
         rows().push(...arr);
         return Promise.resolve({ data: arr, error: null });

@@ -205,6 +205,22 @@ describe("processJob", () => {
     expect(await claimDueJobs({ limit: 5 }, db)).toHaveLength(0);
   });
 
+  it("does not finalize a job when durable attempt history cannot be recorded", async () => {
+    registerJobHandler("test_attempt_log_failure", async (job) => ({
+      jobId: job.id,
+      success: true,
+      status: "succeeded",
+      retryable: false,
+    }));
+    const job = makeJob({ job_type: "test_attempt_log_failure", status: "running", attempt_count: 1 });
+    db.jobs.push(job);
+    db.opts.failAttemptInsert = true;
+
+    await expect(processJob(job, db)).rejects.toThrow("Failed to record attempt");
+    expect(db.jobs[0].status).toBe("running");
+    expect(db.attempts).toHaveLength(0);
+  });
+
   it("never reports success when the database write fails", async () => {
     registerJobHandler("test_dbfail", async (job) => ({
       jobId: job.id,
