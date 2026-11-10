@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildLearningProfile,
   isDuplicateOpportunity,
+  matchesStrategyExclusion,
   parseResearchFeed,
   scoreOpportunity,
   type ResearchItem,
@@ -98,6 +99,23 @@ describe("autonomous intelligence primitives", () => {
     });
     expect(learned.score).toBeGreaterThan(baseline.score);
     expect(rejected.score).toBeLessThan(baseline.score);
+  });
+
+  it("scores evidence quality and potential value and rejects excluded brand topics", () => {
+    const item = {
+      title: "Small business security risks and cost savings",
+      url: "https://news.google.com/example",
+      sourceUrl: "https://example.com/",
+      source: "Example",
+      evidence: "A detailed report on security risks and practical cost savings for small business owners.",
+      publishedAt: new Date(NOW - 3600000).toISOString(),
+      retrievedAt: new Date(NOW).toISOString(),
+    } satisfies ResearchItem;
+    const scored = scoreOpportunity(item, ["small business"], NOW);
+    expect(scored.scoreBreakdown.evidenceQuality).toBeGreaterThan(0);
+    expect(scored.scoreBreakdown.potentialValue).toBeGreaterThan(0);
+    expect(matchesStrategyExclusion(item, ["security risks"])).toBe(true);
+    expect(matchesStrategyExclusion(item, ["cryptocurrency trading"])).toBe(false);
   });
 
   it("detects substantially repeated opportunity titles", () => {
