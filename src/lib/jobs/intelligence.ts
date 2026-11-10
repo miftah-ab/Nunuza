@@ -400,26 +400,6 @@ export async function executeAutonomousCycle(
   }
 
   const research = await fetchResearch(query);
-  const scored = research
-    .map((item) => scoreOpportunity(item, keywords, Date.now(), learning))
-    .filter((item) => item.score >= 2.5)
-    .sort((a, b) => b.score - a.score);
-  const previousTitles = activeRecentPosts.map((post: any) => String(post.internal_title ?? ""));
-  const opportunity = scored.find((item) => !isDuplicateOpportunity(item.title, previousTitles));
-
-  if (!opportunity) {
-    await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {
-      cycleDate,
-      decision: "no_op",
-      reason: research.length === 0 ? "no_fresh_research" : "no_relevant_non_repetitive_opportunity",
-      researchCount: research.length,
-      candidateCount: scored.length,
-      query,
-      retrievedAt: new Date().toISOString(),
-    });
-    return { jobId: job.id, success: true, status: "succeeded", retryable: false };
-  }
-
   const learningSince = new Date(Date.now() - 90 * 86400000).toISOString();
   const [{ data: approvalEvents, error: approvalError }, { data: editVersions, error: editError }] =
     await Promise.all([
@@ -448,6 +428,27 @@ export async function executeAutonomousCycle(
     learnedApprovedTerms: learning.approvedTerms.slice(0, 20),
     learnedRejectedTerms: learning.rejectedTerms.slice(0, 20),
   };
+
+  const scored = research
+    .map((item) => scoreOpportunity(item, keywords, Date.now(), learning))
+    .filter((item) => item.score >= 2.5)
+    .sort((a, b) => b.score - a.score);
+  const previousTitles = activeRecentPosts.map((post: any) => String(post.internal_title ?? ""));
+  const opportunity = scored.find((item) => !isDuplicateOpportunity(item.title, previousTitles));
+
+  if (!opportunity) {
+    await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {
+      cycleDate,
+      decision: "no_op",
+      reason: research.length === 0 ? "no_fresh_research" : "no_relevant_non_repetitive_opportunity",
+      researchCount: research.length,
+      candidateCount: scored.length,
+      query,
+      retrievedAt: new Date().toISOString(),
+    });
+    return { jobId: job.id, success: true, status: "succeeded", retryable: false };
+  }
+
 
   const title = opportunity.title;
   const pillar = (Array.isArray(strategy.pillars) ? strategy.pillars : [])

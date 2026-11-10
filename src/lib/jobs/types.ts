@@ -6,7 +6,7 @@
 
 import type { JobStatus } from "@/types/database";
 
-export type AgentJobType = "publish_post" | "generate_plan" | "reconcile_post" | "sync_metrics";
+export type AgentJobType = "publish_post" | "generate_plan" | "reconcile_post" | "sync_metrics" | "agent_cycle";
 
 export interface PublishPostPayload {
   postId: string;
