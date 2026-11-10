@@ -12,10 +12,10 @@
 
 | Field | Value |
 |-------|-------|
-| Current LinkedIn API version header | `202608` (centralized in `LINKEDIN_API_VERSION`) |
+| Current LinkedIn API version header | `202610` (latest supported release as of 2026-11-10) |
 | Header name | `LinkedIn-Version` |
 | Sunset date | Not published by LinkedIn for `202410`; check the developer portal changelog before each deployment |
-| Configuration | `LINKEDIN_API_VERSION` environment variable (see `.env.example`); do not hard-code |
+| Configuration | Centralized in `src/lib/integrations/linkedin/client.ts` as `LINKEDIN_API_VERSION`; update with the official monthly versioning guide |
 
 Update the API version and sunset date here whenever the version is changed. The spec (BED-03) requires this field to be kept current.
 
