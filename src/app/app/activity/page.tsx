@@ -28,6 +28,7 @@ interface CombinedActivityItem {
   timestamp: string;
   details?: string;
   sourceUrl?: string;
+  articleUrl?: string;
   evidence?: string;
   decision?: string;
   reason?: string;
@@ -94,7 +95,8 @@ export default async function ActivityPage() {
         resource: a.resource_type,
         timestamp: a.created_at,
         details: detailsString,
-        sourceUrl: safeHttpsUrl(metadata.sourceUrl) ?? safeHttpsUrl(metadata.articleUrl),
+        sourceUrl: safeHttpsUrl(metadata.sourceUrl),
+        articleUrl: safeHttpsUrl(metadata.articleUrl),
         evidence: typeof metadata.evidence === "string" ? metadata.evidence : undefined,
         decision: typeof metadata.decision === "string" ? metadata.decision : undefined,
         reason: typeof metadata.reason === "string" ? metadata.reason : typeof metadata.decisionReason === "string" ? metadata.decisionReason : undefined,
@@ -215,10 +217,19 @@ export default async function ActivityPage() {
                         Matched business context: {item.matchedKeywords.join(", ")}
                       </p>
                     )}
-                    {item.sourceUrl && (
-                      <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex text-xs text-forest underline mt-2">
-                        Open source
-                      </a>
+                    {(item.sourceUrl || item.articleUrl) && (
+                      <div className="flex flex-wrap gap-3 mt-2">
+                        {item.sourceUrl && (
+                          <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex text-xs text-forest underline">
+                            Publisher
+                          </a>
+                        )}
+                        {item.articleUrl && (
+                          <a href={item.articleUrl} target="_blank" rel="noopener noreferrer" className="inline-flex text-xs text-forest underline">
+                            Read article
+                          </a>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
