@@ -52,23 +52,37 @@ export function backoffSeconds(attempt: number): number {
  * Throws JobTransitionError if the transition is illegal, the database errors,
  * or the job was no longer in the expected status.
  */
+export interface JobTransitionGuard {
+  attemptCount?: number;
+  leaseUntil?: string;
+}
+
 export async function transitionJob(
   supabase: any,
   jobId: string,
   from: JobStatus,
   to: JobStatus,
-  patch: Record<string, unknown> = {}
+  patch: Record<string, unknown> = {},
+  guard?: JobTransitionGuard
 ): Promise<void> {
   if (!isAllowedTransition(from, to)) {
     throw new JobTransitionError(`Illegal job transition ${from} -> ${to} for job ${jobId}.`);
   }
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("agent_jobs")
     .update({ ...patch, status: to, updated_at: new Date().toISOString() })
     .eq("id", jobId)
-    .eq("status", from)
-    .select("id");
+    .eq("status", from);
+
+  if (guard?.attemptCount !== undefined) {
+    query = query.eq("attempt_count", guard.attemptCount);
+  }
+  if (guard?.leaseUntil !== undefined) {
+    query = query.eq("lease_until", guard.leaseUntil);
+  }
+
+  const { data, error } = await query.select("id");
 
   if (error) {
     throw new JobTransitionError(
@@ -88,7 +102,8 @@ export async function markJobRetryable(
   job: { id: string; attempt_count: number },
   message: string,
   errorCode: string,
-  from: JobStatus = "running"
+  from: JobStatus = "running",
+  guard?: JobTransitionGuard
 ): Promise<string> {
   const nextRunIso = new Date(Date.now() + backoffSeconds(job.attempt_count) * 1000).toISOString();
   await transitionJob(supabase, job.id, from, "failed_retryable", {
@@ -96,7 +111,7 @@ export async function markJobRetryable(
     lease_until: null,
     last_error_code: errorCode,
     safe_error_message: message,
-  });
+  }, guard);
   return nextRunIso;
 }
 
@@ -106,12 +121,13 @@ export async function markJobTerminal(
   jobId: string,
   message: string,
   errorCode: string,
-  from: JobStatus = "running"
+  from: JobStatus = "running",
+  guard?: JobTransitionGuard
 ): Promise<void> {
   await transitionJob(supabase, jobId, from, "failed_terminal", {
     finished_at: new Date().toISOString(),
     lease_until: null,
     last_error_code: errorCode,
     safe_error_message: message,
-  });
+  }, guard);
 }
