@@ -12,7 +12,7 @@
 
 | Field | Value |
 |-------|-------|
-| Current LinkedIn API version header | `202410` |
+| Current LinkedIn API version header | `202608` (centralized in `LINKEDIN_API_VERSION`) |
 | Header name | `LinkedIn-Version` |
 | Sunset date | Not published by LinkedIn for `202410`; check the developer portal changelog before each deployment |
 | Configuration | `LINKEDIN_API_VERSION` environment variable (see `.env.example`); do not hard-code |
@@ -121,7 +121,7 @@ The implementation must handle HTTP 429 with exponential backoff and the `Retry-
 | `r_member_social` | Restricted | NOT self-serve | Post analytics (NOT available in v1) |
 | `w_organization_social` | Restricted | NOT self-serve | Company page publishing (NOT in v1 scope) |
 
-**Source:** https://learn.microsoft.com/en-us/linkedin/shared/authentication/getting-access (retrieved 2026-10-27)
+**Sources:** LinkedIn OAuth authorization-code flow and token-introspection documentation (retrieved 2026-11-10). Nunuza persists scopes returned by OAuth or verified through official token introspection; requested scopes alone are not treated as proof of grant.
 
 ---
 
