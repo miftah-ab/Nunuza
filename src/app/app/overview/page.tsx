@@ -129,6 +129,8 @@ interface RecentActivityItem {
   detail: string;
   timestamp: string;
   status?: string;
+  href?: string;
+  external?: boolean;
 }
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
@@ -217,17 +219,74 @@ export default async function OverviewPage() {
 
   try {
     const [auditRes, jobsRes] = await Promise.all([
-      supabase.from("audit_events").select("id, action, actor_type, resource_type, created_at").eq("workspace_id", workspace.id).order("created_at", { ascending: false }).limit(4),
+      supabase.from("audit_events").select("id, action, actor_type, resource_type, resource_id, safe_metadata, created_at").eq("workspace_id", workspace.id).order("created_at", { ascending: false }).limit(12),
       supabase.from("agent_jobs").select("id, job_type, status, created_at").eq("workspace_id", workspace.id).order("created_at", { ascending: false }).limit(3),
     ]);
 
-    const auditItems: RecentActivityItem[] = (auditRes.data ?? []).map((a: any) => ({
-      id: `audit-${a.id}`,
-      source: "audit" as const,
-      title: (a.action as string).replace(/_/g, " ").replace(/^\w/, (c: string) => c.toUpperCase()),
-      detail: a.actor_type + (a.resource_type ? ` · ${a.resource_type}` : ""),
-      timestamp: a.created_at,
-    }));
+    const auditItems: RecentActivityItem[] = (auditRes.data ?? []).map((a: any) => {
+      const metadata = a.safe_metadata && typeof a.safe_metadata === "object"
+        ? a.safe_metadata as Record<string, unknown>
+        : {};
+      const action = String(a.action ?? "");
+      let title = action.replace(/_/g, " ").replace(/^\w/, (c: string) => c.toUpperCase());
+      let detail = a.actor_type + (a.resource_type ? ` · ${a.resource_type}` : "");
+      let href: string | undefined;
+      let external = false;
+
+      if (action === "agent_research_candidate") {
+        const candidateTitle = typeof metadata.title === "string" ? metadata.title : "Research opportunity";
+        title = `Opportunity: ${candidateTitle}`;
+        const reason = metadata.eligible === true
+          ? "Matches your strategy"
+          : metadata.decisionReason === "strategy_exclusion"
+            ? "Excluded by your brand preferences"
+            : "Below the relevance threshold";
+        const score = typeof metadata.relevanceScore === "number"
+          ? `Relevance ${metadata.relevanceScore.toFixed(1)}`
+          : null;
+        detail = [typeof metadata.source === "string" ? metadata.source : null, score, reason]
+          .filter(Boolean).join(" · ");
+        const sourceUrl = typeof metadata.articleUrl === "string"
+          ? metadata.articleUrl
+          : typeof metadata.sourceUrl === "string" ? metadata.sourceUrl : null;
+        if (sourceUrl) {
+          try {
+            const parsed = new URL(sourceUrl);
+            if (parsed.protocol === "https:") {
+              href = parsed.toString();
+              external = true;
+            }
+          } catch { /* Ignore invalid evidence URLs. */ }
+        }
+      } else if (action === "agent_cycle_decision") {
+        const decision = String(metadata.decision ?? "");
+        title = decision === "create_review_draft"
+          ? "Draft created for your review"
+          : decision === "queue_autopilot_publish"
+            ? "Autopilot queued a post"
+            : "Nunuza decided not to publish";
+        detail = typeof metadata.reason === "string" ? metadata.reason : "Decision recorded from the latest research cycle.";
+        if (typeof metadata.postId === "string") {
+          href = `/app/content?post=${encodeURIComponent(metadata.postId)}`;
+        }
+      } else if (action === "publish_unconfirmed") {
+        title = "LinkedIn publication needs confirmation";
+        detail = "Check LinkedIn before confirming. Automatic retry is disabled.";
+        if (typeof a.resource_id === "string") {
+          href = `/app/content?post=${encodeURIComponent(a.resource_id)}`;
+        }
+      }
+
+      return {
+        id: `audit-${a.id}`,
+        source: "audit" as const,
+        title,
+        detail,
+        timestamp: a.created_at,
+        href,
+        external,
+      };
+    });
 
     const jobItems: RecentActivityItem[] = (jobsRes.data ?? []).map((j: any) => ({
       id: `job-${j.id}`,
@@ -651,8 +710,16 @@ export default async function OverviewPage() {
                         item.source === "job" ? "bg-warning" : "bg-forest"
                       }`} />
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-ink capitalize truncate">{item.title}</p>
-                      <p className="text-xs text-ink-muted mt-0.5">{relativeTime(item.timestamp)}</p>
+                      <p className="text-xs font-medium text-ink truncate" title={item.title}>{item.title}</p>
+                      {item.detail && <p className="text-xs text-ink-muted mt-0.5 line-clamp-2">{item.detail}</p>}
+                      <div className="flex items-center gap-2 mt-1">
+                        <p className="text-[11px] text-ink-muted">{relativeTime(item.timestamp)}</p>
+                        {item.href && (item.external ? (
+                          <a href={item.href} target="_blank" rel="noopener noreferrer" className="text-[11px] font-medium text-forest hover:underline">Evidence</a>
+                        ) : (
+                          <Link href={item.href} className="text-[11px] font-medium text-forest hover:underline">Open</Link>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 ))}
