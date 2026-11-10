@@ -646,7 +646,9 @@ export async function executeAutonomousCycle(
           : eligible ? "relevance_threshold_met" : "below_relevance_threshold",
     });
   }
-  const scored = eligibleByBrand.filter((item) => item.score >= 2.5);
+  const scored = eligibleByBrand.filter((item) =>
+    item.score >= 2.5 && item.scoreBreakdown.evidenceQuality >= 0.6
+  );
 
   const consideredSince = new Date(Date.now() - 14 * 86400000).toISOString();
   const { data: priorResearchEvents, error: priorResearchError } = await supabase
