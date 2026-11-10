@@ -374,6 +374,19 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
       expect(vi.mocked(publishPostToLinkedIn)).not.toHaveBeenCalled();
     });
 
+    it("recovers a post already confirmed by a previous worker without publishing again", async () => {
+      const { db, job } = seed("published");
+      db.posts[0].linkedin_post_id = "urn:li:share:7000000000000000099";
+
+      const outcome = await executePublishJob(job, db);
+
+      expect(outcome.success).toBe(true);
+      expect(outcome.status).toBe("succeeded");
+      expect(outcome.postUrn).toBe("urn:li:share:7000000000000000099");
+      expect(db.jobs[0].status).toBe("succeeded");
+      expect(vi.mocked(publishPostToLinkedIn)).not.toHaveBeenCalled();
+    });
+
     it("never publishes a post that is already published", async () => {
       const { db, job } = seed("published");
 
