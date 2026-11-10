@@ -1,12 +1,20 @@
--- Consolidate retired beta entitlements into internal_beta and remove legacy enum values.
--- Existing workspace access is preserved; this migration does not revoke anyone's access.
+-- Consolidate retired beta entitlements and remove legacy enum values.
+-- publishing_beta was the legacy private-beta publishing entitlement and maps to
+-- internal_beta. internal_test was a one-time acceptance-test entitlement; it
+-- must NOT be upgraded to full beta access, so it is downgraded to draft_only.
 UPDATE public.workspaces
-SET entitlement_type = 'internal_beta'
-WHERE entitlement_type::text IN ('publishing_beta', 'internal_test');
+SET entitlement_type = CASE entitlement_type::text
+  WHEN 'publishing_beta' THEN 'internal_beta'
+  WHEN 'internal_test' THEN 'draft_only'
+  ELSE entitlement_type::text
+END::public.entitlement_type;
 
 UPDATE public.subscriptions
-SET entitlement_snapshot = 'internal_beta'
-WHERE entitlement_snapshot::text IN ('publishing_beta', 'internal_test');
+SET entitlement_snapshot = CASE entitlement_snapshot::text
+  WHEN 'publishing_beta' THEN 'internal_beta'
+  WHEN 'internal_test' THEN 'draft_only'
+  ELSE entitlement_snapshot::text
+END::public.entitlement_type;
 
 -- Rebuild the enum because PostgreSQL cannot directly remove enum labels.
 ALTER TABLE public.workspaces ALTER COLUMN entitlement_type DROP DEFAULT;
