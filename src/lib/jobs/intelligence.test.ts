@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildLearningProfile,
+  isAutonomousEntitlementEligible,
+  isAutonomousWorkspaceActive,
   isDuplicateOpportunity,
   matchesStrategyExclusion,
   parseResearchFeed,
@@ -11,6 +13,23 @@ import {
 const NOW = Date.parse("2026-11-10T12:00:00.000Z");
 
 describe("autonomous intelligence primitives", () => {
+  it("allows only current beta and paid entitlements to run autonomous cycles", () => {
+    expect(isAutonomousEntitlementEligible("internal_beta")).toBe(true);
+    expect(isAutonomousEntitlementEligible("paid_trial")).toBe(true);
+    expect(isAutonomousEntitlementEligible("paid_active")).toBe(true);
+    expect(isAutonomousEntitlementEligible("publishing_beta")).toBe(false);
+    expect(isAutonomousEntitlementEligible("internal_test")).toBe(false);
+    expect(isAutonomousEntitlementEligible("draft_only")).toBe(false);
+    expect(isAutonomousEntitlementEligible("suspended")).toBe(false);
+  });
+
+  it("requires an active, unpaused workspace before a cycle can act", () => {
+    expect(isAutonomousWorkspaceActive({ state: "active_approval_required" })).toBe(true);
+    expect(isAutonomousWorkspaceActive({ state: "active_autopilot", paused_at: null })).toBe(true);
+    expect(isAutonomousWorkspaceActive({ state: "paused" })).toBe(false);
+    expect(isAutonomousWorkspaceActive({ state: "active_autopilot", paused_at: "2026-11-10T00:00:00Z" })).toBe(false);
+  });
+
   it("extracts publisher URL, evidence, and timestamps from a fresh RSS item", () => {
     const xml = `<rss><channel><item>
       <title>New small business lending rules announced</title>
