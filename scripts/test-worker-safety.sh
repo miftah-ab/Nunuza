@@ -56,7 +56,7 @@ echo "migration applied"
 CYCLE_WS="10000000-0000-0000-0000-000000000009"
 q -c "INSERT INTO workspaces VALUES ('$CYCLE_WS')" >/dev/null
 q -c "INSERT INTO agent_jobs(workspace_id,job_type,status) VALUES ('$CYCLE_WS','agent_cycle','queued')" >/dev/null
-DUPLICATE_CYCLE=$(q -c "DO \\$\\$ BEGIN
+DUPLICATE_CYCLE=$(q -c "DO \$\$ BEGIN
   BEGIN
     INSERT INTO agent_jobs(workspace_id,job_type,status) VALUES ('$CYCLE_WS','agent_cycle','running');
     RAISE EXCEPTION 'expected active cycle uniqueness violation';
