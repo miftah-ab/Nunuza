@@ -535,7 +535,7 @@ export async function handleTelegramMessage(
       .from("content_posts")
       .select("id, internal_title, text, status, created_at")
       .eq("workspace_id", workspaceId)
-      .eq("status", "draft")
+      .in("status", ["draft", "needs_review"])
       .order("created_at", { ascending: false })
       .limit(5);
 
