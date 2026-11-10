@@ -8,10 +8,18 @@ Each cycle reads the workspace strategy, audience, goals, pillars, voice profile
 
 Research metadata and the evidence excerpt are stored in workspace-scoped audit events. The generated post retains the source, article link, publisher link, publication time, and excerpt in source_notes. Retrieved source text is untrusted: it is passed as evidence, never as instructions.
 
+## Worker execution guarantees
+
+- Jobs are claimed by the PostgreSQL `claim_due_agent_jobs` RPC using row locks and `SKIP LOCKED`; attempts increment only on a successful claim.
+- A running attempt starts with a 15-minute lease and renews it every four minutes while its handler is active. Renewal is fenced by job ID, attempt number, and exact prior lease; stale attempts cannot renew or finalize a newer claim.
+- Job state transitions compare status and, for claimed executions, the attempt number and lease token. Stale-job recovery uses the same fence.
+- If a publish job loses its lease after the post enters `publishing`, it is moved to human reconciliation rather than retried. A post already persisted as published with a LinkedIn URN is recovered as succeeded without another API call.
+- A periodic repair reconciles a post left in `publishing` when its job is already in `needs_reconciliation`, covering a partial database failure between those writes.
+
 ## Actions and safety
 
 - Approval-required workspaces receive a needs_review post and a Telegram notification. Approval and rejection actions are recorded in the existing approval_events table.
-- Autopilot requires explicit autopilot operating mode and active_autopilot state, an unpaused workspace, and one of the current entitlements (internal_beta, paid_trial, paid_active). Migration 0011 maps legacy publishing_beta workspaces to internal_beta but resets them to approval_required, so the migration cannot silently enable Autopilot; legacy internal_test is downgraded to draft_only. A connected non-expired LinkedIn connection with w_member_social and the existing publishing worker's final entitlement and cap checks are required.
+- Autopilot requires explicit autopilot operating mode and active_autopilot state, an unpaused workspace, and one of the current entitlements (internal_beta, paid_trial, paid_active). Migration 0011 maps legacy publishing_beta workspaces to internal_beta but resets them to approval_required, so the migration cannot silently enable Autopilot; legacy internal_test is downgraded to draft_only, moved to commercial access mode, and paused. A connected non-expired LinkedIn connection with w_member_social and the existing publishing worker's final entitlement and cap checks are required.
 - The worker checks autopilot state again immediately before publishing an agent-created autopilot job.
 - A missing or ambiguous LinkedIn publication ID is never fabricated or blindly retried. Existing manual reconciliation remains authoritative.
 
