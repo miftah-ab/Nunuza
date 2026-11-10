@@ -267,7 +267,13 @@ export default async function OverviewPage() {
           ? "Draft created for your review"
           : decision === "queue_autopilot_publish"
             ? "Autopilot queued a post"
-            : "Nunuza decided not to publish";
+            : decision === "more_research_required"
+              ? "Nunuza needs stronger evidence"
+              : decision === "monitor"
+                ? "Nunuza is monitoring this opportunity"
+                : decision === "reject"
+                  ? "Nunuza rejected this opportunity"
+                  : "Nunuza decided not to publish";
         detail = typeof metadata.reason === "string" ? metadata.reason : "Decision recorded from the latest research cycle.";
         if (typeof metadata.postId === "string") {
           href = `/app/content?post=${encodeURIComponent(metadata.postId)}`;
