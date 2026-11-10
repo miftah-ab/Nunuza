@@ -80,3 +80,27 @@ jobs:
       - uses: actions/checkout@v4
       - name: Atomic job claim against real Postgres (8 parallel workers)
         run: bash scripts/test-claim-concurrency.sh
+
+  db-entitlement-migration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - name: Entitlement migration and privilege-boundary test
+        run: bash scripts/test-entitlement-migration.sh
