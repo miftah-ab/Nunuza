@@ -602,7 +602,7 @@ export async function executeAutonomousCycle(
     : [];
   const excludedByBrand = ranked.filter((item) => matchesStrategyExclusion(item, strategyExclusions));
   const eligibleByBrand = ranked.filter((item) => !matchesStrategyExclusion(item, strategyExclusions));
-  for (const candidate of ranked) {
+  for (const candidate of ranked.slice(0, 5)) {
     const brandExcluded = matchesStrategyExclusion(candidate, strategyExclusions);
     const eligible = candidate.score >= 2.5 && !brandExcluded;
     await recordAgentEvent(supabase, workspace.id, "agent_research_candidate", {
