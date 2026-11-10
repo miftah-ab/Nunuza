@@ -199,6 +199,20 @@ describe("canUseAutopilot()", () => {
     ).toBe(false);
   });
 
+  it("legacy publishing_beta cannot use unattended Autopilot", () => {
+    expect(canUseAutopilot({
+      entitlement_type: "publishing_beta",
+      operating_mode: "autopilot",
+    })).toBe(false);
+  });
+
+  it("legacy internal_test cannot use unattended Autopilot", () => {
+    expect(canUseAutopilot({
+      entitlement_type: "internal_test",
+      operating_mode: "autopilot",
+    })).toBe(false);
+  });
+
   it("draft_only cannot use Autopilot", () => {
     expect(
       canUseAutopilot({
