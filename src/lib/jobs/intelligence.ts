@@ -538,6 +538,20 @@ export async function executeAutonomousCycle(
     return fail("Workspace operating mode and state do not agree; refusing autonomous action.", false);
   }
 
+  const { data: usageReserved, error: usageReserveError } = await supabase.rpc("reserve_draft_usage", {
+    p_workspace_id: workspace.id,
+    p_period_start: periodStart,
+    p_period_end: periodEnd,
+    p_limit: 30,
+  });
+  if (usageReserveError) return fail("Could not reserve monthly draft usage: " + usageReserveError.message);
+  if (!usageReserved) {
+    await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {
+      cycleDate, decision: "no_op", reason: "monthly_draft_limit_reached",
+    });
+    return { jobId: job.id, success: true, status: "succeeded", retryable: false };
+  }
+
   const { data: post, error: postError } = await supabase
     .from("content_posts")
     .insert({
@@ -556,6 +570,11 @@ export async function executeAutonomousCycle(
     .single();
 
   if (postError || !post) {
+    const { error: releaseError } = await supabase.rpc("release_draft_usage", {
+      p_workspace_id: workspace.id,
+      p_period_start: periodStart,
+    });
+    if (releaseError) console.error("[agent-cycle] Could not release draft usage reservation:", releaseError.message);
     if (postError?.code === "23505") {
       return { jobId: job.id, success: true, status: "succeeded", retryable: false };
     }
@@ -572,16 +591,6 @@ export async function executeAutonomousCycle(
   });
   if (versionError && versionError.code !== "23505") {
     return fail("Could not save the generated post version: " + versionError.message);
-  }
-
-  const { error: usageIncrementError } = await supabase.rpc("increment_usage_counter", {
-    p_workspace_id: workspace.id,
-    p_metric: "draft_items_created",
-    p_period_start: periodStart,
-    p_period_end: periodEnd,
-  });
-  if (usageIncrementError) {
-    console.error("[agent-cycle] Draft saved but usage counter increment failed: " + usageIncrementError.message);
   }
 
   for (const candidate of scored.slice(0, 5)) {

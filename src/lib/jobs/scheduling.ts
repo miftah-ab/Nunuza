@@ -308,49 +308,6 @@ export async function cancelScheduledPost(
  *  - a job is only 'succeeded' after the post row was durably saved as 'published'.
  */
 
-const POSTING_CAP_DAY = 1;
-const POSTING_CAP_ROLLING_7_DAYS = 7;
-
-/** Returns a human-readable violation, or null if publishing is within caps. */
-async function postingCapViolation(
-  supabase: any,
-  workspaceId: string,
-  postId: string
-): Promise<string | null> {
-  const now = new Date();
-  const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const dayEnd = new Date(dayStart);
-  dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
-  const windowStart = new Date(now.getTime() - 7 * 86400000);
-
-  const { data: today, error: dayErr } = await supabase
-    .from("content_posts")
-    .select("id")
-    .eq("workspace_id", workspaceId)
-    .eq("status", "published")
-    .neq("id", postId)
-    .gte("published_at", dayStart.toISOString())
-    .lt("published_at", dayEnd.toISOString());
-  if (dayErr) throw new Error(`[publisher] Day cap check failed: ${dayErr.message}`);
-  if ((today?.length ?? 0) >= POSTING_CAP_DAY) {
-    return "Cap reached: Maximum 1 post per calendar day.";
-  }
-
-  const { data: week, error: weekErr } = await supabase
-    .from("content_posts")
-    .select("id")
-    .eq("workspace_id", workspaceId)
-    .eq("status", "published")
-    .neq("id", postId)
-    .gte("published_at", windowStart.toISOString())
-    .lte("published_at", now.toISOString());
-  if (weekErr) throw new Error(`[publisher] Rolling cap check failed: ${weekErr.message}`);
-  if ((week?.length ?? 0) >= POSTING_CAP_ROLLING_7_DAYS) {
-    return "Cap reached: Maximum 7 posts per rolling 7-day period.";
-  }
-  return null;
-}
-
 /** Compare-and-set a post's status. Returns true only if exactly this transition happened. */
 async function casPostStatus(
   supabase: any,
