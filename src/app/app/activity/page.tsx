@@ -81,7 +81,7 @@ export default async function ActivityPage() {
 
     const auditItems: CombinedActivityItem[] = (auditRes.data ?? []).map((a: any) => {
       const metadata = a.safe_metadata && typeof a.safe_metadata === "object" ? a.safe_metadata : {};
-      const excluded = new Set(["evidence", "sourceUrl", "articleUrl", "matchedKeywords", "approvalSignals"]);
+      const excluded = new Set(["evidence", "sourceUrl", "articleUrl", "matchedKeywords", "approvalSignals", "decision", "reason", "decisionReason", "confidence"]);
       const pairs = Object.entries(metadata)
         .filter(([key, value]) => !excluded.has(key) && value !== undefined && value !== null && typeof value !== "object")
         .map(([key, value]) => `${key}: ${value}`);
