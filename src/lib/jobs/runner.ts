@@ -32,6 +32,33 @@ export interface ClaimJobsOptions {
 
 export type JobHandler = (job: AgentJob, supabase: any) => Promise<JobExecutionResult>;
 
+/** Renew only the exact active attempt and lease; stale workers are fenced out. */
+export async function renewAgentJobLease(
+  supabase: any,
+  jobId: string,
+  attemptCount: number,
+  expectedLeaseUntil: string
+): Promise<string> {
+  const nextLeaseUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  const { data, error } = await supabase.rpc("renew_agent_job_execution", {
+    p_job_id: jobId,
+    p_attempt_count: attemptCount,
+    p_expected_lease_until: expectedLeaseUntil,
+    p_new_lease_until: nextLeaseUntil,
+  });
+  if (error) {
+    throw new JobTransitionError(
+      `[runner] Could not renew lease for job ${jobId}: ${error.message}`
+    );
+  }
+  if (data !== true) {
+    throw new JobTransitionError(
+      `[runner] Lease ownership lost for job ${jobId}; refusing stale execution.`
+    );
+  }
+  return nextLeaseUntil;
+}
+
 /**
  * Queue messages cross a trust boundary. Validate the persisted claim envelope
  * before casting or touching the database. Payload-specific validation remains
@@ -166,6 +193,31 @@ export async function processJob(
   } as AgentJob;
 
   let result: JobExecutionResult;
+  let heartbeatInFlight: Promise<void> | null = null;
+  let leaseLost = false;
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+  heartbeatTimer = setInterval(() => {
+    if (heartbeatInFlight || leaseLost || !liveJob.lease_until) return;
+    heartbeatInFlight = renewAgentJobLease(
+      supabase,
+      liveJob.id,
+      attemptCount,
+      liveJob.lease_until
+    ).then((nextLeaseUntil) => {
+      liveJob.lease_until = nextLeaseUntil;
+    }).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : "Unknown lease renewal error";
+      if (message.includes("Lease ownership lost")) {
+        leaseLost = true;
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+      }
+      console.error(`[runner] Lease heartbeat failed for job ${liveJob.id}: ${message}`);
+    }).finally(() => {
+      heartbeatInFlight = null;
+    });
+  }, 4 * 60 * 1000);
+
   try {
     const handler = handlers[liveJob.job_type];
     if (!handler) {
@@ -186,6 +238,42 @@ export async function processJob(
       status: "failed_retryable",
       retryable: true,
       error: err?.message || "Unexpected runner error",
+    };
+  } finally {
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    if (heartbeatInFlight) await heartbeatInFlight;
+  }
+
+  // A newer claim fences this execution out. A handler may have completed an
+  // external side effect just before losing its lease; its domain-level
+  // idempotency/reconciliation path remains responsible for that outcome.
+  const { data: ownership, error: ownershipError } = await supabase
+    .from("agent_jobs")
+    .select("status, attempt_count, lease_until")
+    .eq("id", liveJob.id)
+    .single();
+
+  if (ownershipError || !ownership) {
+    throw new JobTransitionError(
+      `[runner] Could not verify lease ownership for job ${liveJob.id}: ${ownershipError?.message ?? "not found"}`
+    );
+  }
+
+  const stillOwnsRunningLease =
+    ownership.status !== "running" ||
+    (
+      ownership.attempt_count === attemptCount &&
+      !leaseLost &&
+      ownership.lease_until === liveJob.lease_until &&
+      Date.parse(ownership.lease_until) > Date.now()
+    );
+  if (ownership.attempt_count !== attemptCount || !stillOwnsRunningLease) {
+    return {
+      jobId: liveJob.id,
+      success: false,
+      status: ownership.status,
+      retryable: false,
+      error: "Worker lease was lost; this execution did not finalize the job.",
     };
   }
 
