@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Tests atomic publishing slots, active agent cycles, and monthly draft usage
-# reservations against real PostgreSQL, including concurrent claims.
+# Tests atomic publish caps, active cycles, execution leases, and draft quota
+# reservations against real PostgreSQL under concurrent workers.
 set -euo pipefail
 
 MIGRATION="supabase/migrations/0010_worker_safety_reservations.sql"
@@ -69,8 +69,7 @@ q -c "UPDATE agent_jobs SET status='succeeded' WHERE workspace_id='$CYCLE_WS' AN
 q -c "INSERT INTO agent_jobs(workspace_id,job_type,status) VALUES ('$CYCLE_WS','agent_cycle','queued')" >/dev/null
 echo "ok: active agent cycles are unique per workspace"
 
-# Duplicate queue deliveries share the original lease. Only one may renew it
-# and begin the attempt.
+# Duplicate queue deliveries share the original lease. Only one may renew it.
 EXEC_WS="10000000-0000-0000-0000-000000000010"
 EXEC_JOB="60000000-0000-0000-0000-000000000001"
 q -c "INSERT INTO workspaces VALUES ('$EXEC_WS')" >/dev/null
@@ -83,94 +82,7 @@ for n in $(seq 1 8); do
   ) > "$OUT/execution-$n.txt" &
 done
 wait
-EXECUTIONS=$(cat "$OUT"/execution-*.txt | grep -c '^t
-q -c "INSERT INTO workspaces VALUES ('$WS')" >/dev/null
-for n in $(seq 1 8); do
-  ID=$(printf "20000000-0000-0000-0000-%012d" "$n")
-  q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES ('$ID','$WS','approved')" >/dev/null
-done
-
-# Eight concurrent publish attempts for one workspace must reserve one slot.
-for n in $(seq 1 8); do
-  (
-    ID=$(printf "20000000-0000-0000-0000-%012d" "$n")
-    psql -At -c "SELECT allowed FROM claim_workspace_publish_slot('$WS','$ID')"
-  ) > "$OUT/publish-$n.txt" &
-done
-wait
-ALLOWED=$(cat "$OUT"/publish-*.txt | grep -c '^t$' || true)
-[ "$ALLOWED" = "1" ] || fail "expected exactly one concurrent publish slot, got $ALLOWED"
-PUBLISHING=$(q -c "SELECT count(*) FROM content_posts WHERE workspace_id='$WS' AND status='publishing'")
-[ "$PUBLISHING" = "1" ] || fail "expected one post reserved as publishing, got $PUBLISHING"
-echo "ok: concurrent publishing claims reserve one daily slot"
-
-# A scheduled post on the same day also reserves the daily slot.
-WS2="10000000-0000-0000-0000-000000000002"
-q -c "INSERT INTO workspaces VALUES ('$WS2')" >/dev/null
-q -c "INSERT INTO content_posts(id,workspace_id,status,scheduled_at) VALUES
-('30000000-0000-0000-0000-000000000001','$WS2','scheduled',date_trunc('day',now()) + interval '2 hours'),
-('30000000-0000-0000-0000-000000000002','$WS2','approved',NULL)" >/dev/null
-DAILY=$(q -c "SELECT allowed FROM claim_workspace_publish_slot('$WS2','30000000-0000-0000-0000-000000000002')")
-[ "$DAILY" = "f" ] || fail "scheduled post must reserve the daily slot"
-echo "ok: scheduled posts reserve the daily slot"
-
-# Seven published posts in the rolling week block an eighth.
-WS3="10000000-0000-0000-0000-000000000003"
-q -c "INSERT INTO workspaces VALUES ('$WS3')" >/dev/null
-q -c "INSERT INTO content_posts(id,workspace_id,status,published_at,updated_at)
-SELECT ('40000000-0000-0000-0000-' || lpad(g::text,12,'0'))::uuid,
-       '$WS3','published',now() - (g || ' days')::interval,now() - (g || ' days')::interval
-FROM generate_series(0,6) g" >/dev/null
-q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES
-('40000000-0000-0000-0000-000000000008','$WS3','approved')" >/dev/null
-WEEK=$(q -c "SELECT allowed FROM claim_workspace_publish_slot('$WS3','40000000-0000-0000-0000-000000000008')")
-[ "$WEEK" = "f" ] || fail "seven posts in rolling week must block eighth"
-echo "ok: rolling seven-day cap enforced"
-
-# 80 distinct jobs race for a monthly cap of 30. Repeating one job's reservation
-# is idempotent and does not consume another slot.
-WS4="10000000-0000-0000-0000-000000000004"
-q -c "INSERT INTO workspaces VALUES ('$WS4')" >/dev/null
-for n in $(seq 1 80); do
-  ID=$(printf "50000000-0000-0000-0000-%012d" "$n")
-  q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status) VALUES ('$ID','$WS4','usage_reservation_test','queued')" >/dev/null
-done
-for w in $(seq 1 8); do
-  (
-    for n in $(seq 1 10); do
-      INDEX=$(( (w - 1) * 10 + n ))
-      ID=$(printf "50000000-0000-0000-0000-%012d" "$INDEX")
-      psql -At -c "SELECT reserve_draft_usage('$ID','$WS4',current_date,current_date + 30,30)"
-    done
-  ) > "$OUT/usage-$w.txt" &
-done
-wait
-RESERVED=$(cat "$OUT"/usage-*.txt | grep -c '^t$' || true)
-COUNT=$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$WS4' AND metric='draft_items_created'")
-[ "$RESERVED" = "30" ] || fail "expected exactly 30 successful usage reservations, got $RESERVED"
-[ "$COUNT" = "30" ] || fail "expected usage counter 30, got $COUNT"
-SAME=$(q -c "SELECT reserve_draft_usage('50000000-0000-0000-0000-000000000001','$WS4',current_date,current_date + 30,30)")
-[ "$SAME" = "t" ] || fail "retrying the same job reservation must remain successful"
-COUNT_AFTER_RETRY=$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$WS4' AND metric='draft_items_created'")
-[ "$COUNT_AFTER_RETRY" = "30" ] || fail "same-job retry must not increment usage twice"
-q -c "UPDATE agent_jobs SET status='failed_terminal' WHERE id='50000000-0000-0000-0000-000000000001'" >/dev/null
-COUNT_AFTER_TERMINAL=$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$WS4' AND metric='draft_items_created'")
-[ "$COUNT_AFTER_TERMINAL" = "29" ] || fail "terminal job must release its unused draft reservation"
-q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status) VALUES ('50000000-0000-0000-0000-000000000081','$WS4','usage_reservation_test','queued')" >/dev/null
-NEXT=$(q -c "SELECT reserve_draft_usage('50000000-0000-0000-0000-000000000081','$WS4',current_date,current_date + 30,30)")
-[ "$NEXT" = "t" ] || fail "released reservation must allow one new reservation"
-echo "ok: monthly draft usage is atomic and retry-idempotent"
-
-# Only service_role may call privileged functions.
-[ "$(q -c "SELECT has_function_privilege('anon','public.claim_workspace_publish_slot(uuid,uuid)','EXECUTE')")" = "f" ] || fail "anon must not claim publish slots"
-[ "$(q -c "SELECT has_function_privilege('authenticated','public.reserve_draft_usage(uuid,uuid,date,date,integer)','EXECUTE')")" = "f" ] || fail "authenticated must not reserve usage"
-[ "$(q -c "SELECT has_function_privilege('service_role','public.reserve_draft_usage(uuid,uuid,date,date,integer)','EXECUTE')")" = "t" ] || fail "service_role must reserve usage"
-[ "$(q -c "SELECT has_function_privilege('anon','public.begin_agent_job_execution(uuid,integer,timestamptz,timestamptz)','EXECUTE')")" = "f" ] || fail "anon must not begin job execution"
-[ "$(q -c "SELECT has_function_privilege('service_role','public.begin_agent_job_execution(uuid,integer,timestamptz,timestamptz)','EXECUTE')")" = "t" ] || fail "service_role must begin job execution"
-echo "ok: worker-only execution grants enforced"
-
-echo "ALL WORKER SAFETY CHECKS PASSED"
- || true)
+EXECUTIONS=$(cat "$OUT"/execution-*.txt | grep -c '^t$' || true)
 [ "$EXECUTIONS" = "1" ] || fail "expected one execution lease owner, got $EXECUTIONS"
 echo "ok: duplicate queue deliveries cannot start the same attempt twice"
 
@@ -256,6 +168,8 @@ echo "ok: monthly draft usage is atomic and retry-idempotent"
 [ "$(q -c "SELECT has_function_privilege('anon','public.claim_workspace_publish_slot(uuid,uuid)','EXECUTE')")" = "f" ] || fail "anon must not claim publish slots"
 [ "$(q -c "SELECT has_function_privilege('authenticated','public.reserve_draft_usage(uuid,uuid,date,date,integer)','EXECUTE')")" = "f" ] || fail "authenticated must not reserve usage"
 [ "$(q -c "SELECT has_function_privilege('service_role','public.reserve_draft_usage(uuid,uuid,date,date,integer)','EXECUTE')")" = "t" ] || fail "service_role must reserve usage"
+[ "$(q -c "SELECT has_function_privilege('anon','public.begin_agent_job_execution(uuid,integer,timestamptz,timestamptz)','EXECUTE')")" = "f" ] || fail "anon must not begin job execution"
+[ "$(q -c "SELECT has_function_privilege('service_role','public.begin_agent_job_execution(uuid,integer,timestamptz,timestamptz)','EXECUTE')")" = "t" ] || fail "service_role must begin job execution"
 echo "ok: worker-only execution grants enforced"
 
 echo "ALL WORKER SAFETY CHECKS PASSED"
