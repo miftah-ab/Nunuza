@@ -428,16 +428,16 @@ export async function executePublishJob(
 
   if (
     typeof payload?.postId !== "string" || !payload.postId.trim() ||
-    payload.workspaceId !== job.workspace_id ||
-    typeof payload.userId !== "string" ||
-    payload.targetProvider !== "linkedin" ||
-    typeof payload.scheduledFor !== "string" ||
-    !Number.isFinite(Date.parse(payload.scheduledFor)) ||
+    (payload.workspaceId !== undefined && payload.workspaceId !== job.workspace_id) ||
+    (payload.userId !== undefined && typeof payload.userId !== "string") ||
+    (payload.targetProvider !== undefined && payload.targetProvider !== "linkedin") ||
+    (payload.scheduledFor !== undefined &&
+      (typeof payload.scheduledFor !== "string" || !Number.isFinite(Date.parse(payload.scheduledFor)))) ||
     (payload.autopilot !== undefined && typeof payload.autopilot !== "boolean")
   ) {
     return terminal("INVALID_PAYLOAD", "Publishing job payload is incomplete or inconsistent.");
   }
-  if (payload.userId !== workspace.owner_user_id) {
+  if (payload.userId !== undefined && payload.userId !== workspace.owner_user_id) {
     return terminal("INVALID_PAYLOAD", "Publishing job owner does not match the workspace owner.");
   }
 
