@@ -466,42 +466,47 @@ export async function executePublishJob(
     return fail("canceled", false, message);
   }
 
-  // 6. Posting caps, re-checked immediately before execution
-  try {
-    const violation = await postingCapViolation(supabase, job.workspace_id, post.id);
-    if (violation) {
-      await transitionJob(supabase, job.id, "running", "canceled", {
-        finished_at: new Date().toISOString(),
-        lease_until: null,
-        last_error_code: "POSTING_CAP_REACHED",
-        safe_error_message: violation,
-      });
-      await casPostStatus(supabase, job.workspace_id, post.id, ["scheduled"], { status: "approved", scheduled_at: null });
-      return fail("canceled", false, violation);
-    }
-  } catch (capErr: any) {
-    const msg = capErr?.message || "Posting cap check failed.";
+  // 6. Atomically reserve the workspace's daily and rolling weekly publish slot.
+  // The database serializes claims per workspace and marks this post publishing
+  // before any external side effect is attempted.
+  const priorStatus = post.status as "scheduled" | "approved";
+  const { data: slotData, error: slotError } = await supabase.rpc("claim_workspace_publish_slot", {
+    p_workspace_id: job.workspace_id,
+    p_post_id: post.id,
+  });
+
+  if (slotError) {
+    const message = "Could not safely reserve the workspace publishing slot: " + slotError.message;
     if (attemptCount < maxAttempts) {
-      await markJobRetryable(supabase, { id: job.id, attempt_count: attemptCount }, msg, "CAP_CHECK_FAILED");
-      return fail("failed_retryable", true, msg);
+      await markJobRetryable(supabase, { id: job.id, attempt_count: attemptCount }, message, "PUBLISH_SLOT_CHECK_FAILED");
+      return fail("failed_retryable", true, message);
     }
-    return terminal("CAP_CHECK_FAILED", msg);
+    return terminal("PUBLISH_SLOT_CHECK_FAILED", message);
   }
 
-  const priorStatus = post.status as "scheduled" | "approved";
-  const claimedPost = await casPostStatus(supabase, job.workspace_id, post.id, [priorStatus], {
-    status: "publishing",
-  });
-  if (!claimedPost) {
-    const message = "Another publish attempt already holds this post.";
+  const slot = Array.isArray(slotData) ? slotData[0] : slotData;
+  if (!slot?.allowed) {
+    const reason = String(slot?.reason ?? "POST_NOT_ELIGIBLE");
+    const message = reason === "DAILY_CAP_REACHED"
+      ? "Cap reached: Maximum 1 post per calendar day."
+      : reason === "WEEKLY_CAP_REACHED"
+        ? "Cap reached: Maximum 7 posts per rolling 7-day period."
+        : "This post is no longer eligible for publishing.";
     await transitionJob(supabase, job.id, "running", "canceled", {
       finished_at: new Date().toISOString(),
       lease_until: null,
-      last_error_code: "POST_ALREADY_CLAIMED",
+      last_error_code: reason,
       safe_error_message: message,
     });
+    if (post.status === "scheduled") {
+      await casPostStatus(supabase, job.workspace_id, post.id, ["scheduled"], {
+        status: "approved",
+        scheduled_at: null,
+      });
+    }
     return fail("canceled", false, message);
   }
+
 
   // 7. Publish via the official LinkedIn API
   let result: { linkedinPostId: string; publishedAt: string };
