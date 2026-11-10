@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { claimDueJobs, isClaimedAgentJobEnvelope, processJob, reconcileStaleJobs, registerJobHandler } from "./runner";
+import { claimDueJobs, isClaimedAgentJobEnvelope, processJob, reconcileStaleJobs, registerJobHandler, renewAgentJobLease } from "./runner";
 import { backoffSeconds, isAllowedTransition, JobTransitionError } from "./state";
 import { MockSupabase, makeJob } from "@/test/mock-supabase";
 import type { AgentJob } from "@/types/database";
@@ -137,6 +137,28 @@ describe("claimDueJobs (atomic claim contract)", () => {
   it("throws on database failure instead of returning an empty list", async () => {
     db.opts.rpcError = "connection refused";
     await expect(claimDueJobs({ limit: 5 }, db)).rejects.toThrow("claim_due_agent_jobs failed");
+  });
+});
+
+describe("worker lease renewal", () => {
+  it("extends only the active attempt's exact lease without incrementing attempts", async () => {
+    const db = new MockSupabase();
+    const originalLease = new Date(Date.now() + 5 * 60_000).toISOString();
+    db.jobs.push(makeJob({
+      status: "running",
+      attempt_count: 1,
+      lease_until: originalLease,
+    }));
+
+    const renewedLease = await renewAgentJobLease(db, "job-1", 1, originalLease);
+    expect(Date.parse(renewedLease)).toBeGreaterThan(Date.parse(originalLease));
+    expect(db.jobs[0].lease_until).toBe(renewedLease);
+    expect(db.jobs[0].attempt_count).toBe(1);
+
+    await expect(renewAgentJobLease(db, "job-1", 1, originalLease))
+      .rejects.toThrow(/Lease ownership lost/);
+    await expect(renewAgentJobLease(db, "job-1", 2, renewedLease))
+      .rejects.toThrow(/Lease ownership lost/);
   });
 });
 
