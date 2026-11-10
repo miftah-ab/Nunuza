@@ -63,7 +63,7 @@ DUPLICATE_CYCLE=$(q -c "DO \$\$ BEGIN
   EXCEPTION WHEN unique_violation THEN
     NULL;
   END;
-END \\$\\$; SELECT 'blocked'")
+END \$\$; SELECT 'blocked'")
 [ "$DUPLICATE_CYCLE" = "blocked" ] || fail "a workspace must not have overlapping active agent cycles"
 q -c "UPDATE agent_jobs SET status='succeeded' WHERE workspace_id='$CYCLE_WS' AND job_type='agent_cycle'" >/dev/null
 q -c "INSERT INTO agent_jobs(workspace_id,job_type,status) VALUES ('$CYCLE_WS','agent_cycle','queued')" >/dev/null
