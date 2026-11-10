@@ -60,7 +60,6 @@
   "allowScripts": {
     "esbuild": true,
     "workerd": true,
-    "rclone.js": true,
     "unrs-resolver": true
   }
 }
