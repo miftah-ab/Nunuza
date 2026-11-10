@@ -11,7 +11,7 @@ Research metadata and the evidence excerpt are stored in workspace-scoped audit 
 ## Actions and safety
 
 - Approval-required workspaces receive a needs_review post and a Telegram notification. Approval and rejection actions are recorded in the existing approval_events table.
-- Autopilot requires explicit autopilot operating mode and active_autopilot state, a publish-capable entitlement, an unpaused workspace, a connected non-expired LinkedIn connection with w_member_social, and the existing publishing worker's final entitlement and cap checks.
+- Autopilot requires explicit autopilot operating mode and active_autopilot state, an unpaused workspace, and one of the current entitlements (internal_beta, paid_trial, paid_active). Legacy publishing_beta/internal_test are deliberately excluded from unattended cycles. A connected non-expired LinkedIn connection with w_member_social and the existing publishing worker's final entitlement and cap checks are required.
 - The worker checks autopilot state again immediately before publishing an agent-created autopilot job.
 - A missing or ambiguous LinkedIn publication ID is never fabricated or blindly retried. Existing manual reconciliation remains authoritative.
 
