@@ -409,7 +409,25 @@ export async function executePublishJob(
     return fail("canceled", false, "Agent is paused. The post was not published.");
   }
 
-  // 5. Post eligibility + duplicate guard (compare-and-set to 'publishing')
+  // 5. Recover a publication already durably confirmed by a previous worker.
+  // A lease may expire after LinkedIn succeeds but before the original worker
+  // finalizes its job. Never cancel or republish a post already stored as live.
+  if (post.status === "published" && typeof post.linkedin_post_id === "string" && post.linkedin_post_id.startsWith("urn:li:")) {
+    await transitionJob(supabase, job.id, "running", "succeeded", {
+      finished_at: new Date().toISOString(),
+      lease_until: null,
+      safe_error_message: null,
+    });
+    return {
+      jobId: job.id,
+      success: true,
+      status: "succeeded",
+      retryable: false,
+      postUrn: post.linkedin_post_id,
+    };
+  }
+
+  // 6. Post eligibility + duplicate guard (compare-and-set to 'publishing')
   if (!["scheduled", "approved"].includes(post.status)) {
     const message =
       post.status === "published"
