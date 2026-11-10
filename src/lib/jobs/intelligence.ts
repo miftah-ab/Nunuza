@@ -556,7 +556,7 @@ export async function executeAutonomousCycle(
   const ranked = research
     .map((item) => scoreOpportunity(item, keywords, Date.now(), learning))
     .sort((a, b) => b.score - a.score);
-  for (const candidate of ranked.slice(0, 10)) {
+  for (const candidate of ranked) {
     await recordAgentEvent(supabase, workspace.id, "agent_research_candidate", {
       cycleDate, title: candidate.title, source: candidate.source,
       sourceUrl: candidate.sourceUrl, articleUrl: candidate.url,
