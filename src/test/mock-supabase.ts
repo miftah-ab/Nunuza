@@ -65,6 +65,18 @@ export class MockSupabase {
       }
       return Promise.resolve({ data: valid, error: null });
     }
+    if (name === "renew_agent_job_execution") {
+      const target = this.jobs.find((candidate) => candidate.id === args.p_job_id);
+      const valid = !!target &&
+        target.status === "running" &&
+        target.attempt_count === args.p_attempt_count &&
+        target.lease_until === args.p_expected_lease_until &&
+        Date.parse(target.lease_until) > Date.now();
+      if (valid) {
+        target.lease_until = args.p_new_lease_until;
+      }
+      return Promise.resolve({ data: valid, error: null });
+    }
     if (name === "claim_workspace_publish_slot") {
       const now = Date.now();
       const target = this.posts.find((post) =>
