@@ -6,6 +6,7 @@
 set -euo pipefail
 
 MIGRATION="supabase/migrations/0008_atomic_job_claim.sql"
+LEASE_MIGRATION="supabase/migrations/0012_job_lease_renewal.sql"
 OUT="$(mktemp -d)"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 q() { psql -v ON_ERROR_STOP=1 -At "$@"; }
@@ -49,7 +50,8 @@ CREATE TABLE public.agent_jobs (
 SQL
 
 q -f "$MIGRATION" >/dev/null
-echo "migration applied"
+q -f "$LEASE_MIGRATION" >/dev/null
+echo "claim and lease-renewal migrations applied"
 
 # ── 1. Concurrency: 300 due jobs, 8 parallel workers ─────────────────────────
 q -c "INSERT INTO agent_jobs (workspace_id, job_type, idempotency_key, scheduled_for)
@@ -110,5 +112,30 @@ SIG="public.claim_due_agent_jobs(integer,integer,text[])"
 [ "$(q -c "SELECT has_function_privilege('authenticated','$SIG','EXECUTE')")" = "f" ] || fail "authenticated must not execute claim_due_agent_jobs"
 [ "$(q -c "SELECT has_function_privilege('service_role','$SIG','EXECUTE')")" = "t" ] || fail "service_role must execute claim_due_agent_jobs"
 echo "ok: client roles cannot claim jobs; service_role can"
+
+# ── 5. Fenced lease renewal ──────────────────────────────────────────────────
+LEASE_JOB="00000000-0000-0000-0000-000000000020"
+q -c "INSERT INTO agent_jobs (id, workspace_id, job_type, idempotency_key, status, attempt_count, max_attempts, lease_until)
+      VALUES ('$LEASE_JOB', gen_random_uuid(), 'publish_post', 'lease-renewal-test',
+              'running', 1, 3, now() + interval '5 minutes')" >/dev/null
+OLD_LEASE=$(q -c "SELECT lease_until::text FROM agent_jobs WHERE id='$LEASE_JOB'")
+NEW_LEASE=$(q -c "SELECT (now() + interval '20 minutes')::text")
+[ "$(q -c "SELECT renew_agent_job_execution('$LEASE_JOB', 1, '$OLD_LEASE', '$NEW_LEASE')")" = "t" ] || fail "current attempt must renew its active lease"
+[ "$(q -c "SELECT attempt_count FROM agent_jobs WHERE id='$LEASE_JOB'")" = "1" ] || fail "lease renewal must not increment attempt_count"
+[ "$(q -c "SELECT lease_until > '$OLD_LEASE'::timestamptz FROM agent_jobs WHERE id='$LEASE_JOB'")" = "t" ] || fail "lease renewal must extend lease_until"
+CURRENT_LEASE=$(q -c "SELECT lease_until::text FROM agent_jobs WHERE id='$LEASE_JOB'")
+[ "$(q -c "SELECT renew_agent_job_execution('$LEASE_JOB', 1, '$OLD_LEASE', '$NEW_LEASE')")" = "f" ] || fail "stale expected lease must not renew"
+[ "$(q -c "SELECT renew_agent_job_execution('$LEASE_JOB', 2, '$CURRENT_LEASE', '$NEW_LEASE')")" = "f" ] || fail "stale attempt number must not renew"
+q -c "UPDATE agent_jobs SET lease_until=now() - interval '1 second' WHERE id='$LEASE_JOB'" >/dev/null
+EXPIRED_LEASE=$(q -c "SELECT lease_until::text FROM agent_jobs WHERE id='$LEASE_JOB'")
+[ "$(q -c "SELECT renew_agent_job_execution('$LEASE_JOB', 1, '$EXPIRED_LEASE', '$NEW_LEASE')")" = "f" ] || fail "expired lease must not be renewed"
+if psql -At -c "SELECT renew_agent_job_execution('$LEASE_JOB', 1, '$EXPIRED_LEASE', now() + interval '2 hours')" >/dev/null 2>&1; then
+  fail "lease renewal beyond one hour must be rejected"
+fi
+SIG_RENEW="public.renew_agent_job_execution(uuid,integer,timestamp with time zone,timestamp with time zone)"
+[ "$(q -c "SELECT has_function_privilege('anon','$SIG_RENEW','EXECUTE')")" = "f" ] || fail "anon must not execute lease renewal"
+[ "$(q -c "SELECT has_function_privilege('authenticated','$SIG_RENEW','EXECUTE')")" = "f" ] || fail "authenticated must not execute lease renewal"
+[ "$(q -c "SELECT has_function_privilege('service_role','$SIG_RENEW','EXECUTE')")" = "t" ] || fail "service_role must execute lease renewal"
+echo "ok: lease renewal is attempt-fenced, expiry-aware, and service-role-only"
 
 echo "ALL DATABASE CLAIM CHECKS PASSED"
