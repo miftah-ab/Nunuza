@@ -27,7 +27,8 @@ CREATE TABLE public.agent_jobs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID NOT NULL REFERENCES public.workspaces(id),
   job_type TEXT NOT NULL,
-  status TEXT NOT NULL
+  status TEXT NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}'::JSONB
 );
 CREATE TABLE public.content_posts (
   id UUID PRIMARY KEY,
@@ -107,30 +108,46 @@ WEEK=$(q -c "SELECT allowed FROM claim_workspace_publish_slot('$WS3','40000000-0
 [ "$WEEK" = "f" ] || fail "seven posts in rolling week must block eighth"
 echo "ok: rolling seven-day cap enforced"
 
-# 80 parallel reservation attempts with a cap of 30 must reserve exactly 30.
+# 80 distinct job attempts race for a monthly cap of 30. Repeating the same
+# job's reservation must be idempotent and must not consume another slot.
 WS4="10000000-0000-0000-0000-000000000004"
 q -c "INSERT INTO workspaces VALUES ('$WS4')" >/dev/null
+for n in $(seq 1 80); do
+  ID=$(printf "50000000-0000-0000-0000-%012d" "$n")
+  q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status) VALUES ('$ID','$WS4','agent_cycle','queued')" >/dev/null
+done
 for w in $(seq 1 8); do
   (
-    for _ in $(seq 1 10); do
-      psql -At -c "SELECT reserve_draft_usage('$WS4',current_date,current_date + 30,30)"
+    for n in $(seq 1 10); do
+      INDEX=$(( (w - 1) * 10 + n ))
+      ID=$(printf "50000000-0000-0000-0000-%012d" "$INDEX")
+      psql -At -c "SELECT reserve_draft_usage('$ID','$WS4',current_date,current_date + 30,30)"
     done
   ) > "$OUT/usage-$w.txt" &
 done
 wait
-RESERVED=$(cat "$OUT"/usage-*.txt | grep -c '^t$' || true)
+RESERVED=$(cat "$OUT"/usage-*.txt | grep -c '^t
+echo "ok: worker-only execution grants enforced"
+
+echo "ALL WORKER SAFETY CHECKS PASSED"
+ || true)
 COUNT=$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$WS4' AND metric='draft_items_created'")
 [ "$RESERVED" = "30" ] || fail "expected exactly 30 successful usage reservations, got $RESERVED"
 [ "$COUNT" = "30" ] || fail "expected usage counter 30, got $COUNT"
-q -c "SELECT release_draft_usage('$WS4',current_date)" >/dev/null
-NEXT=$(q -c "SELECT reserve_draft_usage('$WS4',current_date,current_date + 30,30)")
+SAME=$(q -c "SELECT reserve_draft_usage('50000000-0000-0000-0000-000000000001','$WS4',current_date,current_date + 30,30)")
+[ "$SAME" = "t" ] || fail "retrying the same job reservation must remain successful"
+COUNT_AFTER_RETRY=$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$WS4' AND metric='draft_items_created'")
+[ "$COUNT_AFTER_RETRY" = "30" ] || fail "same-job retry must not increment usage twice"
+q -c "SELECT release_draft_usage('50000000-0000-0000-0000-000000000001')" >/dev/null
+q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status) VALUES ('50000000-0000-0000-0000-000000000081','$WS4','agent_cycle','queued')" >/dev/null
+NEXT=$(q -c "SELECT reserve_draft_usage('50000000-0000-0000-0000-000000000081','$WS4',current_date,current_date + 30,30)")
 [ "$NEXT" = "t" ] || fail "released reservation must allow one new reservation"
-echo "ok: monthly draft usage limit is atomic under concurrency"
+echo "ok: monthly draft usage is atomic and retry-idempotent"
 
 # Only service_role may call privileged functions.
 [ "$(q -c "SELECT has_function_privilege('anon','public.claim_workspace_publish_slot(uuid,uuid)','EXECUTE')")" = "f" ] || fail "anon must not claim publish slots"
-[ "$(q -c "SELECT has_function_privilege('authenticated','public.reserve_draft_usage(uuid,date,date,integer)','EXECUTE')")" = "f" ] || fail "authenticated must not reserve usage"
-[ "$(q -c "SELECT has_function_privilege('service_role','public.reserve_draft_usage(uuid,date,date,integer)','EXECUTE')")" = "t" ] || fail "service_role must reserve usage"
+[ "$(q -c "SELECT has_function_privilege('authenticated','public.reserve_draft_usage(uuid,uuid,date,date,integer)','EXECUTE')")" = "f" ] || fail "authenticated must not reserve usage"
+[ "$(q -c "SELECT has_function_privilege('service_role','public.reserve_draft_usage(uuid,uuid,date,date,integer)','EXECUTE')")" = "t" ] || fail "service_role must reserve usage"
 echo "ok: worker-only execution grants enforced"
 
 echo "ALL WORKER SAFETY CHECKS PASSED"
