@@ -588,7 +588,14 @@ export async function executeAutonomousCycle(
   const ranked = research
     .map((item) => scoreOpportunity(item, keywords, Date.now(), learning))
     .sort((a, b) => b.score - a.score);
+  const strategyExclusions = Array.isArray(strategy.exclusions)
+    ? strategy.exclusions.filter((value: unknown): value is string => typeof value === "string")
+    : [];
+  const excludedByBrand = ranked.filter((item) => matchesStrategyExclusion(item, strategyExclusions));
+  const eligibleByBrand = ranked.filter((item) => !matchesStrategyExclusion(item, strategyExclusions));
   for (const candidate of ranked) {
+    const brandExcluded = matchesStrategyExclusion(candidate, strategyExclusions);
+    const eligible = candidate.score >= 2.5 && !brandExcluded;
     await recordAgentEvent(supabase, workspace.id, "agent_research_candidate", {
       cycleDate, title: candidate.title, source: candidate.source,
       sourceUrl: candidate.sourceUrl, articleUrl: candidate.url,
@@ -596,15 +603,10 @@ export async function executeAutonomousCycle(
       evidence: candidate.evidence.slice(0, 800), relevanceScore: candidate.score,
       confidence: candidate.relevance, matchedKeywords: candidate.matchedKeywords,
       scoreBreakdown: candidate.scoreBreakdown,
-      eligible: candidate.score >= 2.5,
-      decisionReason: candidate.score >= 2.5 ? "relevance_threshold_met" : "below_relevance_threshold",
+      eligible,
+      decisionReason: brandExcluded ? "strategy_exclusion" : eligible ? "relevance_threshold_met" : "below_relevance_threshold",
     });
   }
-  const strategyExclusions = Array.isArray(strategy.exclusions)
-    ? strategy.exclusions.filter((value: unknown): value is string => typeof value === "string")
-    : [];
-  const excludedByBrand = ranked.filter((item) => matchesStrategyExclusion(item, strategyExclusions));
-  const eligibleByBrand = ranked.filter((item) => !matchesStrategyExclusion(item, strategyExclusions));
   const scored = eligibleByBrand.filter((item) => item.score >= 2.5);
 
   const previousTitles = activeRecentPosts.map((post: any) => String(post.internal_title ?? ""));
