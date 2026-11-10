@@ -51,13 +51,20 @@ describe("autonomous intelligence primitives", () => {
         { post_id: "a", action: "approved" },
         { post_id: "b", action: "rejected" },
       ],
-      [{ post_id: "a" }, { post_id: "a" }],
+      [
+        { post_id: "a", change_source: "ai_generation", version_number: 1, text: "Business growth needs a complex framework." },
+        { post_id: "a", change_source: "user_edit", version_number: 2, text: "Business growth needs a simple practical checklist." },
+        { post_id: "b", change_source: "ai_generation", version_number: 1, text: "A business growth approach uses a complex framework." },
+        { post_id: "b", change_source: "user_edit", version_number: 2, text: "A business growth approach uses a simple practical checklist." },
+      ],
     );
     expect(profile.approvedTerms).toContain("business");
     expect(profile.rejectedTerms).toContain("crypto");
     expect(profile.approvedCount).toBe(1);
     expect(profile.rejectedCount).toBe(1);
     expect(profile.editCount).toBe(2);
+    expect(profile.preferredEditTerms).toContain("practical");
+    expect(profile.avoidedEditTerms).toContain("complex");
   });
 
   it("ranks approved-topic matches higher and rejected-topic matches lower", () => {
@@ -76,6 +83,8 @@ describe("autonomous intelligence primitives", () => {
       rejectedTerms: [],
       approvedCount: 2,
       rejectedCount: 0,
+      preferredEditTerms: [],
+      avoidedEditTerms: [],
       editCount: 0,
     });
     const rejected = scoreOpportunity(item, ["small business finance"], NOW, {
