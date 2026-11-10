@@ -3,8 +3,8 @@
  *
  * Every write to agent_jobs.status goes through transitionJob(), which:
  *  - validates the transition against the allowed state machine,
- *  - uses compare-and-set (WHERE status = <from>) so a stale worker cannot
- *    overwrite a newer state,
+ *  - uses compare-and-set on status and, for claimed executions, attempt number
+ *    plus exact lease token so a stale worker cannot overwrite a newer claim,
  *  - throws if the database reports an error or no row was updated.
  *
  * Nothing here silently ignores a failed update.
@@ -48,9 +48,9 @@ export function backoffSeconds(attempt: number): number {
 }
 
 /**
- * Moves a job from one status to another using compare-and-set.
- * Throws JobTransitionError if the transition is illegal, the database errors,
- * or the job was no longer in the expected status.
+ * Moves a job from one status to another using compare-and-set. Claimed workers
+ * should supply the attempt/lease guard; user-initiated transitions may use only
+ * the status guard. Throws if the transition is illegal or the row no longer matches.
  */
 export interface JobTransitionGuard {
   attemptCount?: number;
