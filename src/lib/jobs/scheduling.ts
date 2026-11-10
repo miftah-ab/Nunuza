@@ -426,6 +426,21 @@ export async function executePublishJob(
     return terminal("ENTITLEMENT_INSUFFICIENT", "Workspace entitlement does not permit publishing.");
   }
 
+  if (
+    typeof payload?.postId !== "string" || !payload.postId.trim() ||
+    payload.workspaceId !== job.workspace_id ||
+    typeof payload.userId !== "string" ||
+    payload.targetProvider !== "linkedin" ||
+    typeof payload.scheduledFor !== "string" ||
+    !Number.isFinite(Date.parse(payload.scheduledFor)) ||
+    (payload.autopilot !== undefined && typeof payload.autopilot !== "boolean")
+  ) {
+    return terminal("INVALID_PAYLOAD", "Publishing job payload is incomplete or inconsistent.");
+  }
+  if (payload.userId !== workspace.owner_user_id) {
+    return terminal("INVALID_PAYLOAD", "Publishing job owner does not match the workspace owner.");
+  }
+
   if (payload.autopilot === true && (!canUseAutopilot(workspace) || workspace.state !== "active_autopilot")) {
     return terminal("AUTOPILOT_NOT_ENABLED", "Autopilot is no longer enabled for this workspace.");
   }
