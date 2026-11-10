@@ -622,7 +622,7 @@ export async function executeAutonomousCycle(
       excludedByBrandCount: excludedByBrand.length,
       query,
       retrievedAt: new Date().toISOString(),
-      externalMetricsAvailability: "unavailable_restricted_linkedin_r_member_social",
+      externalMetricsAvailability: "unavailable_r_member_postAnalytics_not_granted",
     });
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
   }
@@ -786,7 +786,7 @@ export async function executeAutonomousCycle(
     aiModel: generated.modelUsed,
     estimatedTokens: generated.estimatedTokens,
     approvalSignals: approvalSummary,
-    externalMetricsAvailability: "unavailable_restricted_linkedin_r_member_social",
+    externalMetricsAvailability: "unavailable_r_member_postAnalytics_not_granted",
   });
 
   if (autopilot) {

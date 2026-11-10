@@ -21,7 +21,7 @@ The first learning pass uses the previous 90 days of approval/rejection decision
 
 ## LinkedIn analytics limitation
 
-The current LinkedIn OAuth scopes include w_member_social and OpenID Connect identity scopes. The repository's LinkedIn access evidence records r_member_social as restricted to approved users. Therefore personal-profile post analytics such as impressions, likes, comments, and engagement are not currently available through the existing self-service scope set. Nunuza must show these metrics as unavailable rather than inventing values or asking customers to enter them. Workflow signals remain available for internal learning.
+The official LinkedIn Member Post Statistics API exposes impressions, members reached, reactions, comments, and reshares through GET /rest/memberCreatorPostAnalytics. It requires the r_member_postAnalytics permission from LinkedIn's Community Management API. The current Nunuza OAuth connection requests w_member_social plus OpenID Connect identity scopes; it does not currently receive r_member_postAnalytics. Therefore Nunuza cannot collect personal-profile post analytics for current connections. Do not infer analytics from w_member_social or r_member_social, request an unapproved scope, fabricate numbers, or ask customers to enter metrics. If LinkedIn grants the app r_member_postAnalytics and a member consents to it, Nunuza can enable the official read-only endpoint behind an explicit scope check. Until then, workflow signals remain the source for internal learning.
 
 ## Deliberate boundaries
 
