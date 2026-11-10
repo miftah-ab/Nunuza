@@ -147,3 +147,10 @@ REVOKE EXECUTE ON FUNCTION public.release_draft_usage(UUID, DATE)
 GRANT EXECUTE ON FUNCTION public.claim_workspace_publish_slot(UUID, UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION public.reserve_draft_usage(UUID, DATE, DATE, INTEGER) TO service_role;
 GRANT EXECUTE ON FUNCTION public.release_draft_usage(UUID, DATE) TO service_role;
+
+
+-- The cron-level check is an optimization; this index is the concurrency guarantee.
+CREATE UNIQUE INDEX IF NOT EXISTS agent_jobs_one_active_cycle_per_workspace_uidx
+  ON public.agent_jobs (workspace_id)
+  WHERE job_type = 'agent_cycle'
+    AND status IN ('queued', 'running', 'failed_retryable');
