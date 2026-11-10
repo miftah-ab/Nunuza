@@ -96,7 +96,7 @@ export class MockSupabase {
       return Promise.resolve({ data: [{ allowed: true, reason: null }], error: null });
     }
     if (name !== "claim_due_agent_jobs") {
-      return Promise.resolve({ data: null, error: { message: \`unknown rpc \${name}\` } });
+      return Promise.resolve({ data: null, error: { message: `unknown rpc \${name}` } });
     }
     const now = Date.now();
     const types: string[] | null = args.p_job_types ?? null;
