@@ -39,7 +39,19 @@ export interface TokenExchangeResult {
   accessToken: string;
   expiresIn: number;
   memberUrn: string;
+  grantedScopes: string[];
   name?: string;
+}
+
+function parseGrantedScopes(value: string | undefined): string[] {
+  if (!value) return [];
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value.replace(/\\+/g, " "));
+  } catch {
+    // Keep the provider's original scope string; parsing below remains safe.
+  }
+  return decoded.split(/[\\s,]+/).map((scope) => scope.trim()).filter(Boolean);
 }
 
 export async function exchangeLinkedInCode(code: string): Promise<TokenExchangeResult> {
@@ -69,12 +81,40 @@ export async function exchangeLinkedInCode(code: string): Promise<TokenExchangeR
     throw new Error(`LinkedIn token exchange failed (${tokenRes.status}): ${errorText.slice(0, 200)}`);
   }
 
-  const tokenJson = (await tokenRes.json()) as { access_token: string; expires_in: number };
+  const tokenJson = (await tokenRes.json()) as { access_token: string; expires_in: number; scope?: string };
   const accessToken = tokenJson.access_token;
   const expiresIn = tokenJson.expires_in;
 
+  // Persist the actual grant, not merely the scopes requested by Nunuza.
+  // LinkedIn documents scope on the token response; if absent, verify using
+  // its official token-introspection endpoint.
+  let grantedScopes = parseGrantedScopes(tokenJson.scope);
+  if (grantedScopes.length === 0) {
+    const introspectionRes = await fetch("https://www.linkedin.com/oauth/v2/introspectToken", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        token: accessToken,
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!introspectionRes.ok) {
+      throw new Error("LinkedIn token scope verification failed. The connection was not saved.");
+    }
+    const introspection = await introspectionRes.json() as { active?: boolean; scope?: string };
+    if (introspection.active !== true) {
+      throw new Error("LinkedIn returned an inactive access token. The connection was not saved.");
+    }
+    grantedScopes = parseGrantedScopes(introspection.scope);
+  }
+  if (!grantedScopes.includes("w_member_social")) {
+    throw new Error("LinkedIn did not grant w_member_social. Reconnect after enabling the Share on LinkedIn product.");
+  }
+
   // 2. Fetch UserInfo to get OpenID sub (member URN)
-  let memberUrn = "urn:li:person:unknown";
+  let memberUrn: string | null = null;
   let name: string | undefined;
 
   try {
@@ -92,10 +132,15 @@ export async function exchangeLinkedInCode(code: string): Promise<TokenExchangeR
     console.warn("[linkedin] Failed to fetch userinfo sub:", err);
   }
 
+  if (!memberUrn) {
+    throw new Error("LinkedIn did not return a valid member identifier. The connection was not saved.");
+  }
+
   return {
     accessToken,
     expiresIn,
     memberUrn,
+    grantedScopes,
     name,
   };
 }
@@ -117,7 +162,7 @@ export async function saveLinkedInConnection(
         provider: "linkedin",
         external_account_id: data.memberUrn,
         encrypted_token_ref: encryptedRef,
-        granted_scopes: LINKEDIN_SCOPES,
+        granted_scopes: data.grantedScopes,
         status: "connected",
         expires_at: expiresAt,
         connected_at: new Date().toISOString(),
@@ -245,6 +290,13 @@ export async function publishPostToLinkedIn(
     throw new LinkedInPublishError(
       "not_connected",
       "LINKEDIN_NOT_CONNECTED: LinkedIn is not connected for this workspace. Please connect in Workspace Integrations."
+    );
+  }
+
+  if (!Array.isArray(connection.granted_scopes) || !connection.granted_scopes.includes("w_member_social")) {
+    throw new LinkedInPublishError(
+      "auth",
+      "LINKEDIN_SCOPE_MISSING: The connected account lacks w_member_social permission required to publish."
     );
   }
 
