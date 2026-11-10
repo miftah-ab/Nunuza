@@ -380,8 +380,23 @@ describe("processJob", () => {
   });
 
   it("fails closed for a publish job whose post does not exist, and records attempt history", async () => {
-    db.tables.workspaces.push({ id: "ws-test", entitlement_type: "internal_beta", paused_at: null });
-    const job = makeJob({ status: "running", attempt_count: 1, payload: { postId: "post-123" } });
+    db.tables.workspaces.push({
+      id: "ws-test",
+      owner_user_id: "user-1",
+      entitlement_type: "internal_beta",
+      paused_at: null,
+    });
+    const job = makeJob({
+      status: "running",
+      attempt_count: 1,
+      payload: {
+        postId: "post-123",
+        workspaceId: "ws-test",
+        userId: "user-1",
+        targetProvider: "linkedin",
+        scheduledFor: new Date().toISOString(),
+      },
+    });
     db.jobs.push(job);
 
     const res = await processJob(job, db);
