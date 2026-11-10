@@ -61,5 +61,10 @@
     "esbuild": true,
     "workerd": true,
     "unrs-resolver": true
+  },
+  "overrides": {
+    "@node-minify/core": {
+      "glob": "10.5.0"
+    }
   }
 }
