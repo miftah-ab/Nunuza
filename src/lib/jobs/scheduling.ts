@@ -435,6 +435,35 @@ export async function executePublishJob(
     };
   }
 
+  if (post.status === "published") {
+    const message = "The post is marked published but has no trustworthy LinkedIn post ID. Reconciliation is required; Nunuza will not retry it.";
+    await transitionJob(supabase, job.id, "running", "needs_reconciliation", {
+      lease_until: null,
+      last_error_code: "PUBLISHED_POST_ID_MISSING",
+      safe_error_message: message,
+    }, jobGuard());
+    return fail("needs_reconciliation", false, message);
+  }
+
+  // A previous worker may have sent the LinkedIn request before its lease
+  // expired. Never cancel-and-retry a post already in the publishing state.
+  if (post.status === "publishing" || post.status === "needs_reconciliation") {
+    const message =
+      "A previous LinkedIn publication attempt may still have reached LinkedIn. " +
+      "Nunuza will not retry it automatically. Check LinkedIn and confirm the outcome.";
+    if (post.status === "publishing") {
+      await casPostStatus(supabase, job.workspace_id, post.id, ["publishing"], {
+        status: "needs_reconciliation",
+      });
+    }
+    await transitionJob(supabase, job.id, "running", "needs_reconciliation", {
+      lease_until: null,
+      last_error_code: "PUBLISH_ATTEMPT_ALREADY_IN_FLIGHT",
+      safe_error_message: message,
+    }, jobGuard());
+    return fail("needs_reconciliation", false, message);
+  }
+
   // 6. Post eligibility + duplicate guard (compare-and-set to 'publishing')
   if (!["scheduled", "approved"].includes(post.status)) {
     const message =
