@@ -127,7 +127,7 @@ export interface LearningProfile {
 }
 
 export function buildLearningProfile(
-  posts: Array<{ id: string; internal_title?: string | null; pillar?: string | null }>,
+  posts: Array<{ id: string; internal_title?: string | null; pillar?: string | null; text?: string | null }>,
   approvals: Array<{ post_id: string; action: string }>,
   edits: Array<{ post_id: string; change_source?: string; text?: string | null; version_number?: number }>
 ): LearningProfile {
@@ -155,10 +155,11 @@ export function buildLearningProfile(
   for (const versions of versionsByPost.values()) {
     versions.sort((a, b) => (a.version_number ?? 0) - (b.version_number ?? 0));
     const generated = versions.find((version) => version.change_source === "ai_generation") ?? versions[0];
-    const finalEdit = [...versions].reverse().find((version) => version.change_source === "user_edit");
-    if (!generated?.text || !finalEdit?.text) continue;
+    // Version rows are pre-edit snapshots. Compare the AI original with the
+    // current post body, which is the actual final user-edited content.
+    if (!generated?.text || !post.text) continue;
     const before = new Set(tokens(generated.text));
-    const after = new Set(tokens(finalEdit.text));
+    const after = new Set(tokens(post.text));
     for (const term of after) if (!before.has(term)) addedTermCounts.set(term, (addedTermCounts.get(term) ?? 0) + 1);
     for (const term of before) if (!after.has(term)) removedTermCounts.set(term, (removedTermCounts.get(term) ?? 0) + 1);
   }
@@ -572,7 +573,7 @@ export async function executeAutonomousCycle(
   let signalPosts: any[] = [];
   if (signalPostIds.length) {
     const { data, error } = await supabase.from("content_posts")
-      .select("id, internal_title, pillar").eq("workspace_id", workspace.id).in("id", signalPostIds);
+      .select("id, internal_title, pillar, text").eq("workspace_id", workspace.id).in("id", signalPostIds);
     if (error) return fail("Could not load posts for learning signals.");
     signalPosts = data ?? [];
   }

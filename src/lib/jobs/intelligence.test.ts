@@ -45,8 +45,8 @@ describe("autonomous intelligence primitives", () => {
   it("learns approved and rejected topic terms without mixing user edits with outcomes", () => {
     const profile = buildLearningProfile(
       [
-        { id: "a", internal_title: "Small business cash flow", pillar: "Finance" },
-        { id: "b", internal_title: "Crypto trading trends", pillar: "Speculation" },
+        { id: "a", internal_title: "Small business cash flow", pillar: "Finance", text: "Business growth needs a simple practical checklist." },
+        { id: "b", internal_title: "Crypto trading trends", pillar: "Speculation", text: "A business growth approach uses a simple practical checklist." },
       ],
       [
         { post_id: "a", action: "approved" },
