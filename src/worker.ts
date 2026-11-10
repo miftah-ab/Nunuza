@@ -53,11 +53,11 @@ export default {
       const job: AgentJob = message.body;
       try {
         const result = await processJob(job);
-          if (result.success || !result.retryable) {
-            message.ack();
-          } else {
-            message.retry();
-          }
+        if (result.success || !result.retryable) {
+          message.ack();
+        } else {
+          message.retry();
+        }
       } catch (err) {
         console.error(`[worker-queue] Failed to process job ${job.id}:`, err);
         message.retry();
