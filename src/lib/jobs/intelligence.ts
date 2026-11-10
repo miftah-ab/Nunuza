@@ -350,8 +350,9 @@ export async function executeAutonomousCycle(
     .from("content_posts")
     .select("internal_title, text, status, created_at")
     .eq("workspace_id", workspace.id)
+    .gte("created_at", new Date(Date.now() - 7 * 86400000).toISOString())
     .order("created_at", { ascending: false })
-    .limit(20);
+    .limit(50);
   if (postsError) return fail("Could not load publishing history.");
 
   const cycleDate = String((job.payload as any)?.cycleDate ?? new Date().toISOString().slice(0, 10));
@@ -617,6 +618,7 @@ export async function executeAutonomousCycle(
     confidence: opportunity.relevance,
     aiProvider: generated.providerUsed,
     aiModel: generated.modelUsed,
+    estimatedTokens: generated.estimatedTokens,
     approvalSignals: approvalSummary,
     externalMetricsAvailability: "unavailable_restricted_linkedin_r_member_social",
   });
