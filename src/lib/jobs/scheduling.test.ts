@@ -69,7 +69,7 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
   const betaWorkspace: Workspace = {
     ...draftOnlyWorkspace,
     id: "ws-beta",
-    entitlement_type: "publishing_beta",
+    entitlement_type: "internal_beta",
   };
 
   const sampleApprovedPost: ContentPost = {
