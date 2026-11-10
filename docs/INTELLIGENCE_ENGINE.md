@@ -4,9 +4,9 @@
 
 The existing Cloudflare Cron Trigger enqueues at most one agent_cycle job per workspace per UTC day. It uses the existing agent_jobs queue and runner; it does not introduce another scheduler. Active queued, running, or retryable cycles block a new cycle for that workspace, including across a UTC date boundary.
 
-Each cycle reads the workspace strategy, audience, goals, pillars, voice profile, recent post history, approval decisions, and edit history. It queries Google News RSS using strategy keywords, keeps only fresh HTTPS items with a publisher and a non-trivial evidence excerpt, scores relevance against both headlines and evidence, applies strategy and voice exclusions, discounts rejected-topic matches, boosts approved-topic matches, and avoids near-duplicate recent posts.
+Each cycle reads the workspace strategy, audience, goals, pillars, voice profile, recent post history, approval decisions, and edit history. It queries Google News RSS using strategy keywords, keeps only fresh HTTPS items with a publisher and a non-trivial evidence excerpt, scores relevance against both headlines and evidence, requires a minimum evidence-depth band before drafting, applies strategy and voice exclusions, discounts rejected-topic matches, boosts approved-topic matches, and avoids near-duplicate recent posts. Thin evidence is marked as requiring more research; weak or repetitive opportunities are monitored instead of being forced into drafts.
 
-Research metadata and the evidence excerpt are stored in workspace-scoped audit events. The generated post retains the source, article link, publisher link, publication time, and excerpt in source_notes. Retrieved source text is untrusted: it is passed as evidence, never as instructions.
+Research metadata and the evidence excerpt are stored in workspace-scoped audit events. The existing dashboard activity feed shows the discovery, short evidence excerpt, relevance band, decision reason, and source link. Telegram draft/autopilot notices include the concise reason and source. The generated post retains the source, article link, publisher link, publication time, and excerpt in source_notes. Retrieved source text is untrusted: it is passed as evidence, never as instructions.
 
 ## Worker execution guarantees
 
