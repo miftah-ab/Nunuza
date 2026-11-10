@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Tests atomic per-workspace publishing slots and monthly draft usage reservations
-# against real PostgreSQL, including concurrent claims.
+# Tests atomic publishing slots, active agent cycles, and monthly draft usage
+# reservations against real PostgreSQL, including concurrent claims.
 set -euo pipefail
 
 MIGRATION="supabase/migrations/0010_worker_safety_reservations.sql"
@@ -55,7 +55,8 @@ SQL
 q -f "$MIGRATION" >/dev/null
 echo "migration applied"
 
-# The partial unique index is the race-safe guard for overlapping workspace cycles.
+# A workspace may have one active autonomous cycle, but can start another
+# after the previous cycle reaches a terminal state.
 CYCLE_WS="10000000-0000-0000-0000-000000000009"
 q -c "INSERT INTO workspaces VALUES ('$CYCLE_WS')" >/dev/null
 q -c "INSERT INTO agent_jobs(workspace_id,job_type,status) VALUES ('$CYCLE_WS','agent_cycle','queued')" >/dev/null
@@ -73,7 +74,7 @@ for n in $(seq 1 8); do
   q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES ('$ID','$WS','approved')" >/dev/null
 done
 
-# Eight concurrent publish attempts for one workspace must reserve exactly one slot.
+# Eight concurrent publish attempts for one workspace must reserve one slot.
 for n in $(seq 1 8); do
   (
     ID=$(printf "20000000-0000-0000-0000-%012d" "$n")
@@ -110,8 +111,8 @@ WEEK=$(q -c "SELECT allowed FROM claim_workspace_publish_slot('$WS3','40000000-0
 [ "$WEEK" = "f" ] || fail "seven posts in rolling week must block eighth"
 echo "ok: rolling seven-day cap enforced"
 
-# 80 distinct job attempts race for a monthly cap of 30. Repeating the same
-# job's reservation must be idempotent and must not consume another slot.
+# 80 distinct jobs race for a monthly cap of 30. Repeating one job's reservation
+# is idempotent and does not consume another slot.
 WS4="10000000-0000-0000-0000-000000000004"
 q -c "INSERT INTO workspaces VALUES ('$WS4')" >/dev/null
 for n in $(seq 1 80); do
@@ -128,11 +129,7 @@ for w in $(seq 1 8); do
   ) > "$OUT/usage-$w.txt" &
 done
 wait
-RESERVED=$(cat "$OUT"/usage-*.txt | grep -c '^t
-echo "ok: worker-only execution grants enforced"
-
-echo "ALL WORKER SAFETY CHECKS PASSED"
- || true)
+RESERVED=$(cat "$OUT"/usage-*.txt | grep -c '^t$' || true)
 COUNT=$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$WS4' AND metric='draft_items_created'")
 [ "$RESERVED" = "30" ] || fail "expected exactly 30 successful usage reservations, got $RESERVED"
 [ "$COUNT" = "30" ] || fail "expected usage counter 30, got $COUNT"
