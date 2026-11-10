@@ -700,15 +700,17 @@ export async function handleTelegramMessage(
   if (text === "/report") {
     const now = new Date();
     const currentPeriod = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+    const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
 
     const { data: usage } = await supabase
       .from("usage_counters")
-      .select("counter_value")
+      .select("count")
       .eq("workspace_id", workspaceId)
-      .eq("period_key", currentPeriod)
+      .eq("metric", "draft_items_created")
+      .eq("period_start", periodStart)
       .maybeSingle();
 
-    const used = usage?.counter_value ?? 0;
+    const used = usage?.count ?? 0;
 
     return {
       replyText:
