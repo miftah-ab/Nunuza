@@ -70,8 +70,8 @@ export async function schedulePost(
     throw new Error(`Post ${postId} not found.`);
   }
 
-  if (post.status !== "approved" && post.status !== "draft" && post.status !== "needs_review") {
-    throw new Error(`Post cannot be scheduled from status '${post.status}'.`);
+  if (post.status !== "approved") {
+    throw new Error("Only approved posts can be scheduled. Submit the draft for review and approve it first.");
   }
 
   const targetDate = new Date(scheduledFor);
