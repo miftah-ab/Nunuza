@@ -762,7 +762,7 @@ export async function handleCallbackQuery(
 
     const statusFilter = data === "menu:approvals" ? ["needs_review"] : ["draft", "needs_review"];
 
-    const { data: drafts } = await supabase
+    const { data: drafts, error: draftsError } = await supabase
       .from("content_posts")
       .select("id, internal_title, text, status, created_at")
       .eq("workspace_id", workspaceId)
@@ -770,6 +770,10 @@ export async function handleCallbackQuery(
       .order("created_at", { ascending: false })
       .range(offset, offset + 4);
 
+    if (draftsError) {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, "❌ *Could not load drafts\\.* Please retry\\.", { inline_keyboard: [navRow()] });
+      return;
+    }
     if (!drafts || drafts.length === 0) {
       await editTelegramMessage(
         ctx.chatId,
@@ -1002,7 +1006,7 @@ export async function handleCallbackQuery(
 
   // ── Schedule / Publishing ──
   if (data === "menu:schedule") {
-    const { data: scheduled } = await supabase
+    const { data: scheduled, error: scheduleError } = await supabase
       .from("content_posts")
       .select("id, internal_title, scheduled_at, status")
       .eq("workspace_id", workspaceId)
@@ -1010,6 +1014,10 @@ export async function handleCallbackQuery(
       .order("scheduled_at", { ascending: true })
       .limit(5);
 
+    if (scheduleError) {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, "❌ *Could not load the schedule\\.* Please retry\\.", { inline_keyboard: [navRow()] });
+      return;
+    }
     if (!scheduled || scheduled.length === 0) {
       await editTelegramMessage(
         ctx.chatId,
@@ -1171,23 +1179,30 @@ export async function handleCallbackQuery(
     const now = new Date();
     const currentPeriod = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
 
-    const { data: usage } = await supabase
+    const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
+    const { data: usage, error: usageError } = await supabase
       .from("usage_counters")
-      .select("counter_value")
+      .select("count")
       .eq("workspace_id", workspaceId)
-      .eq("period_key", currentPeriod)
+      .eq("metric", "draft_items_created")
+      .eq("period_start", periodStart)
       .maybeSingle();
 
-    const used = usage?.counter_value ?? 0;
+    if (usageError) {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, "❌ *Monthly usage is temporarily unavailable\\.* Please retry\\.", { inline_keyboard: [navRow()] });
+      return;
+    }
+    const used = usage?.count ?? 0;
 
     await editTelegramMessage(
       ctx.chatId,
       ctx.messageId,
-      `📈 *Monthly Report \\— ${escapeMd(currentPeriod)}*\n\n` +
+      `📈 *Monthly Draft Usage \\— ${escapeMd(currentPeriod)}*\n\n` +
       `• *Drafts Generated:* ${used} / 30\n` +
       `• *Daily Cap:* Max 1 post/day\n` +
       `• *Weekly Cap:* Max 7 posts/week\n` +
-      `• *Reset:* 1st of next month`,
+      `• *Reset:* 1st of next month\n\n` +
+      `_Usage counters only; LinkedIn audience analytics are not connected._`,
       { inline_keyboard: [navRow()] }
     );
     return;
