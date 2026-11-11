@@ -204,3 +204,61 @@ export async function getMcpCredentialStatus(
     scopes: data.scopes,
   };
 }
+
+
+/**
+ * Verify a Supabase OAuth access token issued to a registered MCP client.
+ * OAuth tokens are user-scoped: workspace identity is derived from the verified
+ * Supabase subject, never from client-supplied workspace identifiers.
+ */
+export async function verifyMcpOAuthToken(
+  rawToken: string,
+  supabaseOverride?: any
+): Promise<McpTokenRecord | null> {
+  if (!rawToken || rawToken.length > 8192 || !rawToken.includes(".")) return null;
+
+  const supabase = supabaseOverride || createServiceClient();
+  const { data, error } = await supabase.auth.getClaims(rawToken);
+  if (error || !data?.claims) return null;
+
+  const claims = data.claims as Record<string, unknown>;
+  const userId = claims.sub;
+  const clientId = claims.client_id;
+  const expiresAt = Number(claims.exp);
+  const expectedIssuer = `${(process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\\/$/, "")}/auth/v1`;
+
+  if (
+    typeof userId !== "string" ||
+    typeof clientId !== "string" ||
+    clientId.length === 0 ||
+    claims.iss !== expectedIssuer ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt * 1000 <= Date.now()
+  ) {
+    return null;
+  }
+
+  const { data: workspace, error: workspaceError } = await supabase
+    .from("workspaces")
+    .select("id")
+    .eq("owner_user_id", userId)
+    .maybeSingle();
+
+  if (workspaceError || !workspace?.id) return null;
+
+  const requestedScopes = claims.mcp_scopes;
+  const scopes = Array.isArray(requestedScopes)
+    ? requestedScopes.filter((scope): scope is string => scope === "read" || scope === "write")
+    : ["read", "write"];
+
+  if (scopes.length === 0) return null;
+
+  return {
+    id: `oauth:${clientId}`,
+    workspaceId: workspace.id,
+    userId,
+    scopes,
+    lastUsedAt: null,
+    createdAt: new Date(Number(claims.iat || Date.now() / 1000) * 1000).toISOString(),
+  };
+}
