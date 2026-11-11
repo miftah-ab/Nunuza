@@ -61,6 +61,7 @@ export interface PlanGenerationRequest {
   preferredDays?: number[]; // 0=Sun .. 6=Sat
   preferredTime?: string | null; // local wall-clock preference in the strategy timezone
   strategy: ContentStrategyContext;
+  voiceProfile?: VoiceProfileContext;
   userRole?: string;
 }
 

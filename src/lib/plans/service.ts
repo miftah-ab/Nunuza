@@ -9,11 +9,12 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { aiService } from "@/lib/ai/service";
-import { getContentStrategy, logAuditEvent } from "@/lib/db/workspace";
+import { getContentStrategy, getVoiceProfile, logAuditEvent } from "@/lib/db/workspace";
 import { createPost } from "@/lib/db/posts";
 import { checkDraftLimit, incrementDraftCounter } from "@/lib/db/usage";
 import type { ContentPlan } from "@/types/database";
 import { assertNoExcludedPhrase } from "@/lib/ai/exclusions";
+import { assertVoiceConstraints } from "@/lib/ai/voice-constraints";
 
 export interface PlanGenerationOptions {
   periodDays?: number; // default: 7
@@ -31,7 +32,7 @@ export async function generateAndSavePlan(
     throw new Error("Plan period must be between 7 and 30 days.");
   }
 
-  const strategy = await getContentStrategy(workspaceId);
+  const [strategy, voice] = await Promise.all([getContentStrategy(workspaceId), getVoiceProfile(workspaceId)]);
   if (!strategy) {
     throw new Error("Content strategy not found. Please complete strategy setup before planning.");
   }
@@ -42,12 +43,23 @@ export async function generateAndSavePlan(
   end.setDate(end.getDate() + periodDays - 1);
   const periodEnd = end.toISOString().split("T")[0];
 
+  const voiceContext = voice ? {
+    tone: voice.tone,
+    sentenceLength: voice.sentence_length,
+    formality: voice.formality,
+    phrasesUse: voice.phrases_use,
+    phrasesAvoid: voice.phrases_avoid,
+    sampleText: voice.sample_text,
+    exclusions: voice.exclusions,
+  } : undefined;
+
   const planResult = await aiService.generatePlan({
     periodStart,
     periodDays,
     cadencePerWeek: strategy.cadence_per_week,
     preferredDays: strategy.preferred_days ?? [],
     preferredTime: strategy.preferred_time,
+    voiceProfile: voiceContext,
     strategy: {
       audience: strategy.audience,
       goals: strategy.goals,
@@ -59,6 +71,10 @@ export async function generateAndSavePlan(
     },
   });
 
+  assertVoiceConstraints(
+    [planResult.summary, ...planResult.topics.flatMap((topic) => [topic.title, topic.angle, topic.pillar])].join("\n"),
+    voiceContext
+  );
   assertNoExcludedPhrase(planResult.summary, strategy.exclusions, "generated content plan summary");
   for (const topic of planResult.topics) {
     assertNoExcludedPhrase(
@@ -154,7 +170,18 @@ export async function convertPlanItemToDraft(
     );
   }
 
-  const strategy = await getContentStrategy(workspaceId);
+  const [strategy, voice] = await Promise.all([getContentStrategy(workspaceId), getVoiceProfile(workspaceId)]);
+
+  const voiceContext = voice ? {
+    tone: voice.tone,
+    sentenceLength: voice.sentence_length,
+    formality: voice.formality,
+    phrasesUse: voice.phrases_use,
+    phrasesAvoid: voice.phrases_avoid,
+    sampleText: voice.sample_text,
+    exclusions: voice.exclusions,
+  } : undefined;
+  assertVoiceConstraints([input.topic, input.pillar ?? "", input.angle ?? ""].join("\n"), voiceContext);
 
   // 2. Enforce strategy exclusions before generating a planned draft.
   assertNoExcludedPhrase([input.topic, input.pillar, input.angle].filter(Boolean).join(" "), strategy?.exclusions, "planned draft");
@@ -165,6 +192,7 @@ export async function convertPlanItemToDraft(
     pillar: input.pillar,
     notes: input.angle,
     targetLength: input.targetLength ?? "medium",
+    voiceProfile: voiceContext,
     strategy: strategy
       ? {
           audience: strategy.audience,
@@ -179,6 +207,7 @@ export async function convertPlanItemToDraft(
   });
 
   assertNoExcludedPhrase(generationResult.text, strategy?.exclusions, "generated planned draft");
+  assertVoiceConstraints(generationResult.text, voiceContext);
 
   // 4. Create post with plan_id reference
   const post = await createPost(workspaceId, userId, {
