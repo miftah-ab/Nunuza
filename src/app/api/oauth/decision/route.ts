@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
 
   if (userError || !user) {
     const returnTo = `/oauth/consent?authorization_id=${encodeURIComponent(authorizationId)}`;
-    return NextResponse.redirect(new URL(`/login?redirect=${encodeURIComponent(returnTo)}`, request.url));
+    return NextResponse.redirect(new URL(`/login?redirect=${encodeURIComponent(returnTo)}`, request.url), { status: 303 });
   }
 
   const result =
@@ -49,5 +49,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "The authorization provider returned an unsafe redirect." }, { status: 400 });
   }
 
-  return NextResponse.redirect(redirectUrl);
+  return NextResponse.redirect(redirectUrl, { status: 303 });
 }
