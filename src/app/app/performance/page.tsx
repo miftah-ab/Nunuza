@@ -89,6 +89,15 @@ function getWorkspaceWeekStart(timeZone: string) {
   ).toISOString();
 }
 
+function getNinetyDaysAgo() {
+  return new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function isLinkedInConnectionActive(connection: { status: string; expires_at: string | null } | null | undefined) {
+  return connection?.status === "connected" &&
+    (!connection.expires_at || new Date(connection.expires_at).getTime() > Date.now());
+}
+
 function safeTimeZone(value: string | null | undefined) {
   if (!value) return "UTC";
   try {
@@ -137,7 +146,7 @@ export default async function PerformancePage() {
 
   const timeZone = safeTimeZone(strategyRes.data?.timezone);
   const weekStart = getWorkspaceWeekStart(timeZone);
-  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const ninetyDaysAgo = getNinetyDaysAgo();
 
   const [
     publishedRes,
@@ -222,9 +231,7 @@ export default async function PerformancePage() {
   const pillarTotal = Object.values(pillarCounts).reduce((sum, count) => sum + count, 0);
 
   const connection = connectionRes.data;
-  const isLinkedInConnected =
-    connection?.status === "connected" &&
-    (!connection.expires_at || new Date(connection.expires_at).getTime() > Date.now());
+  const isLinkedInConnected = isLinkedInConnectionActive(connection);
   const hasPublishScope = Array.isArray(connection?.granted_scopes) &&
     connection.granted_scopes.includes("w_member_social");
 
