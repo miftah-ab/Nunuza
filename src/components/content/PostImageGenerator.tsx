@@ -31,10 +31,7 @@ export function PostImageGenerator({
 
   useEffect(() => {
     let active = true;
-    if (!imagePath) {
-      setPreviewUrl(null);
-      return;
-    }
+    if (!imagePath) return;
 
     setIsLoadingPreview(true);
     fetch(`/api/generate/image?postId=${encodeURIComponent(postId)}`)
@@ -86,7 +83,7 @@ export function PostImageGenerator({
         {imagePath && <span className="text-[11px] text-forest font-medium">Image attached</span>}
       </div>
 
-      {previewUrl ? (
+      {imagePath && previewUrl ? (
         <img
           src={previewUrl}
           alt="Generated LinkedIn post visual"
