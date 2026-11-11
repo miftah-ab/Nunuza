@@ -59,7 +59,7 @@ Nunuza uses Supabase Auth's OAuth 2.1 authorization-code flow with PKCE. Claude 
 1. In Nunuza, open **Integrations → Connect Claude**.
 2. Claude currently requires a one-time **Add custom connector** action in its own settings. Open [Claude Connectors](https://claude.ai/settings/connectors).
 3. Add a custom connector named **Nunuza** and use the Nunuza `/api/mcp` endpoint shown in the app.
-4. Choose **Sign in now** or **Sign in when needed**. Choose Claude's published OAuth identity (recommended) or automatic client registration.
+4. Choose **Sign in now** or **Sign in when needed**. Select OAuth authentication, not **No sign in**, and allow Claude to register as a client if prompted.
 5. Claude discovers the OAuth server from the protected-resource metadata, then redirects the user to Nunuza.
 6. The user signs in to Nunuza, reviews the access summary, and explicitly approves or denies.
 7. Supabase Auth completes the authorization-code + PKCE exchange and Claude calls the MCP endpoint with the issued access token.
