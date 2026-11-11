@@ -17,30 +17,36 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyMcpToken } from "@/lib/integrations/mcp/tokens";
 import { getMcpToolsForScopes, executeMcpTool } from "@/lib/integrations/mcp/tools";
 
+const MCP_PROTOCOL_VERSION = "2024-11-05";
+
 function jsonRpcError(id: any, code: number, message: string, data?: any, status = 200) {
   return NextResponse.json(
     {
       jsonrpc: "2.0",
       id: id ?? null,
-      error: {
-        code,
-        message,
-        ...(data ? { data } : {}),
-      },
+      error: { code, message, ...(data ? { data } : {}) },
     },
-    { status }
+    { status, headers: { "MCP-Protocol-Version": MCP_PROTOCOL_VERSION } }
   );
 }
 
 function jsonRpcSuccess(id: any, result: any) {
-  return NextResponse.json({
-    jsonrpc: "2.0",
-    id: id ?? null,
-    result,
-  });
+  return NextResponse.json(
+    { jsonrpc: "2.0", id: id ?? null, result },
+    { headers: { "MCP-Protocol-Version": MCP_PROTOCOL_VERSION } }
+  );
 }
 
 export async function POST(req: NextRequest) {
+  const contentType = req.headers.get("content-type") || "";
+  const accept = req.headers.get("accept") || "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    return jsonRpcError(null, -32600, "Content-Type must be application/json.", undefined, 415);
+  }
+  if (!accept.includes("application/json") || !accept.includes("text/event-stream")) {
+    return jsonRpcError(null, -32600, "Accept must include application/json and text/event-stream.", undefined, 406);
+  }
+
   // 1. Authenticate Bearer Token
   const authHeader = req.headers.get("authorization") || "";
   const tokenMatch = authHeader.match(/^Bearer\s+(nunuza_mcp_[a-zA-Z0-9_-]+)$/i);
@@ -82,12 +88,22 @@ export async function POST(req: NextRequest) {
     return jsonRpcError(id, -32600, "Invalid Request: Expected JSON-RPC 2.0 request with 'method'");
   }
 
+  // Notifications have no JSON-RPC id and must not receive a JSON-RPC response.
+  if (typeof method === "string" && method.startsWith("notifications/") && id === undefined) {
+    return new NextResponse(null, { status: 202 });
+  }
+
+  // Every post-initialize request carries the negotiated protocol version.
+  if (method !== "initialize" && req.headers.get("MCP-Protocol-Version") !== MCP_PROTOCOL_VERSION) {
+    return jsonRpcError(id, -32600, "Missing or unsupported MCP-Protocol-Version.", undefined, 400);
+  }
+
   // 3. Dispatch Methods
   try {
     switch (method) {
       case "initialize": {
         return jsonRpcSuccess(id, {
-          protocolVersion: "2024-11-05",
+          protocolVersion: MCP_PROTOCOL_VERSION,
           serverInfo: {
             name: "nunuza-remote-mcp",
             version: "1.0.0",
@@ -126,20 +142,24 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        const toolResult = await executeMcpTool(name, toolArgs || {}, {
-          workspaceId: credential.workspaceId,
-          userId: credential.userId,
-          scopes: credential.scopes,
-        });
-
-        return jsonRpcSuccess(id, {
-          content: [
-            {
+        try {
+          const toolResult = await executeMcpTool(name, toolArgs || {}, {
+            workspaceId: credential.workspaceId,
+            userId: credential.userId,
+            scopes: credential.scopes,
+          });
+          return jsonRpcSuccess(id, {
+            content: [{
               type: "text",
               text: typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult, null, 2),
-            },
-          ],
-        });
+            }],
+          });
+        } catch (toolError: any) {
+          return jsonRpcSuccess(id, {
+            isError: true,
+            content: [{ type: "text", text: toolError?.message || "Tool execution failed." }],
+          });
+        }
       }
 
       default:
@@ -149,4 +169,15 @@ export async function POST(req: NextRequest) {
     console.error(`[mcp] Error in method "${method}":`, err);
     return jsonRpcError(id, -32000, err.message || "Internal server error");
   }
+}
+
+
+/** This endpoint is stateless and does not open server-sent event streams. */
+export async function GET() {
+  return new NextResponse(null, { status: 405, headers: { Allow: "POST" } });
+}
+
+/** Stateless sessions are not created, so there is no session to terminate. */
+export async function DELETE() {
+  return new NextResponse(null, { status: 405, headers: { Allow: "POST" } });
 }
