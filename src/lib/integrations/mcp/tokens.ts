@@ -227,12 +227,18 @@ export async function verifyMcpOAuthToken(
   const clientId = claims.client_id;
   const expiresAt = Number(claims.exp);
   const expectedIssuer = `${(process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\/$/, "")}/auth/v1`;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const expectedAudience = process.env.MCP_RESOURCE_URL
+    || (appUrl ? new URL("/api/mcp", appUrl).toString() : null);
+  const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
 
   if (
     typeof userId !== "string" ||
     typeof clientId !== "string" ||
     clientId.length === 0 ||
     claims.iss !== expectedIssuer ||
+    !expectedAudience ||
+    !audiences.includes(expectedAudience) ||
     !Number.isFinite(expiresAt) ||
     expiresAt * 1000 <= Date.now()
   ) {
