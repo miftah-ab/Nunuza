@@ -5,47 +5,17 @@ import { createClient } from "@/lib/supabase/server";
 import { requireWorkspace, AuthError } from "@/lib/auth/workspace";
 import type { Workspace, AgentState } from "@/types/database";
 import {
-  CheckCircle2,
-  AlertCircle,
-  PauseCircle,
-  WifiOff,
-  AlertTriangle,
-  FileText,
-  Sparkles,
-  ArrowRight,
-  Calendar,
-  Lock,
-  Plus,
-  Linkedin,
-  Send,
-  Cpu,
-  Clock,
-  ShieldCheck,
-  TrendingUp,
-  Layers,
-  Zap,
-  Circle,
+  AlertCircle, AlertTriangle, ArrowRight, Calendar, CheckCircle2, Circle,
+  Clock, Cpu, FileText, Layers, Linkedin, Lock, PauseCircle, Plus, Send,
+  Sparkles, TrendingUp, WifiOff, Zap,
 } from "lucide-react";
 import { getTelegramLinkStatus } from "@/lib/integrations/telegram/service";
 import { getMcpCredentialStatus } from "@/lib/integrations/mcp/tokens";
-
-// Module-level helper — avoids lint warning about Date.now() inside render
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
 
 export const metadata: Metadata = {
   title: "Overview — Nunuza",
   robots: { index: false, follow: false },
 };
-
-// ─── State configuration ───────────────────────────────────────────────────────
 
 type StateInfo = {
   label: string;
@@ -56,53 +26,15 @@ type StateInfo = {
 };
 
 const STATE_CONFIG: Record<AgentState, StateInfo> = {
-  setup_required: {
-    label: "Setup required",
-    icon: AlertCircle,
-    dotClass: "bg-warning",
-    badgeClass: "bg-warning-light text-warning border-warning/20",
-    description: "Complete onboarding to activate your workspace.",
-  },
-  active_approval_required: {
-    label: "Active — review required",
-    icon: CheckCircle2,
-    dotClass: "bg-success",
-    badgeClass: "bg-success-light text-success border-success/20",
-    description: "Generating drafts. Each post requires your approval before publishing.",
-  },
-  active_autopilot: {
-    label: "Active — autopilot",
-    icon: Zap,
-    dotClass: "bg-success",
-    badgeClass: "bg-success-light text-success border-success/20",
-    description: "Autopilot active. Posts are queued automatically within your safety caps.",
-  },
-  paused: {
-    label: "Paused",
-    icon: PauseCircle,
-    dotClass: "bg-ink-muted",
-    badgeClass: "bg-surface text-ink-secondary border-border",
-    description: "All background jobs and publishing are halted. Resume to continue.",
-  },
-  blocked_integration: {
-    label: "Integration issue",
-    icon: WifiOff,
-    dotClass: "bg-error",
-    badgeClass: "bg-error-light text-error border-error/20",
-    description: "An integration error needs attention before publishing can resume.",
-  },
-  attention_required: {
-    label: "Attention required",
-    icon: AlertTriangle,
-    dotClass: "bg-warning",
-    badgeClass: "bg-warning-light text-warning border-warning/20",
-    description: "Workspace configuration or content pipeline needs review.",
-  },
+  setup_required: { label: "Setup required", icon: AlertCircle, dotClass: "bg-warning", badgeClass: "bg-warning-light text-warning border-warning/20", description: "Complete workspace setup before activating the agent." },
+  active_approval_required: { label: "Approval required", icon: CheckCircle2, dotClass: "bg-success", badgeClass: "bg-success-light text-success border-success/20", description: "The agent can prepare drafts. Your approval is required before publishing." },
+  active_autopilot: { label: "Autopilot enabled", icon: Zap, dotClass: "bg-success", badgeClass: "bg-success-light text-success border-success/20", description: "Autopilot is enabled within the worker's enforced safety policies." },
+  paused: { label: "Paused", icon: PauseCircle, dotClass: "bg-ink-muted", badgeClass: "bg-surface text-ink-secondary border-border", description: "The workspace is paused. Background work should not proceed." },
+  blocked_integration: { label: "Integration blocked", icon: WifiOff, dotClass: "bg-error", badgeClass: "bg-error-light text-error border-error/20", description: "An integration problem is blocking agent operations." },
+  attention_required: { label: "Attention required", icon: AlertTriangle, dotClass: "bg-warning", badgeClass: "bg-warning-light text-warning border-warning/20", description: "Workspace configuration or the content pipeline needs attention." },
 };
 
-type EntitlementInfo = { label: string; badgeClass: string };
-
-const ENTITLEMENT_INFO: Record<string, EntitlementInfo> = {
+const ENTITLEMENT_INFO: Record<string, { label: string; badgeClass: string }> = {
   internal_beta: { label: "Private Beta", badgeClass: "bg-forest-light text-forest border-forest-muted" },
   paid_trial: { label: "Trial Active", badgeClass: "bg-success-light text-success border-success/20" },
   paid_active: { label: "Nunuza Solo", badgeClass: "bg-success-light text-success border-success/20" },
@@ -112,30 +44,79 @@ const ENTITLEMENT_INFO: Record<string, EntitlementInfo> = {
   inactive: { label: "Inactive", badgeClass: "bg-surface text-ink-secondary border-border" },
 };
 
-interface PostSummary {
+type PostSummary = {
   id: string;
-  title: string | null;
+  internal_title: string | null;
   pillar: string | null;
   status: string;
-  scheduled_for?: string | null;
+  scheduled_at?: string | null;
   updated_at?: string;
-  created_at?: string;
-}
+};
 
-interface RecentActivityItem {
+type ActivityItem = {
   id: string;
-  source: "audit" | "job";
   title: string;
   detail: string;
   timestamp: string;
   status?: string;
+  source: "audit" | "job";
+};
+
+function relativeTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Time unavailable";
+  const mins = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1440) return `${Math.floor(mins / 60)}h ago`;
+  return `${Math.floor(mins / 1440)}d ago`;
 }
 
-// ─── Page ──────────────────────────────────────────────────────────────────────
+function formatDate(iso: string | null | undefined, timezone?: string): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+      ...(timezone ? { timeZone: timezone } : {}),
+    }).format(date);
+  } catch {
+    return date.toLocaleString();
+  }
+}
+
+function humanize(value: string): string {
+  return value.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+}
+
+function isLinkedInConnectionExpired(status: string | null | undefined, expiresAt: string | null | undefined): boolean {
+  if (status === "expired") return true;
+  if (!expiresAt) return false;
+  const expiry = new Date(expiresAt).getTime();
+  return !Number.isFinite(expiry) || expiry <= Date.now();
+}
+
+function workerJobLabel(job: { status: string; lease_until: string | null } | null): { label: string; detail: string; tone: string } {
+  if (!job) return { label: "No worker jobs yet", detail: "No job has been recorded for this workspace.", tone: "text-ink-muted" };
+  if (job.status === "running" && (!job.lease_until || !Number.isFinite(new Date(job.lease_until).getTime()) || new Date(job.lease_until).getTime() < Date.now())) {
+    return { label: "Running job has an expired lease", detail: "Inspect the worker and reconciliation queue.", tone: "text-error" };
+  }
+  const labels: Record<string, { label: string; detail: string; tone: string }> = {
+    running: { label: "Job running", detail: "A worker job is currently marked as running.", tone: "text-success" },
+    queued: { label: "Job queued", detail: "A job is waiting for a worker to claim it.", tone: "text-warning" },
+    waiting_for_approval: { label: "Waiting for approval", detail: "The job is paused for a user decision.", tone: "text-warning" },
+    succeeded: { label: "Last job succeeded", detail: "The latest recorded job completed successfully.", tone: "text-success" },
+    failed_retryable: { label: "Retryable failure", detail: "The latest job failed and may be retried.", tone: "text-warning" },
+    failed_terminal: { label: "Terminal failure", detail: "The latest job needs investigation.", tone: "text-error" },
+    needs_reconciliation: { label: "Reconciliation required", detail: "Verify the external publishing outcome before retrying.", tone: "text-error" },
+    canceled: { label: "Last job canceled", detail: "The latest recorded job was canceled.", tone: "text-ink-muted" },
+  };
+  return labels[job.status] ?? { label: humanize(job.status), detail: "Latest recorded worker job status.", tone: "text-ink-muted" };
+}
 
 export default async function OverviewPage() {
   let workspace: Workspace;
-
   try {
     workspace = await requireWorkspace();
   } catch (err) {
@@ -146,519 +127,175 @@ export default async function OverviewPage() {
   if (workspace.state === "setup_required") redirect("/app/onboarding");
 
   const supabase = await createClient();
+  const pipelineStatuses = ["draft", "needs_review", "approved", "scheduled", "publishing", "needs_reconciliation"];
 
-  // ─── 1. Metrics ──────────────────────────────────────────────────────────────
-  let draftsAwaitingReview: number | null = null;
-  let approvedDrafts: number | null = null;
-  let scheduledDrafts: number | null = null;
-  let publishedDrafts: number | null = null;
-  let totalDrafts: number | null = null;
-  let metricsError = false;
+  const [
+    awaitingRes, approvedRes, scheduledRes, publishedRes, pipelineRes,
+    upcomingRes, pendingRes, linkedinRes, strategyRes, latestJobRes,
+    auditRes, jobsRes, telegramStatus, mcpStatus,
+  ] = await Promise.all([
+    supabase.from("content_posts").select("id", { count: "exact", head: true }).eq("workspace_id", workspace.id).in("status", ["draft", "needs_review"]),
+    supabase.from("content_posts").select("id", { count: "exact", head: true }).eq("workspace_id", workspace.id).eq("status", "approved"),
+    supabase.from("content_posts").select("id", { count: "exact", head: true }).eq("workspace_id", workspace.id).eq("status", "scheduled"),
+    supabase.from("content_posts").select("id", { count: "exact", head: true }).eq("workspace_id", workspace.id).eq("status", "published"),
+    supabase.from("content_posts").select("id", { count: "exact", head: true }).eq("workspace_id", workspace.id).in("status", pipelineStatuses),
+    supabase.from("content_posts").select("id, internal_title, pillar, status, scheduled_at").eq("workspace_id", workspace.id).eq("status", "scheduled").not("scheduled_at", "is", null).order("scheduled_at", { ascending: true }).limit(4),
+    supabase.from("content_posts").select("id, internal_title, pillar, status, updated_at").eq("workspace_id", workspace.id).in("status", ["draft", "needs_review"]).order("updated_at", { ascending: false }).limit(4),
+    supabase.from("integration_connections").select("status, expires_at, metadata").eq("workspace_id", workspace.id).eq("provider", "linkedin").maybeSingle(),
+    supabase.from("content_strategies").select("cadence_per_week, timezone").eq("workspace_id", workspace.id).maybeSingle(),
+    supabase.from("agent_jobs").select("id, job_type, status, started_at, finished_at, lease_until, created_at, updated_at").eq("workspace_id", workspace.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    supabase.from("audit_events").select("id, action, actor_type, resource_type, created_at").eq("workspace_id", workspace.id).order("created_at", { ascending: false }).limit(4),
+    supabase.from("agent_jobs").select("id, job_type, status, started_at, finished_at, lease_until, created_at, updated_at").eq("workspace_id", workspace.id).order("created_at", { ascending: false }).limit(4),
+    getTelegramLinkStatus(workspace.id, supabase).catch(() => null),
+    getMcpCredentialStatus(workspace.id, supabase).catch(() => null),
+  ]);
 
-  try {
-    const [awaitingRes, approvedRes, scheduledRes, publishedRes, totalRes] = await Promise.all([
-      supabase.from("content_posts").select("id", { count: "exact", head: true }).eq("workspace_id", workspace.id).in("status", ["draft", "needs_review"]),
-      supabase.from("content_posts").select("id", { count: "exact", head: true }).eq("workspace_id", workspace.id).eq("status", "approved"),
-      supabase.from("content_posts").select("id", { count: "exact", head: true }).eq("workspace_id", workspace.id).eq("status", "scheduled"),
-      supabase.from("content_posts").select("id", { count: "exact", head: true }).eq("workspace_id", workspace.id).eq("status", "published"),
-      supabase.from("content_posts").select("id", { count: "exact", head: true }).eq("workspace_id", workspace.id),
-    ]);
-    if (!awaitingRes.error && !approvedRes.error) {
-      draftsAwaitingReview = awaitingRes.count ?? 0;
-      approvedDrafts = approvedRes.count ?? 0;
-      scheduledDrafts = scheduledRes.count ?? 0;
-      publishedDrafts = publishedRes.count ?? 0;
-      totalDrafts = totalRes.count ?? 0;
-    } else {
-      metricsError = true;
-    }
-  } catch {
-    metricsError = true;
-  }
+  const metricErrors = [awaitingRes, approvedRes, scheduledRes, publishedRes, pipelineRes].some((r) => r.error);
+  const integrationError = Boolean(linkedinRes.error || strategyRes.error || telegramStatus === null || mcpStatus === null);
+  const activityError = Boolean(auditRes.error || jobsRes.error);
+  const workerJobError = Boolean(latestJobRes.error);
 
-  // ─── 2. Operational posts ────────────────────────────────────────────────────
-  let upcomingPosts: PostSummary[] = [];
-  let pendingReviewPosts: PostSummary[] = [];
-
-  try {
-    const [upcomingRes, pendingRes] = await Promise.all([
-      supabase.from("content_posts").select("id, title, pillar, status, scheduled_for, created_at").eq("workspace_id", workspace.id).eq("status", "scheduled").order("scheduled_for", { ascending: true }).limit(4),
-      supabase.from("content_posts").select("id, title, pillar, status, updated_at, created_at").eq("workspace_id", workspace.id).in("status", ["draft", "needs_review"]).order("updated_at", { ascending: false }).limit(4),
-    ]);
-    if (!upcomingRes.error && upcomingRes.data) upcomingPosts = upcomingRes.data as PostSummary[];
-    if (!pendingRes.error && pendingRes.data) pendingReviewPosts = pendingRes.data as PostSummary[];
-  } catch { /* non-fatal */ }
-
-  // ─── 3. Integration health ───────────────────────────────────────────────────
-  let linkedinConnected = false;
-  let linkedinProfileName: string | null = null;
-  let telegramConnected = false;
-  let mcpActive = false;
-  let weeklyCadenceTarget = 3;
-
-  try {
-    const [linkedinData, telegramStatus, mcpStatus, strategyData] = await Promise.all([
-      supabase.from("integration_connections").select("status, metadata").eq("workspace_id", workspace.id).eq("provider", "linkedin").eq("status", "connected").maybeSingle().then(r => r.data),
-      getTelegramLinkStatus(workspace.id, supabase).catch(() => ({ linked: false })),
-      getMcpCredentialStatus(workspace.id, supabase).catch(() => ({ active: false })),
-      supabase.from("content_strategies").select("cadence_per_week").eq("workspace_id", workspace.id).maybeSingle().then(r => r.data),
-    ]);
-    if (linkedinData) {
-      linkedinConnected = true;
-      linkedinProfileName = (linkedinData.metadata as any)?.name || null;
-    }
-    telegramConnected = telegramStatus?.linked ?? false;
-    mcpActive = mcpStatus?.active ?? false;
-    if (strategyData?.cadence_per_week) weeklyCadenceTarget = strategyData.cadence_per_week;
-  } catch { /* non-fatal */ }
-
-  // ─── 4. Recent activity ──────────────────────────────────────────────────────
-  let recentActivities: RecentActivityItem[] = [];
-
-  try {
-    const [auditRes, jobsRes] = await Promise.all([
-      supabase.from("audit_events").select("id, action, actor_type, resource_type, created_at").eq("workspace_id", workspace.id).order("created_at", { ascending: false }).limit(4),
-      supabase.from("agent_jobs").select("id, job_type, status, created_at").eq("workspace_id", workspace.id).order("created_at", { ascending: false }).limit(3),
-    ]);
-
-    const auditItems: RecentActivityItem[] = (auditRes.data ?? []).map((a: any) => ({
-      id: `audit-${a.id}`,
-      source: "audit" as const,
-      title: (a.action as string).replace(/_/g, " ").replace(/^\w/, (c: string) => c.toUpperCase()),
-      detail: a.actor_type + (a.resource_type ? ` · ${a.resource_type}` : ""),
-      timestamp: a.created_at,
-    }));
-
-    const jobItems: RecentActivityItem[] = (jobsRes.data ?? []).map((j: any) => ({
-      id: `job-${j.id}`,
-      source: "job" as const,
-      title: (j.job_type as string).replace(/_/g, " ").replace(/^\w/, (c: string) => c.toUpperCase()),
-      detail: j.status,
-      timestamp: j.created_at,
-      status: j.status,
-    }));
-
-    recentActivities = [...auditItems, ...jobItems]
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .slice(0, 5);
-  } catch { /* non-fatal */ }
-
-  // ─── 5. Computed values ──────────────────────────────────────────────────────
-  const effectiveState: AgentState = workspace.paused_at ? "paused" : workspace.state;
-  const stateInfo = STATE_CONFIG[effectiveState] ?? STATE_CONFIG.setup_required;
-  const StateIcon = stateInfo.icon;
-
-  const entitlementInfo = ENTITLEMENT_INFO[workspace.entitlement_type] ?? {
-    label: workspace.entitlement_type,
-    badgeClass: "bg-surface text-ink-secondary border-border",
+  const counts = {
+    awaiting: awaitingRes.count ?? 0,
+    approved: approvedRes.count ?? 0,
+    scheduled: scheduledRes.count ?? 0,
+    published: publishedRes.count ?? 0,
+    pipeline: pipelineRes.count ?? 0,
   };
 
-  const isBetaOrPaid =
-    workspace.entitlement_type === "internal_beta" ||
-    workspace.entitlement_type === "paid_trial" ||
-    workspace.entitlement_type === "paid_active";
+  const upcomingPosts = (upcomingRes.data ?? []) as PostSummary[];
+  const pendingPosts = (pendingRes.data ?? []) as PostSummary[];
+  const strategy = strategyRes.data;
+  const timezone = strategy?.timezone ?? undefined;
+  const weeklyTarget = strategy?.cadence_per_week ?? null;
 
-  const needsTrialCTA =
-    workspace.entitlement_type === "draft_only" ||
-    workspace.entitlement_type === "suspended" ||
-    workspace.entitlement_type === "expired";
+  const linkedin = linkedinRes.data;
+  const linkedinExpired = isLinkedInConnectionExpired(linkedin?.status, linkedin?.expires_at);
+  const linkedinConnected = linkedin?.status === "connected" && !linkedinExpired;
+  const linkedinProfileName = (linkedin?.metadata as Record<string, unknown> | null)?.name;
+  const latestJob = latestJobRes.data;
+  const workerStatus = workerJobLabel(latestJob);
+  const effectiveState: AgentState = workspace.paused_at ? "paused" : workspace.state;
+  const stateInfo = STATE_CONFIG[effectiveState] ?? STATE_CONFIG.attention_required;
+  const StateIcon = stateInfo.icon;
+  const entitlementInfo = ENTITLEMENT_INFO[workspace.entitlement_type] ?? {
+    label: humanize(workspace.entitlement_type),
+    badgeClass: "bg-surface text-ink-secondary border-border",
+  };
+  const paidOrBeta = ["internal_beta", "paid_trial", "paid_active"].includes(workspace.entitlement_type);
+  const needsBilling = ["draft_only", "suspended", "expired"].includes(workspace.entitlement_type);
 
-  const fmt = (iso: string | null | undefined) => iso
-    ? new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
-    : null;
+  const auditItems: ActivityItem[] = (auditRes.data ?? []).map((event) => ({
+    id: `audit-${event.id}`,
+    title: humanize(event.action),
+    detail: `${humanize(event.actor_type)}${event.resource_type ? ` · ${humanize(event.resource_type)}` : ""}`,
+    timestamp: event.created_at,
+    source: "audit",
+  }));
+  const jobItems: ActivityItem[] = (jobsRes.data ?? []).map((job) => ({
+    id: `job-${job.id}`,
+    title: humanize(job.job_type),
+    detail: humanize(job.status),
+    timestamp: job.finished_at ?? job.started_at ?? job.updated_at ?? job.created_at,
+    status: job.status,
+    source: "job",
+  }));
+  const activities = [...auditItems, ...jobItems]
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 5);
 
   const metrics = [
-    {
-      href: "/app/content",
-      label: "Needs Review",
-      value: metricsError ? "—" : (draftsAwaitingReview ?? 0),
-      sub: approvedDrafts && approvedDrafts > 0 ? `${approvedDrafts} approved` : null,
-      icon: FileText,
-      urgent: (draftsAwaitingReview ?? 0) > 0,
-    },
-    {
-      href: "/app/calendar",
-      label: "Scheduled",
-      value: metricsError ? "—" : (scheduledDrafts ?? 0),
-      sub: `target ${weeklyCadenceTarget}/week`,
-      icon: Calendar,
-      urgent: false,
-    },
-    {
-      href: "/app/performance",
-      label: "Published",
-      value: metricsError ? "—" : (publishedDrafts ?? 0),
-      sub: "to LinkedIn",
-      icon: TrendingUp,
-      urgent: false,
-    },
-    {
-      href: "/app/content",
-      label: "Total Pipeline",
-      value: metricsError ? "—" : (totalDrafts ?? 0),
-      sub: "all stages",
-      icon: Layers,
-      urgent: false,
-    },
+    { href: "/app/content", label: "Needs Review", value: counts.awaiting, sub: counts.approved ? `${counts.approved} approved` : "Drafts awaiting action", icon: FileText },
+    { href: "/app/calendar", label: "Scheduled", value: counts.scheduled, sub: weeklyTarget === null ? "Strategy target not set" : `${weeklyTarget} per week target`, icon: Calendar },
+    { href: "/app/performance", label: "Published", value: counts.published, sub: "Published posts", icon: TrendingUp },
+    { href: "/app/content", label: "Active Pipeline", value: counts.pipeline, sub: "Excludes canceled and terminal posts", icon: Layers },
   ];
 
   const integrations = [
-    {
-      icon: Linkedin,
-      iconClass: "text-[#0A66C2]",
-      label: "LinkedIn",
-      detail: linkedinConnected
-        ? (linkedinProfileName ? linkedinProfileName : "Personal profile connected")
-        : "Not connected",
-      connected: linkedinConnected,
-      href: "/app/integrations",
-    },
-    {
-      icon: Send,
-      iconClass: "text-[#229ED9]",
-      label: "Telegram",
-      detail: telegramConnected ? "Bot paired & active" : "Not paired",
-      connected: telegramConnected,
-      href: "/app/integrations",
-    },
-    {
-      icon: Cpu,
-      iconClass: "text-forest",
-      label: "MCP Server",
-      detail: mcpActive ? "Endpoint active" : "Inactive",
-      connected: mcpActive,
-      href: "/app/integrations",
-    },
+    { icon: Linkedin, iconClass: "text-[#0A66C2]", label: "LinkedIn", detail: integrationError ? "Status unavailable" : linkedinExpired ? "Connection expired" : linkedinConnected ? (typeof linkedinProfileName === "string" ? linkedinProfileName : "Personal profile connected") : "Not connected", connected: linkedinConnected, warning: linkedinExpired || Boolean(linkedinRes.error) },
+    { icon: Send, iconClass: "text-[#229ED9]", label: "Telegram", detail: telegramStatus === null ? "Status unavailable" : telegramStatus?.linked ? "Bot paired" : "Not paired", connected: telegramStatus?.linked ?? false, warning: telegramStatus === null },
+    { icon: Cpu, iconClass: "text-forest", label: "MCP Server", detail: mcpStatus === null ? "Status unavailable" : mcpStatus?.active ? "Credential active" : "Inactive", connected: mcpStatus?.active ?? false, warning: mcpStatus === null },
   ];
 
   return (
     <div className="max-w-6xl mx-auto pb-16 space-y-6 animate-fade-in">
-
-      {/* ─── Page Header ─── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold text-ink tracking-tight">Overview</h1>
-          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${entitlementInfo.badgeClass}`}>
-            {entitlementInfo.label}
-          </span>
+          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${entitlementInfo.badgeClass}`}>{entitlementInfo.label}</span>
         </div>
-        <Link href="/app/content" className="btn-primary self-start sm:self-auto">
-          <Plus size={15} />
-          New Draft
-        </Link>
+        <Link href="/app/content" className="btn-primary self-start sm:self-auto"><Plus size={15} />New Draft</Link>
       </div>
 
-      {/* ─── Trial / Access notice (compact, dismissible-looking) ─── */}
-      {needsTrialCTA && (
+      {needsBilling && (
         <div className="notice-warning flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-start gap-3">
             <Lock size={15} className="shrink-0 mt-0.5 text-warning" />
             <div>
-              <p className="text-sm font-semibold text-ink">
-                {workspace.entitlement_type === "expired" ? "Trial Expired" : "Start Your Free Trial"}
-              </p>
-              <p className="text-sm text-ink-secondary mt-0.5">
-                Unlock LinkedIn publishing, scheduling, Telegram controls, and Autopilot for $29/month. Card required, cancel anytime.
-              </p>
+              <p className="text-sm font-semibold text-ink">{workspace.entitlement_type === "expired" ? "Trial expired" : "Publishing access is restricted"}</p>
+              <p className="text-sm text-ink-secondary mt-0.5">Review your workspace access and available plan options.</p>
             </div>
           </div>
-          <Link href="/app/billing" className="btn-primary shrink-0 self-start sm:self-auto">
-            Start Free Trial
-          </Link>
+          <Link href="/app/billing" className="btn-primary shrink-0 self-start sm:self-auto">View Billing</Link>
         </div>
       )}
 
       {workspace.entitlement_type === "internal_beta" && (
-        <div className="notice-info flex items-center gap-3">
-          <Sparkles size={15} className="shrink-0 text-forest" />
-          <p className="text-sm text-ink-secondary">
-            <span className="font-semibold text-ink">Private Beta.</span>{" "}
-            Full v1.0.0 access — generate, schedule, and publish to LinkedIn. No subscription required.
-          </p>
-        </div>
+        <div className="notice-info flex items-center gap-3"><Sparkles size={15} className="shrink-0 text-forest" /><p className="text-sm text-ink-secondary"><span className="font-semibold text-ink">Private Beta.</span> Your workspace has private-beta access.</p></div>
       )}
 
-      {workspace.entitlement_type === "paid_trial" && (
-        <div className="notice-info flex items-center gap-3">
-          <ShieldCheck size={15} className="shrink-0 text-forest" />
-          <p className="text-sm text-ink-secondary">
-            <span className="font-semibold text-ink">14-Day Trial Active.</span>{" "}
-            Full access to all features. Renews at $29/month unless canceled.
-          </p>
-        </div>
-      )}
+      {metricErrors && <div role="alert" className="notice-warning text-sm">Some metrics could not be loaded. Counts are hidden where the database query failed; check the relevant page before acting on these numbers.</div>}
 
-      {/* ─── Empty state (no posts yet) ─── */}
-      {!metricsError && totalDrafts === 0 && (
-        <div className="card p-6 flex flex-col sm:flex-row sm:items-center gap-5">
-          <div className="w-10 h-10 rounded-xl bg-forest-light flex items-center justify-center shrink-0">
-            <Sparkles size={20} className="text-forest" />
-          </div>
-          <div className="flex-1">
-            <h3 className="text-sm font-semibold text-ink">Ready for your first draft?</h3>
-            <p className="text-sm text-ink-secondary mt-1">
-              Your strategy and voice settings are saved. Generate a post with AI using your pillars, or write one manually.
-            </p>
-          </div>
-          <Link href="/app/content" className="btn-primary shrink-0 self-start sm:self-auto">
-            <Sparkles size={15} />
-            Create First Draft
-          </Link>
-        </div>
-      )}
-
-      {/* ─── KPI Metrics ─── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {metrics.map(({ href, label, value, sub, icon: Icon, urgent }) => (
-          <Link
-            key={label}
-            href={href}
-            className="card p-4 hover:border-forest/30 hover:shadow-card-hover transition-all group flex flex-col gap-3"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-ink-muted uppercase tracking-wider">{label}</span>
-              <div className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${urgent ? "bg-warning-light" : "bg-forest-light"}`}>
-                <Icon size={14} className={urgent ? "text-warning" : "text-forest"} aria-hidden="true" />
-              </div>
-            </div>
-            <div>
-              <p className={`text-3xl font-bold leading-none ${urgent && Number(value) > 0 ? "text-warning" : "text-ink"}`}>
-                {value}
-              </p>
-              {sub && (
-                <p className="text-xs text-ink-muted mt-1.5">{sub}</p>
-              )}
-            </div>
-            <div className="pt-2 border-t border-border flex items-center justify-between text-xs text-ink-muted font-medium">
-              <span>View</span>
-              <ArrowRight size={12} className="text-forest group-hover:translate-x-0.5 transition-transform" />
-            </div>
+        {metrics.map(({ href, label, value, sub, icon: Icon }) => (
+          <Link key={label} href={href} className="card p-4 hover:border-forest/30 hover:shadow-card-hover transition-all group flex flex-col gap-3">
+            <div className="flex items-center justify-between"><span className="text-xs font-semibold text-ink-muted uppercase tracking-wider">{label}</span><div className="w-7 h-7 rounded-lg bg-forest-light flex items-center justify-center"><Icon size={14} className="text-forest" aria-hidden="true" /></div></div>
+            <div><p className="text-3xl font-bold leading-none text-ink">{metricErrors ? "—" : value}</p><p className="text-xs text-ink-muted mt-1.5">{sub}</p></div>
+            <div className="pt-2 border-t border-border flex items-center justify-between text-xs text-ink-muted font-medium"><span>View</span><ArrowRight size={12} className="text-forest group-hover:translate-x-0.5 transition-transform" /></div>
           </Link>
         ))}
       </div>
 
-      {/* ─── Main two-column layout ─── */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-
-        {/* Left — Content pipeline (3 cols) */}
         <div className="lg:col-span-3 space-y-4">
-
-          {/* Upcoming publications */}
-          <div className="card overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
-              <div className="flex items-center gap-2">
-                <Calendar size={15} className="text-forest" />
-                <h2 className="text-sm font-semibold text-ink">Upcoming Publications</h2>
-              </div>
-              <Link href="/app/calendar" className="text-xs font-medium text-forest hover:text-forest-hover flex items-center gap-1 transition-colors">
-                Calendar <ArrowRight size={12} />
-              </Link>
-            </div>
-
-            {upcomingPosts.length === 0 ? (
-              <div className="px-5 py-10 text-center">
-                <Calendar size={28} className="mx-auto text-border mb-3" />
-                <p className="text-sm font-medium text-ink">No scheduled publications</p>
-                <p className="text-xs text-ink-muted mt-1">Approve drafts in Content to schedule them.</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-border">
-                {upcomingPosts.map((post) => (
-                  <div key={post.id} className="flex items-center justify-between px-5 py-3.5 hover:bg-surface/50 transition-colors">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-ink truncate">
-                        {post.title || "Untitled draft"}
-                      </p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        {post.pillar && (
-                          <span className="text-xs text-forest font-medium">{post.pillar}</span>
-                        )}
-                        {post.pillar && post.scheduled_for && (
-                          <span className="text-ink-muted text-xs">·</span>
-                        )}
-                        {post.scheduled_for && (
-                          <span className="text-xs text-ink-muted flex items-center gap-1">
-                            <Clock size={11} />
-                            {fmt(post.scheduled_for)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <span className="badge-draft-only shrink-0 ml-3">Scheduled</span>
-                  </div>
-                ))}
-              </div>
+          <section className="card overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-border"><div className="flex items-center gap-2"><Calendar size={15} className="text-forest" /><h2 className="text-sm font-semibold text-ink">Upcoming Publications</h2></div><Link href="/app/calendar" className="text-xs font-medium text-forest flex items-center gap-1">Calendar <ArrowRight size={12} /></Link></div>
+            {upcomingRes.error ? <p role="alert" className="px-5 py-6 text-sm text-warning">Upcoming publications could not be loaded. Open Calendar to retry.</p> : upcomingPosts.length === 0 ? <div className="px-5 py-9 text-center"><Calendar size={26} className="mx-auto text-border mb-3" /><p className="text-sm font-medium text-ink">No upcoming publications</p><p className="text-xs text-ink-muted mt-1">Scheduled posts will appear here.</p></div> : (
+              <div className="divide-y divide-border">{upcomingPosts.map((post) => <div key={post.id} className="flex items-center justify-between px-5 py-3.5 gap-3"><div className="min-w-0 flex-1"><p className="text-sm font-medium text-ink truncate">{post.internal_title || "Untitled post"}</p><div className="flex items-center gap-2 mt-0.5">{post.pillar && <span className="text-xs text-forest font-medium">{post.pillar}</span>}<span className="text-xs text-ink-muted flex items-center gap-1"><Clock size={11} />{formatDate(post.scheduled_at, timezone) ?? "Time unavailable"}</span></div></div><span className="badge-draft-only shrink-0">Scheduled</span></div>)}</div>
             )}
-          </div>
+          </section>
 
-          {/* Drafts needing attention */}
-          <div className="card overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
-              <div className="flex items-center gap-2">
-                <FileText size={15} className="text-forest" />
-                <h2 className="text-sm font-semibold text-ink">Awaiting Review</h2>
-                {(draftsAwaitingReview ?? 0) > 0 && (
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-warning-light text-warning text-xs font-bold">
-                    {draftsAwaitingReview}
-                  </span>
-                )}
-              </div>
-              <Link href="/app/content" className="text-xs font-medium text-forest hover:text-forest-hover flex items-center gap-1 transition-colors">
-                All content <ArrowRight size={12} />
-              </Link>
-            </div>
-
-            {pendingReviewPosts.length === 0 ? (
-              <div className="px-5 py-10 text-center">
-                <CheckCircle2 size={28} className="mx-auto text-success/30 mb-3" />
-                <p className="text-sm font-medium text-ink">All drafts reviewed</p>
-                <p className="text-xs text-ink-muted mt-1">Generate new drafts from your content strategy.</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-border">
-                {pendingReviewPosts.map((post) => (
-                  <div key={post.id} className="flex items-center justify-between px-5 py-3.5 hover:bg-surface/50 transition-colors gap-4">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-ink truncate">
-                        {post.title || "Untitled draft"}
-                      </p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        {post.pillar && (
-                          <span className="text-xs text-forest font-medium">{post.pillar}</span>
-                        )}
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${post.status === "needs_review"
-                          ? "bg-warning-light text-warning"
-                          : "bg-surface text-ink-secondary"
-                          }`}>
-                          {post.status === "needs_review" ? "Needs review" : "Draft"}
-                        </span>
-                      </div>
-                    </div>
-                    <Link
-                      href={`/app/content?post=${post.id}`}
-                      className="btn-secondary text-xs py-1.5 px-3 shrink-0"
-                    >
-                      Review
-                    </Link>
-                  </div>
-                ))}
-              </div>
+          <section className="card overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-border"><div className="flex items-center gap-2"><FileText size={15} className="text-forest" /><h2 className="text-sm font-semibold text-ink">Drafts Needing Attention</h2>{!metricErrors && counts.awaiting > 0 && <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-warning-light text-warning text-xs font-bold">{counts.awaiting}</span>}</div><Link href="/app/content" className="text-xs font-medium text-forest flex items-center gap-1">All content <ArrowRight size={12} /></Link></div>
+            {pendingRes.error ? <p role="alert" className="px-5 py-6 text-sm text-warning">Drafts could not be loaded. Open Content to retry.</p> : pendingPosts.length === 0 ? <div className="px-5 py-9 text-center"><CheckCircle2 size={26} className="mx-auto text-success/30 mb-3" /><p className="text-sm font-medium text-ink">No drafts awaiting review</p><p className="text-xs text-ink-muted mt-1">New drafts will appear here when they need your attention.</p></div> : (
+              <div className="divide-y divide-border">{pendingPosts.map((post) => <div key={post.id} className="flex items-center justify-between px-5 py-3.5 gap-4"><div className="min-w-0 flex-1"><p className="text-sm font-medium text-ink truncate">{post.internal_title || "Untitled post"}</p><div className="flex items-center gap-2 mt-0.5">{post.pillar && <span className="text-xs text-forest font-medium">{post.pillar}</span>}<span className={`text-xs px-2 py-0.5 rounded-full font-medium ${post.status === "needs_review" ? "bg-warning-light text-warning" : "bg-surface text-ink-secondary"}`}>{post.status === "needs_review" ? "Needs review" : "Draft"}</span></div></div><Link href={`/app/content?post=${post.id}`} className="btn-secondary text-xs py-1.5 px-3 shrink-0">Review</Link></div>)}</div>
             )}
-          </div>
+          </section>
         </div>
 
-        {/* Right — Status & Health (2 cols) */}
         <div className="lg:col-span-2 space-y-4">
-
-          {/* Agent status */}
-          <div className="card p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold text-ink">Agent Status</h2>
-              <Link href="/app/permissions" className="text-xs font-medium text-forest hover:text-forest-hover flex items-center gap-1 transition-colors">
-                Configure <ArrowRight size={12} />
-              </Link>
+          <section className="card p-5">
+            <div className="flex items-center justify-between mb-4"><h2 className="text-sm font-semibold text-ink">Agent & Worker</h2><Link href="/app/permissions" className="text-xs font-medium text-forest flex items-center gap-1">Configure <ArrowRight size={12} /></Link></div>
+            <div className="flex items-start gap-3 p-3 rounded-xl bg-surface border border-border mb-3"><div className={`w-2 h-2 rounded-full shrink-0 mt-1 ${stateInfo.dotClass}`} /><div className="flex-1 min-w-0"><p className="text-sm font-semibold text-ink">{stateInfo.label}</p><p className="text-xs text-ink-muted mt-0.5 leading-relaxed">{stateInfo.description}</p></div></div>
+            <div className="space-y-3 text-xs">
+              <div className="flex items-center justify-between"><span className="text-ink-secondary">Operating mode</span><span className="font-medium text-ink">{workspace.operating_mode === "approval_required" ? "Approval required" : "Autopilot"}</span></div>
+              <div className="flex items-center justify-between"><span className="text-ink-secondary">Weekly strategy target</span><span className="font-medium text-ink">{weeklyTarget === null ? "Not configured" : `${weeklyTarget} posts`}</span></div>
+              <div className="border-t border-border pt-3"><div className="flex items-center justify-between gap-2"><span className="text-ink-secondary">Latest worker job</span><span className={`font-semibold text-right ${workerStatus.tone}`}>{workerJobError ? "Status unavailable" : workerStatus.label}</span></div><p className="text-xs text-ink-muted mt-1">{workerJobError ? "Worker job history could not be queried." : workerStatus.detail}</p>{latestJob?.created_at && <p className="text-xs text-ink-muted mt-1">Created {formatDate(latestJob.created_at, timezone)}</p>}</div>
+              <p className="text-xs text-ink-muted border-t border-border pt-3">Publishing limits are enforced by the worker. This page does not display a fixed cap that may differ from the active policy.</p>
             </div>
+          </section>
 
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-surface border border-border mb-3">
-              <div className={`w-2 h-2 rounded-full shrink-0 ${stateInfo.dotClass}`} />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-ink">{stateInfo.label}</p>
-                <p className="text-xs text-ink-muted mt-0.5 leading-relaxed">{stateInfo.description}</p>
-              </div>
-            </div>
+          <section className="card p-5">
+            <div className="flex items-center justify-between mb-4"><h2 className="text-sm font-semibold text-ink">Channel Health</h2><Link href="/app/integrations" className="text-xs font-medium text-forest flex items-center gap-1">Manage <ArrowRight size={12} /></Link></div>
+            <div className="space-y-2">{integrations.map(({ icon: Icon, iconClass, label, detail, connected, warning }) => <Link key={label} href="/app/integrations" className="flex items-center justify-between p-3 rounded-xl bg-surface border border-border hover:border-forest/20 transition-colors gap-2"><div className="flex items-center gap-2.5 min-w-0"><Icon size={16} className={`${iconClass} shrink-0`} /><div className="min-w-0"><p className="text-sm font-medium text-ink">{label}</p><p className="text-xs text-ink-muted truncate mt-0.5">{detail}</p></div></div><span className={`flex items-center gap-1.5 shrink-0 text-xs font-medium px-2 py-0.5 rounded-full border ${warning ? "bg-warning-light text-warning border-warning/20" : connected ? "bg-success-light text-success border-success/20" : "bg-surface text-ink-muted border-border"}`}><Circle size={6} className={connected && !warning ? "text-success fill-success" : "text-ink-muted fill-ink-muted"} />{warning ? "Attention" : connected ? "Connected" : "Disconnected"}</span></Link>)}</div>
+            {integrationError && <p role="alert" className="mt-3 text-xs text-warning">LinkedIn or strategy status could not be verified. Open Integrations to check.</p>}
+            {!linkedinConnected && paidOrBeta && <div className="mt-3 p-3 rounded-xl bg-warning-light border border-warning/20"><p className="text-xs font-medium text-warning flex items-center gap-1.5"><AlertTriangle size={12} />{linkedinExpired ? "Reconnect LinkedIn to resume publishing" : "Connect LinkedIn to enable publishing"}</p></div>}
+          </section>
 
-            <div className="space-y-2.5 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-ink-secondary">Operating mode</span>
-                <span className="font-medium text-ink">
-                  {workspace.operating_mode === "approval_required" ? "Approval required" : "Autopilot"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-ink-secondary">Daily publish cap</span>
-                <span className="font-medium text-ink">1 post / day</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-ink-secondary">Weekly target</span>
-                <span className="font-medium text-ink">{weeklyCadenceTarget} posts</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Channel health */}
-          <div className="card p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold text-ink">Channel Health</h2>
-              <Link href="/app/integrations" className="text-xs font-medium text-forest hover:text-forest-hover flex items-center gap-1 transition-colors">
-                Manage <ArrowRight size={12} />
-              </Link>
-            </div>
-
-            <div className="space-y-2">
-              {integrations.map(({ icon: Icon, iconClass, label, detail, connected, href }) => (
-                <Link
-                  key={label}
-                  href={href}
-                  className="flex items-center justify-between p-3 rounded-xl bg-surface border border-border hover:border-forest/20 hover:bg-forest-light/20 transition-colors group"
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <Icon size={16} className={`${iconClass} shrink-0`} />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-ink">{label}</p>
-                      <p className="text-xs text-ink-muted truncate mt-0.5">{detail}</p>
-                    </div>
-                  </div>
-                  <div className={`flex items-center gap-1.5 shrink-0 ml-2 text-xs font-medium px-2 py-0.5 rounded-full border ${connected
-                    ? "bg-success-light text-success border-success/20"
-                    : "bg-surface text-ink-muted border-border"
-                    }`}>
-                    <Circle size={6} className={connected ? "text-success fill-success" : "text-ink-muted fill-ink-muted"} />
-                    {connected ? "Connected" : "Disconnected"}
-                  </div>
-                </Link>
-              ))}
-            </div>
-
-            {!linkedinConnected && isBetaOrPaid && (
-              <div className="mt-3 p-3 rounded-xl bg-warning-light border border-warning/20">
-                <p className="text-xs font-medium text-warning flex items-center gap-1.5">
-                  <AlertTriangle size={12} />
-                  Connect LinkedIn to enable publishing
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Recent activity */}
-          <div className="card p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold text-ink">Recent Activity</h2>
-              <Link href="/app/activity" className="text-xs font-medium text-forest hover:text-forest-hover flex items-center gap-1 transition-colors">
-                All logs <ArrowRight size={12} />
-              </Link>
-            </div>
-
-            {recentActivities.length === 0 ? (
-              <div className="text-center py-6">
-                <p className="text-sm text-ink-muted">No activity recorded yet.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {recentActivities.map((item) => (
-                  <div key={item.id} className="flex items-start gap-3">
-                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${item.status === "succeeded" ? "bg-success" :
-                      item.status?.startsWith("failed") ? "bg-error" :
-                        item.source === "job" ? "bg-warning" : "bg-forest"
-                      }`} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-ink capitalize truncate">{item.title}</p>
-                      <p className="text-xs text-ink-muted mt-0.5">{relativeTime(item.timestamp)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <section className="card p-5">
+            <div className="flex items-center justify-between mb-4"><h2 className="text-sm font-semibold text-ink">Recent Activity</h2><Link href="/app/activity" className="text-xs font-medium text-forest flex items-center gap-1">All activity <ArrowRight size={12} /></Link></div>
+            {activityError ? <p role="alert" className="text-sm text-warning">Activity history could not be loaded.</p> : activities.length === 0 ? <p className="text-sm text-ink-muted text-center py-5">No activity recorded yet.</p> : <div className="space-y-3">{activities.map((item) => <div key={item.id} className="flex items-start gap-3"><div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${item.status === "succeeded" ? "bg-success" : item.status?.startsWith("failed") || item.status === "needs_reconciliation" ? "bg-error" : item.source === "job" ? "bg-warning" : "bg-forest"}`} /><div className="flex-1 min-w-0"><p className="text-xs font-medium text-ink capitalize truncate">{item.title}</p><p className="text-xs text-ink-muted mt-0.5">{item.detail} · {relativeTime(item.timestamp)}</p></div></div>)}</div>}
+          </section>
         </div>
       </div>
     </div>
