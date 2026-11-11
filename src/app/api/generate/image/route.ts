@@ -19,7 +19,7 @@ import {
 } from "@/lib/ai/cloudflare-image";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 const BUCKET = "nunuza-generated-images";
 const HOURLY_IMAGE_LIMIT = 5;
