@@ -202,16 +202,17 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
     while (visibleBody.length > 0 && escapeMarkdownV2(visibleBody).length > 3400) {
       visibleBody = visibleBody.slice(0, Math.max(0, visibleBody.length - 100));
     }
-    const body = escapeMarkdownV2(visibleBody) + (visibleBody.length < rawBody.length ? "\n\n[Open Nunuza to view the complete draft.]" : "");
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://nunuza.com";
+    const truncationNotice = visibleBody.length < rawBody.length ? "\n\n" + escapeMarkdownV2("[Open Nunuza to view the complete draft.]") : "";
+    const body = escapeMarkdownV2(visibleBody) + truncationNotice;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
     return {
       replyText:
         (existingPost ? "✏️ *Draft revised*\n\n" : "📝 *New draft created*\n\n") +
         "*" + title + "*\n\n" + body + "\n\n" +
         "Draft ID: " + post.id.slice(0, 8) + "\n" +
-        "Saved in Nunuza as a draft. It has not been published.\n\n" +
-        "Send a revision instruction to keep editing this draft, /new for another post, or /cancel to end this session.",
-      replyMarkup: { inline_keyboard: [[{ text: "Open full draft in Nunuza", url: appUrl + "/app/content" }]] },
+        escapeMarkdownV2("Saved in Nunuza as a draft. It has not been published.") + "\n\n" +
+        escapeMarkdownV2("Send a revision instruction to keep editing this draft, /new for another post, or /cancel to end this session."),
+      ...(appUrl ? { replyMarkup: { inline_keyboard: [[{ text: "Open full draft in Nunuza", url: appUrl + "/app/content" }]] } } : {}),
     };
   } catch (error) {
     await releaseConversation(input, lockToken, state);
