@@ -22,7 +22,7 @@ export const runtime = "nodejs";
 export const maxDuration = 120;
 
 const BUCKET = "nunuza-generated-images";
-const DAILY_IMAGE_LIMIT = 5;
+const HOURLY_IMAGE_LIMIT = 5;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface GenerateImageBody {
@@ -111,7 +111,7 @@ export async function POST(request: Request) {
       p_period_end: periodStart,
     });
     if (usageError) throw new Error("Image generation usage could not be verified.");
-    if (Number(usageCount) > DAILY_IMAGE_LIMIT) {
+    if (Number(usageCount) > HOURLY_IMAGE_LIMIT) {
       return NextResponse.json(
         { error: "Image generation limit reached. Try again next hour (maximum 5 images per hour)." },
         { status: 429 }
