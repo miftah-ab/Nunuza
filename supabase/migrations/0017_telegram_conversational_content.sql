@@ -122,7 +122,7 @@ AS $$
 DECLARE
   v_link public.telegram_links%ROWTYPE;
   v_job_id UUID;
-  v_status TEXT;
+  v_status public.job_status;
   v_inserted INTEGER;
 BEGIN
   SELECT *
