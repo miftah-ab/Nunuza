@@ -1042,10 +1042,10 @@ export function ContentManager({
               <PostImageGenerator
                 postId={editingPost.id}
                 imagePath={editingPost.image_path ?? null}
-                onImageUpdated={(imagePath) => {
-                  setEditingPost((current) => current ? { ...current, image_path: imagePath } : current);
+                onImageUpdated={(imagePath, status) => {
+                  setEditingPost((current) => current ? { ...current, image_path: imagePath, status: status as PostStatus } : current);
                   setPosts((current) => current.map((post) =>
-                    post.id === editingPost.id ? { ...post, image_path: imagePath } : post
+                    post.id === editingPost.id ? { ...post, image_path: imagePath, status: status as PostStatus } : post
                   ));
                 }}
               />
