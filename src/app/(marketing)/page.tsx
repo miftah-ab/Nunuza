@@ -2,9 +2,8 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import {
-  ArrowRight, AudioLines, CalendarDays, Check, CheckCircle2, Clock3,
-  Linkedin, MessageCircle, Mic, MoreHorizontal, Send, Sparkles,
-  WandSparkles,
+  ArrowRight, CalendarDays, Check, CheckCircle2, Clock3, Linkedin,
+  MessageCircle, Mic2, MoreHorizontal, Send, Sparkles, TrendingUp,
 } from "lucide-react";
 
 export const metadata: Metadata = {
@@ -164,7 +163,7 @@ function InboxPreview() {
 
 function VoiceWorkflow() {
   return <div className="mx-auto max-w-[620px] rounded-[24px] border border-[#E4E9E3] bg-white p-4 shadow-[0_28px_75px_-45px_rgba(23,76,60,.34)] sm:p-6">
-    <div className="flex items-center justify-between"><div className="flex items-center gap-2"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#EAF2EE] text-[#174C3C]"><Mic size={15} /></span><span className="text-[10px] font-semibold text-[#303832]">Voice note · 0:41</span></div><span className="text-[8px] text-[#929A93]">Example workflow</span></div>
+    <div className="flex items-center justify-between"><div className="flex items-center gap-2"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#EAF2EE] text-[#174C3C]"><Mic2 size={15} /></span><span className="text-[10px] font-semibold text-[#303832]">Voice note · 0:41</span></div><span className="text-[8px] text-[#929A93]">Example workflow</span></div>
     <div className="my-5 flex h-9 items-center gap-[3px]">{Array.from({ length: 52 }, (_, i) => <span key={i} className="flex-1 rounded-full bg-[#C9DECE]" style={{ height: `${7 + ((i * 11) % 27)}px` }} />)}</div>
     <div className="rounded-[16px] bg-[#F7F9F6] p-4"><p className="text-[10px] leading-[1.8] text-[#68716C]">“I want to talk about the moment we realized our users were struggling with something completely different from what we expected…”</p></div>
     <div className="my-4 flex justify-center"><span className="rounded-full bg-[#EAF2EE] px-4 py-2 text-[8px] font-medium text-[#174C3C]">Nunuza shapes the thought into a draft</span></div>
@@ -249,13 +248,13 @@ export default function HomePage() {
           <p className="mt-3 text-[12px] leading-[1.85] text-[#68716C]">Nunuza helps surface angles, develop ideas, and give you a useful next step when you need one.</p>
         </article>
         <article className="border-t border-[#C9DECE] pt-5">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EAF2EE] text-[#174C3C]"><WandSparkles size={18} /></span>
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EAF2EE] text-[#174C3C]"><Sparkles size={18} /></span>
           <p className="mt-7 text-[9px] font-semibold uppercase tracking-[.16em] text-[#929A93]">02</p>
           <h3 className="mt-2 text-[19px] font-semibold tracking-[-.035em] text-[#202522]">Drafts in your voice.</h3>
           <p className="mt-3 text-[12px] leading-[1.85] text-[#68716C]">Your voice guidance, examples, and preferences help each draft sound more like you.</p>
         </article>
         <article className="border-t border-[#C9DECE] pt-5">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EAF2EE] text-[#174C3C]"><AudioLines size={18} /></span>
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EAF2EE] text-[#174C3C]"><TrendingUp size={18} /></span>
           <p className="mt-7 text-[9px] font-semibold uppercase tracking-[.16em] text-[#929A93]">03</p>
           <h3 className="mt-2 text-[19px] font-semibold tracking-[-.035em] text-[#202522]">Learns what works.</h3>
           <p className="mt-3 text-[12px] leading-[1.85] text-[#68716C]">Use available performance signals to understand what connects and guide your next ideas.</p>
