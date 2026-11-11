@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   if (!contentType.toLowerCase().includes("application/json")) {
     return jsonRpcError(null, -32600, "Content-Type must be application/json.", undefined, 415);
   }
-  if (!accept.includes("application/json") || !accept.includes("text/event-stream")) {
+  if (!accept.toLowerCase().includes("application/json") || !accept.toLowerCase().includes("text/event-stream")) {
     return jsonRpcError(null, -32600, "Accept must include application/json and text/event-stream.", undefined, 406);
   }
 
@@ -88,14 +88,14 @@ export async function POST(req: NextRequest) {
     return jsonRpcError(id, -32600, "Invalid Request: Expected JSON-RPC 2.0 request with 'method'");
   }
 
+  // Every post-initialize request, including notifications, carries the negotiated version.
+  if (method !== "initialize" && req.headers.get("MCP-Protocol-Version") !== MCP_PROTOCOL_VERSION) {
+    return jsonRpcError(id, -32600, "Missing or unsupported MCP-Protocol-Version.", undefined, 400);
+  }
+
   // Notifications have no JSON-RPC id and must not receive a JSON-RPC response.
   if (typeof method === "string" && method.startsWith("notifications/") && id === undefined) {
     return new NextResponse(null, { status: 202 });
-  }
-
-  // Every post-initialize request carries the negotiated protocol version.
-  if (method !== "initialize" && req.headers.get("MCP-Protocol-Version") !== MCP_PROTOCOL_VERSION) {
-    return jsonRpcError(id, -32600, "Missing or unsupported MCP-Protocol-Version.", undefined, 400);
   }
 
   // 3. Dispatch Methods
