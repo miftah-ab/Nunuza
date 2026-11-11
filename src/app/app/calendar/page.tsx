@@ -40,8 +40,7 @@ export default async function CalendarPage() {
   }
 
   const initialMonth = new Date();
-  initialMonth.setDate(1);
-  initialMonth.setHours(12, 0, 0, 0);
+  initialMonth.setUTCHours(12, 0, 0, 0);
 
   return (
     <div className="mx-auto max-w-6xl animate-fade-in pb-12">
