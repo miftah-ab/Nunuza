@@ -3,6 +3,15 @@
 import { useEffect, useState } from "react";
 import { ImagePlus, Loader2, RefreshCw } from "lucide-react";
 
+interface ImageApiResponse {
+  error?: string;
+  data?: {
+    previewUrl?: string | null;
+    imagePath?: string | null;
+    status?: string;
+  };
+}
+
 interface PostImageGeneratorProps {
   postId: string;
   imagePath: string | null;
@@ -30,7 +39,7 @@ export function PostImageGenerator({
     setIsLoadingPreview(true);
     fetch(`/api/generate/image?postId=${encodeURIComponent(postId)}`)
       .then(async (response) => {
-        const payload = await response.json();
+        const payload = (await response.json()) as ImageApiResponse;
         if (!response.ok) throw new Error(payload.error || "Could not load image preview.");
         if (active) setPreviewUrl(payload.data?.previewUrl ?? null);
       })
