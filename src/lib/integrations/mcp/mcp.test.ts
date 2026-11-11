@@ -422,14 +422,22 @@ describe("Remote MCP Integration", () => {
 
   describe("Supabase OAuth access tokens", () => {
     const originalSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const originalAppUrl = process.env.NEXT_PUBLIC_APP_URL;
+    const originalResourceUrl = process.env.MCP_RESOURCE_URL;
 
     beforeEach(() => {
       process.env.NEXT_PUBLIC_SUPABASE_URL = "https://nunuza-test.supabase.co";
+      process.env.NEXT_PUBLIC_APP_URL = "https://nunuza-test.vercel.app";
+      delete process.env.MCP_RESOURCE_URL;
     });
 
     afterAll(() => {
       if (originalSupabaseUrl === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
       else process.env.NEXT_PUBLIC_SUPABASE_URL = originalSupabaseUrl;
+      if (originalAppUrl === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
+      else process.env.NEXT_PUBLIC_APP_URL = originalAppUrl;
+      if (originalResourceUrl === undefined) delete process.env.MCP_RESOURCE_URL;
+      else process.env.MCP_RESOURCE_URL = originalResourceUrl;
     });
 
     it("derives the workspace from a verified OAuth subject and requires a client_id", async () => {
@@ -442,6 +450,7 @@ describe("Remote MCP Integration", () => {
                 sub: "user-aaa",
                 client_id: "claude-client",
                 iss: "https://nunuza-test.supabase.co/auth/v1",
+                aud: "https://nunuza-test.vercel.app/api/mcp",
                 exp: Math.floor(Date.now() / 1000) + 300,
                 iat: Math.floor(Date.now() / 1000),
                 mcp_scopes: ["read", "write"],
