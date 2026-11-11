@@ -82,7 +82,7 @@ export default async function OAuthConsentPage({
               <li className="flex gap-2"><span className="text-[#267253]">✓</span><span>Cancel scheduled posts.</span></li>
             </ul>
             <div className="mt-4 rounded-lg bg-[#F3F6F4] p-3 text-xs leading-5 text-[#53645B]">
-              Claude cannot approve drafts or bypass Nunuza's human-approval rules. You can disconnect this integration from Claude at any time.
+              Claude cannot approve drafts or bypass Nunuza&apos;s human-approval rules. You can disconnect this integration from Claude at any time.
             </div>
             {scopes.length > 0 && (
               <p className="mt-4 text-xs text-[#718078]">
@@ -113,7 +113,7 @@ export default async function OAuthConsentPage({
         </section>
 
         <p className="mt-5 text-center text-xs text-[#7B8982]">
-          Signed in as {user.email || "your Nunuza account"}. Never approve a connector you don't recognize.
+          Signed in as {user.email || "your Nunuza account"}. Never approve a connector you don&apos;t recognize.
         </p>
       </div>
     </main>
