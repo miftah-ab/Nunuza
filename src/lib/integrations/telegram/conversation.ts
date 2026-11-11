@@ -11,7 +11,7 @@ type TelegramConversationInput = {
 export type TelegramConversationResult = { replyText: string; replyMarkup?: any };
 
 function escapeMarkdownV2(value: string): string {
-  return value.replace(/[_*[\\]()~\x60>#+=|{}.!\\-]/g, "\\$&");
+  return value.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, "\\$1");
 }
 
 export function isRevisionRequest(text: string, hasActiveDraft: boolean): boolean {
