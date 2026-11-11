@@ -112,7 +112,7 @@ export async function editTelegramMessage(
   };
   if (replyMarkup) payload.reply_markup = replyMarkup;
   const result = await tgPost("editMessageText", payload);
-  if (!result.ok && result.description && !result.description.includes("message is not modified")) {
+  if (!result.ok && result.error && !result.error.includes("message is not modified")) {
     // Fallback: try without parse_mode
     const plainPayload: any = { chat_id: chatId, message_id: messageId, text: text.replace(/\\/g, "") };
     if (replyMarkup) plainPayload.reply_markup = replyMarkup;
@@ -277,12 +277,13 @@ async function resolveWorkspace(
 
   if (linkErr || !link) return null;
 
-  const { data: workspace } = await supabase
+  const { data: workspace, error: workspaceError } = await supabase
     .from("workspaces")
     .select("id, name, entitlement_type, state, operating_mode, paused_at")
     .eq("id", link.workspace_id)
     .single();
 
+  if (workspaceError || !workspace) return null;
   return { workspaceId: link.workspace_id, workspace };
 }
 
@@ -427,12 +428,13 @@ export async function handleTelegramMessage(
   }
 
   if (text === "/pause") {
-    await supabase
+    const { error: pauseError } = await supabase
       .from("workspaces")
       .update({ paused_at: new Date().toISOString(), state: "paused" })
       .eq("id", workspaceId);
+    if (pauseError) return { replyText: "❌ I couldn't pause the agent because the workspace update failed. Please retry." };
 
-    await supabase.from("audit_events").insert({
+    const { error: pauseAuditError } = await supabase.from("audit_events").insert({
       workspace_id: workspaceId,
       actor_type: "telegram",
       action: "agent_paused",
@@ -440,6 +442,7 @@ export async function handleTelegramMessage(
       resource_id: workspaceId,
       safe_metadata: { source: "telegram_command" },
     });
+    if (pauseAuditError) console.error("[telegram] Pause audit write failed:", pauseAuditError.code || "database_error");
 
     return {
       replyText: "⏸️ *Agent Paused*\n\nAutonomous operations are paused\\. Send `/resume` to reactivate\\.",
@@ -453,15 +456,16 @@ export async function handleTelegramMessage(
   }
 
   if (text === "/resume") {
-    await supabase
+    const { error: resumeError } = await supabase
       .from("workspaces")
       .update({
         paused_at: null,
         state: workspace?.operating_mode === "autopilot" ? "active_autopilot" : "active_approval_required",
       })
       .eq("id", workspaceId);
+    if (resumeError) return { replyText: "❌ I couldn't resume the agent because the workspace update failed. Please retry." };
 
-    await supabase.from("audit_events").insert({
+    const { error: resumeAuditError } = await supabase.from("audit_events").insert({
       workspace_id: workspaceId,
       actor_type: "telegram",
       action: "agent_resumed",
@@ -469,6 +473,7 @@ export async function handleTelegramMessage(
       resource_id: workspaceId,
       safe_metadata: { source: "telegram_command" },
     });
+    if (resumeAuditError) console.error("[telegram] Resume audit write failed:", resumeAuditError.code || "database_error");
 
     return {
       replyText: "▶️ *Agent Resumed*\n\nAutonomous operations are now active\\.",
@@ -479,7 +484,7 @@ export async function handleTelegramMessage(
   }
 
   if (text === "/drafts") {
-    const { data: drafts } = await supabase
+    const { data: drafts, error: draftsError } = await supabase
       .from("content_posts")
       .select("id, internal_title, text, status, created_at")
       .eq("workspace_id", workspaceId)
@@ -487,6 +492,7 @@ export async function handleTelegramMessage(
       .order("created_at", { ascending: false })
       .limit(5);
 
+    if (draftsError) return { replyText: "❌ I couldn't load your drafts. Please try again." };
     if (!drafts || drafts.length === 0) {
       return {
         replyText: "📝 *No drafts awaiting review\\.*\n\nYour review queue is currently clear\\.",
@@ -525,6 +531,7 @@ export async function handleTelegramMessage(
       };
     }
     const shortId = parts[1].trim();
+    if (shortId.length < 8 || shortId.length > 36) return { replyText: "Please use at least the first 8 characters of the draft ID from /drafts." };
 
     if (!canPublishEntitlement(entitlement)) {
       return {
@@ -535,12 +542,15 @@ export async function handleTelegramMessage(
       };
     }
 
-    const { data: posts } = await supabase
+    const { data: matches, error: lookupError } = await supabase
       .from("content_posts")
       .select("id, status")
-      .eq("workspace_id", workspaceId);
-
-    const targetPost = (posts || []).find((p: any) => p.id.startsWith(shortId) || p.id === shortId);
+      .eq("workspace_id", workspaceId)
+      .like("id", `${shortId}%`)
+      .limit(2);
+    if (lookupError) return { replyText: "❌ I couldn't find that draft. Please retry." };
+    if ((matches || []).length > 1) return { replyText: "⚠️ That draft ID is ambiguous. Copy more characters from /drafts and retry." };
+    const targetPost = matches?.[0];
 
     if (!targetPost) {
       return {
@@ -593,14 +603,18 @@ export async function handleTelegramMessage(
     }
 
     const shortId = parts[1].trim();
-    const reason = parts.slice(2).join(" ").trim() || "Rejected via Telegram";
+    if (shortId.length < 8 || shortId.length > 36) return { replyText: "Please use at least the first 8 characters of the draft ID from /drafts." };
+    const reason = parts.slice(2).join(" ").trim().slice(0, 500) || "Rejected via Telegram";
 
-    const { data: posts } = await supabase
+    const { data: matches, error: lookupError } = await supabase
       .from("content_posts")
       .select("id, status")
-      .eq("workspace_id", workspaceId);
-
-    const targetPost = (posts || []).find((p: any) => p.id.startsWith(shortId) || p.id === shortId);
+      .eq("workspace_id", workspaceId)
+      .like("id", `${shortId}%`)
+      .limit(2);
+    if (lookupError) return { replyText: "❌ I couldn't find that draft. Please retry." };
+    if ((matches || []).length > 1) return { replyText: "⚠️ That draft ID is ambiguous. Copy more characters from /drafts and retry." };
+    const targetPost = matches?.[0];
 
     if (!targetPost) {
       return {
@@ -1129,10 +1143,18 @@ export async function handleCallbackQuery(
       return;
     }
 
-    await supabase
+    const { data: canceledRows, error: cancelError } = await supabase
       .from("content_posts")
       .update({ status: "approved", scheduled_at: null })
-      .eq("id", postId);
+      .eq("id", postId)
+      .eq("workspace_id", workspaceId)
+      .eq("status", "scheduled")
+      .select("id");
+
+    if (cancelError || !canceledRows?.length) {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, "❌ *Could not cancel this schedule\\.* Refresh the schedule and try again\\.", { inline_keyboard: [[{ text: "📅 Schedule", callback_data: "menu:schedule" }]] });
+      return;
+    }
 
     const title = escapeMd((post.internal_title || "Post").slice(0, 40));
     await editTelegramMessage(
@@ -1224,10 +1246,14 @@ export async function handleCallbackQuery(
 
   // ── Agent Pause (confirmed) ──
   if (data === "agent:pause_confirm") {
-    await supabase
+    const { error: pauseError } = await supabase
       .from("workspaces")
       .update({ paused_at: new Date().toISOString(), state: "paused" })
       .eq("id", workspaceId);
+    if (pauseError) {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, "❌ *Could not pause the agent\\.* Please retry\\.", { inline_keyboard: [navRow("menu:agent")] });
+      return;
+    }
 
     await supabase.from("audit_events").insert({
       workspace_id: workspaceId,
@@ -1254,13 +1280,17 @@ export async function handleCallbackQuery(
 
   // ── Agent Resume ──
   if (data === "agent:resume") {
-    await supabase
+    const { error: resumeError } = await supabase
       .from("workspaces")
       .update({
         paused_at: null,
         state: workspace?.operating_mode === "autopilot" ? "active_autopilot" : "active_approval_required",
       })
       .eq("id", workspaceId);
+    if (resumeError) {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, "❌ *Could not resume the agent\\.* Please retry\\.", { inline_keyboard: [navRow("menu:agent")] });
+      return;
+    }
 
     await supabase.from("audit_events").insert({
       workspace_id: workspaceId,
