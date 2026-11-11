@@ -143,6 +143,7 @@ export interface ContentPost {
   workspace_id: string;
   plan_id: string | null;
   agent_cycle_key?: string | null;
+  telegram_job_id?: string | null;
   text: string;
   internal_title: string | null;
   pillar: string | null;
@@ -225,6 +226,7 @@ export interface ContentPostVersion {
   text: string;
   change_source: string;
   changed_by: string | null;
+  telegram_job_id?: string | null;
   created_at: string;
 }
 
