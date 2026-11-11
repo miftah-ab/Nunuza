@@ -90,6 +90,30 @@ export async function checkDraftLimit(workspaceId: string): Promise<DraftLimitSt
 }
 
 /**
+ * Limits private Voice preview generation without consuming a draft slot.
+ * The existing usage_counters table and atomic RPC are reused; no migration
+ * or new metric table is required. The metric key rolls over each UTC hour.
+ */
+export async function consumeVoiceTestAllowance(workspaceId: string): Promise<boolean> {
+  const supabase = createServiceClient();
+  const now = new Date();
+  const periodStart = now.toISOString().slice(0, 10);
+  const hourKey = now.toISOString().slice(0, 13).replace(/[-T:]/g, "");
+  const { data, error } = await supabase.rpc("increment_usage_counter", {
+    p_workspace_id: workspaceId,
+    p_metric: "voice_test:" + hourKey,
+    p_period_start: periodStart,
+    p_period_end: periodStart,
+  });
+  if (error) throw new Error("[usage] consumeVoiceTestAllowance: " + error.message);
+  const count = Number(data);
+  if (!Number.isInteger(count) || count < 1) {
+    throw new Error("[usage] Voice preview allowance could not be verified.");
+  }
+  return count <= 5;
+}
+
+/**
  * Atomically increments the monthly draft counter for a workspace.
  * Uses UPSERT with an atomic increment to prevent race conditions.
  * Returns the new count after increment.
