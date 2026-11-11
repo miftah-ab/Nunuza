@@ -106,11 +106,15 @@ async function completeConversationJob(
 }
 
 async function sendConversationReply(chatId: number, text: string, replyMarkup?: any): Promise<void> {
-  const { sendTelegramMessage } = await import("./service");
-  const delivery = await sendTelegramMessage(chatId, text, replyMarkup);
-  if (!delivery.ok) {
-    // The saved draft remains available through /drafts if Telegram delivery fails.
-    console.error("[telegram-conversation] Draft reply delivery failed:", delivery.error || "telegram_delivery_error");
+  try {
+    const { sendTelegramMessage } = await import("./service");
+    const delivery = await sendTelegramMessage(chatId, text, replyMarkup);
+    if (!delivery.ok) {
+      // The saved draft remains available through /drafts if Telegram delivery fails.
+      console.error("[telegram-conversation] Draft reply delivery failed:", delivery.error || "telegram_delivery_error");
+    }
+  } catch {
+    console.error("[telegram-conversation] Draft reply delivery failed:", "telegram_delivery_exception");
   }
 }
 
@@ -369,7 +373,7 @@ export async function executeTelegramContentJob(job: AgentJob, supabase: any): P
   const finishWithoutDraft = async (message: string, releaseReservation = false): Promise<JobExecutionResult> => {
     if (releaseReservation) {
       const { error } = await supabase.rpc("release_draft_usage", { p_job_id: job.id });
-      if (error) console.error("[telegram-conversation] Could not release unused draft reservation:", error.code || "database_error");
+      if (error) throw new Error("Could not release unused draft usage reservation.");
     }
     await completeConversationJob(supabase, payload, job.workspace_id, job.id, stateWithoutPending(state));
     await sendConversationReply(payload.chatId, message);
@@ -500,6 +504,10 @@ export async function executeTelegramContentJob(job: AgentJob, supabase: any): P
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
   } catch (error) {
     if (error instanceof VoiceConstraintError || error instanceof StrategyExclusionError) {
+      if (payload.mode === "new") {
+        const { error: releaseError } = await supabase.rpc("release_draft_usage", { p_job_id: job.id });
+        if (releaseError) throw new Error("Could not release unused draft usage reservation.");
+      }
       const safeMessage = escapeMarkdownV2(error.message);
       await completeConversationJob(supabase, payload, job.workspace_id, job.id, stateWithoutPending(state));
       await sendConversationReply(payload.chatId, safeMessage);
