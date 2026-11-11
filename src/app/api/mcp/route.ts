@@ -136,9 +136,10 @@ const mcpHandler = createMcpHandler(buildServer);
 
 async function handleMcpRequest(request: NextRequest): Promise<Response> {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin;
-  const resourceUrl = new URL("/api/mcp", appUrl);
+  const resourceUrl = new URL(process.env.MCP_RESOURCE_URL || "/api/mcp", appUrl);
   const gate = requireBearerAuth({
     verifier,
+    expectedResource: resourceUrl,
     resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(resourceUrl),
   });
 
