@@ -77,7 +77,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       .eq("id", id)
       .eq("workspace_id", workspace.id)
       .eq("status", "needs_reconciliation")
-      .select("id, status");
+      .select("id, status, published_at, scheduled_at, linkedin_post_id");
 
     if (updErr || !updated || updated.length === 0) {
       throw new Error("Could not record the confirmation. Please try again.");
@@ -107,7 +107,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       safeMetadata: { outcome: body.outcome, jobId: job?.id ?? null },
     });
 
-    return ok({ id, status: updated[0].status });
+    return ok(updated[0]);
   } catch (err) {
     return apiError(err);
   }
