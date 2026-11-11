@@ -282,7 +282,8 @@ describe("Telegram Service", () => {
       expect(verifyTelegramSecret("anything")).toBe(false);
       if (previous === undefined) delete process.env.TELEGRAM_WEBHOOK_SECRET;
       else process.env.TELEGRAM_WEBHOOK_SECRET = previous;
-      process.env.NODE_ENV = previousNodeEnv;
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
     });
   });
 
