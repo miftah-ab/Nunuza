@@ -138,9 +138,9 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
       exclusions: strategy.exclusions, ctaPreferences: strategy.cta_preferences,
     } : undefined;
 
-    const targetLength = /\\b(short|brief|concise|shorter)\\b/i.test(text)
+    const targetLength = /\b(short|brief|concise|shorter)\b/i.test(text)
       ? "short"
-      : /\\b(long|detailed|in-depth|deep dive|more detail)\\b/i.test(text)
+      : /\b(long|detailed|in-depth|deep dive|more detail)\b/i.test(text)
         ? "long"
         : "medium";
     const generation = await aiService.generateDraft({
