@@ -28,7 +28,6 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
   const isPaused = Boolean(workspace.paused_at);
   const isAutopilotEligible =
     workspace.entitlement_type === "internal_beta" ||
-    workspace.entitlement_type === "publishing_beta" ||
     workspace.entitlement_type === "paid_trial" ||
     workspace.entitlement_type === "paid_active";
 
