@@ -225,7 +225,7 @@ export async function verifyMcpOAuthToken(
   const userId = claims.sub;
   const clientId = claims.client_id;
   const expiresAt = Number(claims.exp);
-  const expectedIssuer = `${(process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\\/$/, "")}/auth/v1`;
+  const expectedIssuer = `${(process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\/$/, "")}/auth/v1`;
 
   if (
     typeof userId !== "string" ||
