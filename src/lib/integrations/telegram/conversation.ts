@@ -54,7 +54,7 @@ function helpReply(): TelegramConversationResult {
 export async function handleTelegramConversation(input: TelegramConversationInput): Promise<TelegramConversationResult> {
   const text = input.text.trim();
   if (!text) return { replyText: "Tell me what you want your LinkedIn post to be about." };
-  if (text === "/help") return helpReply();
+  if (text === "/help" || (text.startsWith("/") && text !== "/new" && text !== "/cancel")) return helpReply();
 
   const lockToken = crypto.randomUUID();
   const { data: claim, error: claimError } = await input.supabase.rpc("claim_telegram_conversation", {
@@ -200,10 +200,10 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
     const body = escapeMarkdownV2(post.text || "");
     return {
       replyText:
-        (existingPost ? "✏️ *Draft revised*\\n\\n" : "📝 *New draft created*\\n\\n") +
-        "*" + title + "*\\n\\n" + body + "\\n\\n" +
-        "Draft ID: " + post.id.slice(0, 8) + "\\n" +
-        "Saved in Nunuza as a draft. It has not been published.\\n\\n" +
+        (existingPost ? "✏️ *Draft revised*\n\n" : "📝 *New draft created*\n\n") +
+        "*" + title + "*\n\n" + body + "\n\n" +
+        "Draft ID: " + post.id.slice(0, 8) + "\n" +
+        "Saved in Nunuza as a draft. It has not been published.\n\n" +
         "Send a revision instruction to keep editing this draft, /new for another post, or /cancel to end this session.",
     };
   } catch (error) {
