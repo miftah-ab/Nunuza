@@ -24,7 +24,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN; END IF;
 END $$;
 
-CREATE TYPE public.job_status AS ENUM ('queued','running','succeeded','failed_retryable','failed_terminal','canceled','needs_reconciliation');
+CREATE TYPE public.job_status AS ENUM ('queued','running','waiting_for_approval','succeeded','failed_retryable','failed_terminal','canceled','needs_reconciliation');
 CREATE TABLE public.agent_jobs (
   id UUID PRIMARY KEY,
   workspace_id UUID NOT NULL,
