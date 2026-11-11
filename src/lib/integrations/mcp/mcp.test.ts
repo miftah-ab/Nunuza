@@ -418,4 +418,92 @@ describe("Remote MCP Integration", () => {
       ).rejects.toThrow("Draft not found or access denied");
     });
   });
+
+
+  describe("Supabase OAuth access tokens", () => {
+    const originalSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+    beforeEach(() => {
+      process.env.NEXT_PUBLIC_SUPABASE_URL = "https://nunuza-test.supabase.co";
+    });
+
+    afterAll(() => {
+      if (originalSupabaseUrl === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+      else process.env.NEXT_PUBLIC_SUPABASE_URL = originalSupabaseUrl;
+    });
+
+    it("derives the workspace from a verified OAuth subject and requires a client_id", async () => {
+      const { verifyMcpOAuthToken } = await import("./tokens");
+      const supabase = {
+        auth: {
+          getClaims: async () => ({
+            data: {
+              claims: {
+                sub: "user-aaa",
+                client_id: "claude-client",
+                iss: "https://nunuza-test.supabase.co/auth/v1",
+                exp: Math.floor(Date.now() / 1000) + 300,
+                iat: Math.floor(Date.now() / 1000),
+                mcp_scopes: ["read", "write"],
+              },
+            },
+            error: null,
+          }),
+        },
+        from: () => ({
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "ws-aaa" }, error: null }),
+            }),
+          }),
+        }),
+      };
+
+      const credential = await verifyMcpOAuthToken("header.payload.signature", supabase);
+      expect(credential?.workspaceId).toBe("ws-aaa");
+      expect(credential?.userId).toBe("user-aaa");
+      expect(credential?.scopes).toEqual(["read", "write"]);
+    });
+
+    it("rejects tokens without an OAuth client identity", async () => {
+      const { verifyMcpOAuthToken } = await import("./tokens");
+      const supabase = {
+        auth: {
+          getClaims: async () => ({
+            data: {
+              claims: {
+                sub: "user-aaa",
+                iss: "https://nunuza-test.supabase.co/auth/v1",
+                exp: Math.floor(Date.now() / 1000) + 300,
+              },
+            },
+            error: null,
+          }),
+        },
+      };
+
+      await expect(verifyMcpOAuthToken("header.payload.signature", supabase)).resolves.toBeNull();
+    });
+
+    it("rejects OAuth tokens from an unexpected issuer", async () => {
+      const { verifyMcpOAuthToken } = await import("./tokens");
+      const supabase = {
+        auth: {
+          getClaims: async () => ({
+            data: {
+              claims: {
+                sub: "user-aaa",
+                client_id: "claude-client",
+                iss: "https://attacker.example/auth/v1",
+                exp: Math.floor(Date.now() / 1000) + 300,
+              },
+            },
+            error: null,
+          }),
+        },
+      };
+
+      await expect(verifyMcpOAuthToken("header.payload.signature", supabase)).resolves.toBeNull();
+    });
+  });
 });
