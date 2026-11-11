@@ -29,3 +29,9 @@ Apply `supabase/migrations/0018_cloudflare_image_generation.sql` after the Teleg
 ## Current boundary
 
 This feature generates and attaches private images to Nunuza drafts. The existing LinkedIn publishing client still publishes text-only posts; image asset upload and image-post publishing to LinkedIn require a separate implementation and verification step.
+
+## Prompting rules
+
+The image prompt is grounded in the post title and body. It locks the main subject to the topic being discussed, requires a plausible scene that explains that topic, and explicitly forbids unrelated stock-photo portraits. People should appear only when the post is specifically about a person, a human role, a personal experience or interaction, or the user explicitly requests people in the visual direction. User visual direction can refine the scene, but it must not make the image factually unrelated to the post.
+
+FLUX is a text-to-image model, not a reliable text-rendering engine. Do not ask it to render exact headlines, labels, or paragraphs inside the image; add typography in a separate compositing step when needed.
