@@ -164,11 +164,7 @@ export function getAccessMode(
   workspace: Pick<Workspace, "entitlement_type"> & { access_mode?: AccessMode }
 ): AccessMode {
   if (workspace.access_mode) return workspace.access_mode;
-  if (
-    workspace.entitlement_type === "internal_beta" ||
-    workspace.entitlement_type === "publishing_beta" ||
-    workspace.entitlement_type === "internal_test"
-  ) {
+  if (workspace.entitlement_type === "internal_beta") {
     return "private_beta";
   }
   return "commercial";
@@ -179,8 +175,6 @@ const ENTITLEMENT_LEVELS: Record<EntitlementType, number> = {
   suspended:        0,
   expired:          0,
   draft_only:       1,
-  publishing_beta:  2,
-  internal_test:    2,
   internal_beta:    3,
   paid_trial:       3,
   paid_active:      3,
@@ -228,16 +222,14 @@ export function assertEntitlementIn(
 
 /**
  * Checks whether publishing is permitted for this workspace.
- * Requires internal_beta, paid_trial, paid_active, or legacy publishing_beta/internal_test.
+ * Requires internal_beta, paid_trial, or paid_active.
  * draft_only, suspended, expired, and inactive cannot publish.
  */
 export function canPublish(workspace: Pick<Workspace, "entitlement_type">): boolean {
   return (
     workspace.entitlement_type === "internal_beta" ||
     workspace.entitlement_type === "paid_trial" ||
-    workspace.entitlement_type === "paid_active" ||
-    workspace.entitlement_type === "publishing_beta" ||
-    workspace.entitlement_type === "internal_test"
+    workspace.entitlement_type === "paid_active"
   );
 }
 
