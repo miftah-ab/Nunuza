@@ -201,7 +201,7 @@ export function PublishingCalendar({
                       type="button"
                       onClick={() => setSelectedDate(dayNumber)}
                       aria-pressed={isSelected}
-                      aria-label={`${cellDate.toLocaleDateString()}, ${dayPosts.length} scheduled posts`}
+                      aria-label={`${cellDate?.toLocaleDateString() ?? "Calendar day"}, ${dayPosts.length} scheduled posts`}
                       className={`flex h-full min-h-[66px] w-full flex-col items-start rounded-lg p-1.5 text-left transition-colors sm:min-h-[96px] sm:p-2 ${
                         isSelected
                           ? "bg-forest-light ring-1 ring-forest/30"
