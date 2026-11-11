@@ -52,12 +52,16 @@ export async function POST(req: NextRequest) {
   const tokenMatch = authHeader.match(/^Bearer\s+(nunuza_mcp_[a-zA-Z0-9_-]+)$/i);
 
   if (!tokenMatch) {
-    return jsonRpcError(
-      null,
-      -32001,
-      "Unauthorized: Missing or malformed MCP Bearer token. Use 'Authorization: Bearer nunuza_mcp_...'",
-      undefined,
-      401
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin).replace(/\\/$/, "");
+    return NextResponse.json(
+      { jsonrpc: "2.0", id: null, error: { code: -32001, message: "Unauthorized: connect using Claude OAuth." } },
+      {
+        status: 401,
+        headers: {
+          "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
+          "WWW-Authenticate": `Bearer realm="Nunuza MCP", resource_metadata="${appUrl}/.well-known/oauth-protected-resource/mcp"`,
+        },
+      }
     );
   }
 
