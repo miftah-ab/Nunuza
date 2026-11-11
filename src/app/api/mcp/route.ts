@@ -60,7 +60,7 @@ function toZodInputSchema(tool: McpToolDefinition) {
   const required = new Set(tool.inputSchema.required || []);
 
   for (const [name, property] of Object.entries(tool.inputSchema.properties)) {
-    let field =
+    let field: any =
       property.type === "number" ? z.number().finite() : z.string();
 
     if (Array.isArray(property.enum) && property.enum.length > 0) {
