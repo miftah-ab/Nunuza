@@ -62,8 +62,11 @@ export function PostImageGenerator({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ postId, prompt: prompt.trim() || undefined }),
       });
-      const payload = await response.json();
+      const payload = (await response.json()) as ImageApiResponse;
       if (!response.ok) throw new Error(payload.error || "Image generation failed.");
+      if (!payload.data?.previewUrl || !payload.data.imagePath || !payload.data.status) {
+        throw new Error("Image generation returned an incomplete response.");
+      }
       setPreviewUrl(payload.data.previewUrl);
       onImageUpdated(payload.data.imagePath, payload.data.status);
     } catch (cause) {
