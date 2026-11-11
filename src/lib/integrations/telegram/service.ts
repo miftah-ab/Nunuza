@@ -260,7 +260,7 @@ export async function getTelegramLinkStatus(
 // ─── Command Handling ─────────────────────────────────────────────────────────
 
 export interface CommandContext {
-  telegramUserId: number; chatId: number; text: string; chatType?: string;
+  telegramUserId: number; chatId: number; text: string; chatType?: string; updateId?: number;
 }
 
 export interface CommandResponse {
@@ -696,6 +696,7 @@ export async function handleTelegramMessage(
     chatId: ctx.chatId,
     workspaceId,
     ownerUserId: workspace.owner_user_id,
+    updateId: ctx.updateId,
     text,
     supabase,
   });
