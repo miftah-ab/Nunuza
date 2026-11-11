@@ -7,7 +7,7 @@ import type { Workspace, AgentState } from "@/types/database";
 import {
   AlertCircle, AlertTriangle, ArrowRight, Calendar, CheckCircle2, Circle,
   Clock, Cpu, FileText, Layers, Linkedin, Lock, PauseCircle, Plus, Send,
-  ShieldCheck, Sparkles, TrendingUp, WifiOff, Zap,
+  Sparkles, TrendingUp, WifiOff, Zap,
 } from "lucide-react";
 import { getTelegramLinkStatus } from "@/lib/integrations/telegram/service";
 import { getMcpCredentialStatus } from "@/lib/integrations/mcp/tokens";
@@ -92,7 +92,7 @@ function humanize(value: string): string {
 
 function workerJobLabel(job: { status: string; lease_until: string | null } | null): { label: string; detail: string; tone: string } {
   if (!job) return { label: "No worker jobs yet", detail: "No job has been recorded for this workspace.", tone: "text-ink-muted" };
-  if (job.status === "running" && job.lease_until && new Date(job.lease_until).getTime() < Date.now()) {
+  if (job.status === "running" && (!job.lease_until || !Number.isFinite(new Date(job.lease_until).getTime()) || new Date(job.lease_until).getTime() < Date.now())) {
     return { label: "Running job has an expired lease", detail: "Inspect the worker and reconciliation queue.", tone: "text-error" };
   }
   const labels: Record<string, { label: string; detail: string; tone: string }> = {
@@ -139,14 +139,14 @@ export default async function OverviewPage() {
     supabase.from("agent_jobs").select("id, job_type, status, started_at, finished_at, lease_until, created_at, updated_at").eq("workspace_id", workspace.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
     supabase.from("audit_events").select("id, action, actor_type, resource_type, created_at").eq("workspace_id", workspace.id).order("created_at", { ascending: false }).limit(4),
     supabase.from("agent_jobs").select("id, job_type, status, started_at, finished_at, lease_until, created_at, updated_at").eq("workspace_id", workspace.id).order("created_at", { ascending: false }).limit(4),
-    getTelegramLinkStatus(workspace.id, supabase).catch(() => ({ linked: false })),
-    getMcpCredentialStatus(workspace.id, supabase).catch(() => ({ active: false })),
+    getTelegramLinkStatus(workspace.id, supabase).catch(() => null),
+    getMcpCredentialStatus(workspace.id, supabase).catch(() => null),
   ]);
 
   const metricErrors = [awaitingRes, approvedRes, scheduledRes, publishedRes, pipelineRes].some((r) => r.error);
-  const contentErrors = [upcomingRes, pendingRes].some((r) => r.error);
-  const integrationError = Boolean(linkedinRes.error || strategyRes.error);
-  const activityError = Boolean(auditRes.error || jobsRes.error || latestJobRes.error);
+  const integrationError = Boolean(linkedinRes.error || strategyRes.error || telegramStatus === null || mcpStatus === null);
+  const activityError = Boolean(auditRes.error || jobsRes.error);
+  const workerJobError = Boolean(latestJobRes.error);
 
   const counts = {
     awaiting: awaitingRes.count ?? 0,
@@ -207,8 +207,8 @@ export default async function OverviewPage() {
 
   const integrations = [
     { icon: Linkedin, iconClass: "text-[#0A66C2]", label: "LinkedIn", detail: integrationError ? "Status unavailable" : linkedinExpired ? "Connection expired" : linkedinConnected ? (typeof linkedinProfileName === "string" ? linkedinProfileName : "Personal profile connected") : "Not connected", connected: linkedinConnected, warning: linkedinExpired || Boolean(linkedinRes.error) },
-    { icon: Send, iconClass: "text-[#229ED9]", label: "Telegram", detail: telegramStatus?.linked ? "Bot paired" : "Not paired", connected: telegramStatus?.linked ?? false, warning: false },
-    { icon: Cpu, iconClass: "text-forest", label: "MCP Server", detail: mcpStatus?.active ? "Credential active" : "Inactive", connected: mcpStatus?.active ?? false, warning: false },
+    { icon: Send, iconClass: "text-[#229ED9]", label: "Telegram", detail: telegramStatus === null ? "Status unavailable" : telegramStatus?.linked ? "Bot paired" : "Not paired", connected: telegramStatus?.linked ?? false, warning: telegramStatus === null },
+    { icon: Cpu, iconClass: "text-forest", label: "MCP Server", detail: mcpStatus === null ? "Status unavailable" : mcpStatus?.active ? "Credential active" : "Inactive", connected: mcpStatus?.active ?? false, warning: mcpStatus === null },
   ];
 
   return (
@@ -254,7 +254,7 @@ export default async function OverviewPage() {
         <div className="lg:col-span-3 space-y-4">
           <section className="card overflow-hidden">
             <div className="flex items-center justify-between px-5 py-3.5 border-b border-border"><div className="flex items-center gap-2"><Calendar size={15} className="text-forest" /><h2 className="text-sm font-semibold text-ink">Upcoming Publications</h2></div><Link href="/app/calendar" className="text-xs font-medium text-forest flex items-center gap-1">Calendar <ArrowRight size={12} /></Link></div>
-            {contentErrors || upcomingRes.error ? <p role="alert" className="px-5 py-6 text-sm text-warning">Upcoming publications could not be loaded. Open Calendar to retry.</p> : upcomingPosts.length === 0 ? <div className="px-5 py-9 text-center"><Calendar size={26} className="mx-auto text-border mb-3" /><p className="text-sm font-medium text-ink">No upcoming publications</p><p className="text-xs text-ink-muted mt-1">Scheduled posts will appear here.</p></div> : (
+            {upcomingRes.error ? <p role="alert" className="px-5 py-6 text-sm text-warning">Upcoming publications could not be loaded. Open Calendar to retry.</p> : upcomingPosts.length === 0 ? <div className="px-5 py-9 text-center"><Calendar size={26} className="mx-auto text-border mb-3" /><p className="text-sm font-medium text-ink">No upcoming publications</p><p className="text-xs text-ink-muted mt-1">Scheduled posts will appear here.</p></div> : (
               <div className="divide-y divide-border">{upcomingPosts.map((post) => <div key={post.id} className="flex items-center justify-between px-5 py-3.5 gap-3"><div className="min-w-0 flex-1"><p className="text-sm font-medium text-ink truncate">{post.internal_title || "Untitled post"}</p><div className="flex items-center gap-2 mt-0.5">{post.pillar && <span className="text-xs text-forest font-medium">{post.pillar}</span>}<span className="text-xs text-ink-muted flex items-center gap-1"><Clock size={11} />{formatDate(post.scheduled_at, timezone) ?? "Time unavailable"}</span></div></div><span className="badge-draft-only shrink-0">Scheduled</span></div>)}</div>
             )}
           </section>
@@ -274,7 +274,7 @@ export default async function OverviewPage() {
             <div className="space-y-3 text-xs">
               <div className="flex items-center justify-between"><span className="text-ink-secondary">Operating mode</span><span className="font-medium text-ink">{workspace.operating_mode === "approval_required" ? "Approval required" : "Autopilot"}</span></div>
               <div className="flex items-center justify-between"><span className="text-ink-secondary">Weekly strategy target</span><span className="font-medium text-ink">{weeklyTarget === null ? "Not configured" : `${weeklyTarget} posts`}</span></div>
-              <div className="border-t border-border pt-3"><div className="flex items-center justify-between gap-2"><span className="text-ink-secondary">Latest worker job</span><span className={`font-semibold text-right ${workerStatus.tone}`}>{activityError ? "Status unavailable" : workerStatus.label}</span></div><p className="text-xs text-ink-muted mt-1">{activityError ? "Worker job history could not be queried." : workerStatus.detail}</p>{latestJob?.created_at && <p className="text-xs text-ink-muted mt-1">Created {formatDate(latestJob.created_at, timezone)}</p>}</div>
+              <div className="border-t border-border pt-3"><div className="flex items-center justify-between gap-2"><span className="text-ink-secondary">Latest worker job</span><span className={`font-semibold text-right ${workerStatus.tone}`}>{workerJobError ? "Status unavailable" : workerStatus.label}</span></div><p className="text-xs text-ink-muted mt-1">{workerJobError ? "Worker job history could not be queried." : workerStatus.detail}</p>{latestJob?.created_at && <p className="text-xs text-ink-muted mt-1">Created {formatDate(latestJob.created_at, timezone)}</p>}</div>
               <p className="text-xs text-ink-muted border-t border-border pt-3">Publishing limits are enforced by the worker. This page does not display a fixed cap that may differ from the active policy.</p>
             </div>
           </section>
