@@ -31,17 +31,24 @@ interface GenerateImageBody {
 }
 
 function buildImagePrompt(post: { internal_title: string | null; text: string }, direction?: string) {
-  const subject = (post.internal_title || post.text.slice(0, 120)).trim();
-  const context = post.text.replace(/\s+/g, " ").slice(0, 900);
+  // The post is source material, not a request to invent an unrelated stock-photo subject.
+  const subject = (post.internal_title || post.text.slice(0, 180)).replace(/\s+/g, " ").trim();
+  const context = post.text.replace(/\s+/g, " ").slice(0, 1_000).trim();
   const userDirection = direction?.trim();
+
   return [
-    "Create one polished, original editorial visual to accompany a professional LinkedIn post.",
-    "Use a clear focal subject, strong composition, realistic details, and a clean premium visual style.",
-    "Compose vertically for a LinkedIn feed crop. No text, letters, numbers, logos, watermarks, signatures, or fake UI.",
-    `Post subject: ${subject}`,
-    `Post context: ${context}`,
-    userDirection ? `Visual direction: ${userDirection}` : "",
-  ].filter(Boolean).join("\n").slice(0, 2048);
+    "TASK: Create a context-faithful editorial image that visually explains the LinkedIn post below.",
+    "SUBJECT LOCK: The main subject MUST be the concrete topic, object, process, place, or idea discussed in the post. Do not substitute a generic attractive person, woman, man, model, influencer, or unrelated portrait.",
+    "PEOPLE RULE: Do not include any person unless the post is specifically about a person, a human role, a personal experience, a human interaction, or the user explicitly requests people in the visual direction. Never add a woman or man merely to make the image attractive.",
+    "SCENE: Depict a specific, plausible scene containing visual evidence of the post's actual topic. Choose relevant objects, environment, and action from the post. Avoid generic office stock photography and decorative filler.",
+    "FAITHFULNESS: Do not introduce products, brands, people, events, statistics, logos, or claims that are not supported by the post. If the topic is abstract, use a clear metaphor directly tied to its central idea.",
+    "COMPOSITION: One clear focal subject, deliberate visual hierarchy, clean professional editorial art direction, realistic materials and lighting, strong readable silhouette, uncluttered background.",
+    "FORMAT: Landscape-friendly square composition suitable for a LinkedIn feed crop. No text, letters, numbers, charts with labels, logos, watermarks, signatures, borders, or fake UI.",
+    "AVOID: Random human portraits, beauty photography, fashion photography, unrelated faces, generic handshake photos, generic laptop-on-desk photos, collage layouts, split panels, and meaningless abstract decoration.",
+    `POST TITLE: ${subject}`,
+    `POST CONTENT (use this to identify the actual visual subject): ${context}`,
+    userDirection ? `USER VISUAL DIRECTION (follow unless it conflicts with post accuracy): ${userDirection}` : "VISUAL DIRECTION: Choose the most relevant concrete scene based on the post. Prefer objects, environments, products, systems, or meaningful conceptual imagery over people.",
+  ].join("\n").slice(0, 2048);
 }
 
 async function createPreviewUrl(path: string) {
