@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { requireWorkspace } from "@/lib/auth/workspace";
 import { ok, apiError, parseBody } from "@/lib/api/respond";
 import { convertPlanItemToDraft } from "@/lib/plans/service";
+import { VoiceConstraintError } from "@/lib/ai/voice-constraints";
 
 interface ConvertBody {
   topic: string;
@@ -44,6 +45,9 @@ export async function POST(
 
     return ok({ post }, 201);
   } catch (err) {
+    if (err instanceof VoiceConstraintError) {
+      return NextResponse.json({ error: err.message }, { status: 422 });
+    }
     return apiError(err);
   }
 }
