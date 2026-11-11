@@ -65,6 +65,9 @@ describe("assertEntitlement()", () => {
   });
 
   it("throws EntitlementError when entitlement is insufficient", () => {
+    expect(() => assertEntitlement(ws("draft_only"), "paid_trial")).toThrow(
+      EntitlementError
+    );
   });
 
   it("EntitlementError has code SUBSCRIPTION_INACTIVE", () => {
