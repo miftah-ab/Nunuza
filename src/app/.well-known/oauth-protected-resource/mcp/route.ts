@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export function GET(request: NextRequest) {
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin).replace(/\\/$/, "");
-  const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\\/$/, "");
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin).replace(/\/$/, "");
+  const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\/$/, "");
 
   if (!supabaseUrl.startsWith("https://")) {
     return NextResponse.json({ error: "OAuth authorization server is not configured." }, { status: 503 });
