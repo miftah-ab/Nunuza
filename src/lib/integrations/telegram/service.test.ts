@@ -99,6 +99,11 @@ class MockTelegramDb {
                 filtered = filtered.filter((row) => vals.includes(row[col]));
                 return chain;
               },
+              like(col: string, pattern: string) {
+                const prefix = pattern.endsWith("%") ? pattern.slice(0, -1) : pattern;
+                filtered = filtered.filter((row) => String(row[col] ?? "").startsWith(prefix));
+                return chain;
+              },
               is(col: string, val: any) {
                 filtered = filtered.filter((row) => (val === null ? row[col] === null || row[col] === undefined : row[col] === val));
                 return chain;
