@@ -37,7 +37,7 @@ function buildImagePrompt(post: { internal_title: string | null; text: string },
   return [
     "Create one polished, original editorial visual to accompany a professional LinkedIn post.",
     "Use a clear focal subject, strong composition, realistic details, and a clean premium visual style.",
-    "Portrait 4:5 composition. No text, letters, numbers, logos, watermarks, signatures, or fake UI.",
+    "Compose vertically for a LinkedIn feed crop. No text, letters, numbers, logos, watermarks, signatures, or fake UI.",
     `Post subject: ${subject}`,
     `Post context: ${context}`,
     userDirection ? `Visual direction: ${userDirection}` : "",
@@ -99,6 +99,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Add post text before generating an image." }, { status: 422 });
     }
 
+    if (!process.env.CLOUDFLARE_ACCOUNT_ID?.trim() || !process.env.CLOUDFLARE_API_TOKEN?.trim()) {
+      return NextResponse.json(
+        { error: "Image generation is not configured. Add the Cloudflare Workers AI credentials." },
+        { status: 503 }
+      );
+    }
+
     // Reuse the existing atomic usage counter; no additional quota table or migration.
     const service = createServiceClient();
     const now = new Date();
@@ -137,10 +144,11 @@ export async function POST(request: Request) {
         image_model: generated.model,
         image_generated_at: new Date().toISOString(),
         // Adding an image changes the reviewed artifact; require review again.
-        ...(post.status === "approved" ? { status: "draft" } : {}),
+        ...(post.status !== "draft" ? { status: "draft" } : {}),
       })
       .eq("id", post.id)
       .eq("workspace_id", workspace.id)
+      .in("status", ["draft", "needs_review", "approved"])
       .select("id, image_path, status")
       .single();
 
