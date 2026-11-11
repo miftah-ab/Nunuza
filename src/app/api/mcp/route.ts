@@ -49,10 +49,10 @@ export async function POST(req: NextRequest) {
 
   // 1. Authenticate Bearer Token
   const authHeader = req.headers.get("authorization") || "";
-  const tokenMatch = authHeader.match(/^Bearer\\s+([A-Za-z0-9._~+\\/-]+)$/i);
+  const tokenMatch = authHeader.match(/^Bearer\s+([A-Za-z0-9._~+\/-]+)$/i);
 
   if (!tokenMatch) {
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin).replace(/\\/$/, "");
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin).replace(/\/$/, "");
     return NextResponse.json(
       { jsonrpc: "2.0", id: null, error: { code: -32001, message: "Unauthorized: connect using Claude OAuth." } },
       {
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     : await verifyMcpOAuthToken(rawToken);
 
   if (!credential) {
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin).replace(/\\/$/, "");
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin).replace(/\/$/, "");
     return NextResponse.json(
       { jsonrpc: "2.0", id: null, error: { code: -32001, message: "Unauthorized: a valid Nunuza OAuth access token is required." } },
       {
