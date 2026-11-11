@@ -1406,7 +1406,7 @@ export async function sendTelegramMessage(
     });
 
     const data = (await response.json()) as any;
-    if (!data.ok) {
+    if (!response.ok || !data.ok) {
       // Fallback to plain text on parse error
       if (data.description && typeof data.description === "string" && data.description.includes("can't parse entities")) {
         delete payload.parse_mode;
