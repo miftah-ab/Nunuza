@@ -66,6 +66,10 @@ export function buildDraftPrompt(request: DraftGenerationRequest): {
   if (strategy) {
     systemLines.push("");
     systemLines.push("AUDIENCE & STRATEGY CONTEXT:");
+    if (strategy.pillars && strategy.pillars.length > 0) {
+      systemLines.push(`- Approved Content Pillars: ${strategy.pillars.join(", ")}`);
+      systemLines.push("- Prefer the pillar that best fits the requested topic. Do not invent a new pillar when one of these fits.");
+    }
     if (strategy.audience) {
       systemLines.push(`- Target Audience: ${JSON.stringify(strategy.audience)}`);
     }
