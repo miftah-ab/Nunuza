@@ -1,7 +1,7 @@
 # Nunuza — Remote MCP Integration
 
-**Status:** Implementation required for v1.0.0. Gate PENDING.
-**Phase:** Phase 4 (full implementation), Phase 1 (stub/disabled state only)
+**Status:** OAuth/MCP implementation is in the release-candidate branch. Production remains fail-closed.
+**Phase:** Implementation complete; hosted OAuth configuration, preview deployment, and end-to-end verification remain release gates.
 
 > Remote MCP is a required v1.0.0 capability per BED-11 and Section 11 of the spec. It may be hidden during pre-release while its gate is pending. Once the gate passes it must be enabled. Do not defer beyond v1.0.0.
 
@@ -81,9 +81,20 @@ For the hosted Supabase project, an administrator must also enable **Authenticat
 
 Supabase OAuth access tokens include a verified `client_id` claim. Nunuza validates the token with Supabase Auth, derives the workspace from the token subject, and never accepts a workspace ID from Claude. The current Supabase OAuth server only supports the standard OIDC scopes; it does not support custom read/write OAuth scopes. Therefore the Nunuza consent screen explicitly describes the full MCP capabilities being granted. Do not advertise fine-grained OAuth scopes until Supabase supports them or Nunuza adds a separate authorization-grant layer.
 
+### Token audience and direct Data API isolation
+
+The applied `mcp_oauth_security` migration:
+
+- Installs `public.custom_access_token_hook(jsonb)`, which changes the JWT audience to `https://nunuza-xi.vercel.app/api/mcp` only when the OAuth `client_id` claim is present. Normal browser sessions retain `aud=authenticated`.
+- Moves the tenant helper to the non-exposed `private.current_workspace_id()` schema and updates existing tenant policies to use it.
+- Adds restrictive RLS policies to every currently RLS-enabled public table. OAuth client tokens cannot use the Supabase Data API directly; normal authenticated sessions retain existing tenant policies.
+- Revokes public RPC execution from the old workspace helper and the trigger-only user-creation function.
+
+The migration was applied to the hosted database and committed as `supabase/migrations/20261111081409_mcp_oauth_security.sql`. SQL transaction tests verified OAuth tokens are blocked from workspace/content reads, normal browser sessions retain workspace access, OAuth hook claims receive the MCP audience, and browser claims keep their default audience. Supabase security advisors no longer report the related RLS or exposed SECURITY DEFINER findings.
+
 ### Important gate status
 
-This OAuth path is an implementation in progress, not permission to enable MCP in production. The official MCP TypeScript SDK v2 now owns the Streamable HTTP transport and bearer-auth middleware. Audience-bound token validation, OAuth grant revocation from Nunuza, cross-tenant tests, hosted Supabase configuration, Claude interoperability testing, and all remaining gate checks above must pass before `MCP_ENABLED=true` or before this integration is advertised as generally available. Legacy workspace API keys remain only for other MCP clients that cannot use OAuth; they are not part of Claude's setup.
+This OAuth path is not yet permission to enable MCP in production. The official MCP TypeScript SDK v2 owns the Streamable HTTP transport and bearer-auth middleware. The code, migration, and audience/RLS logic are in place, but the hosted Supabase Auth Custom Access Token hook and OAuth Server must still be enabled/configured in the Supabase dashboard. A healthy preview deployment and real Claude interoperability/revocation tests are also required before `MCP_ENABLED=true` or general availability. Legacy workspace API keys remain only for other MCP clients that cannot use OAuth; they are not part of Claude's setup.
 
 ---
 
