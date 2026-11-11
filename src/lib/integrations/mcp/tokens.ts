@@ -238,6 +238,11 @@ export async function verifyMcpOAuthToken(
     return null;
   }
 
+  // Verify against Supabase Auth as well as the JWT signature so revoked or
+  // disabled user sessions are not accepted solely on a still-valid JWT.
+  const { data: authUser, error: authUserError } = await supabase.auth.getUser(rawToken);
+  if (authUserError || authUser?.user?.id !== userId) return null;
+
   const { data: workspace, error: workspaceError } = await supabase
     .from("workspaces")
     .select("id")
