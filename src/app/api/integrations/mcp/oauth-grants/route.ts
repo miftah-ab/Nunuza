@@ -35,7 +35,7 @@ export async function DELETE(request: NextRequest) {
   }
 
   const ownsGrant = Array.isArray(grants)
-    && grants.some((grant) => grant.client.client_id === clientId);
+    && grants.some((grant) => grant.client.id === clientId);
 
   if (!ownsGrant) {
     return NextResponse.json({ error: "This OAuth client is not authorized for your account." }, { status: 404 });
