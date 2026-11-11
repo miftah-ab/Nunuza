@@ -29,19 +29,19 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "A valid OAuth client ID is required." }, { status: 400 });
   }
 
-  const { data: grants, error: grantsError } = await supabase.auth.oauth.getUserGrants();
+  const { data: grants, error: grantsError } = await supabase.auth.oauth.listGrants();
   if (grantsError) {
     return NextResponse.json({ error: "Unable to verify authorized clients." }, { status: 502 });
   }
 
   const ownsGrant = Array.isArray(grants)
-    && grants.some((grant) => grant.client_id === clientId);
+    && grants.some((grant) => grant.client.client_id === clientId);
 
   if (!ownsGrant) {
     return NextResponse.json({ error: "This OAuth client is not authorized for your account." }, { status: 404 });
   }
 
-  const { error: revokeError } = await supabase.auth.oauth.revokeGrant(clientId);
+  const { error: revokeError } = await supabase.auth.oauth.revokeGrant({ clientId });
   if (revokeError) {
     return NextResponse.json({ error: "Unable to revoke this OAuth connection." }, { status: 502 });
   }
