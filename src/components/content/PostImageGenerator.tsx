@@ -6,7 +6,7 @@ import { ImagePlus, Loader2, RefreshCw } from "lucide-react";
 interface PostImageGeneratorProps {
   postId: string;
   imagePath: string | null;
-  onImageUpdated: (imagePath: string) => void;
+  onImageUpdated: (imagePath: string, status: string) => void;
 }
 
 export function PostImageGenerator({
@@ -56,7 +56,7 @@ export function PostImageGenerator({
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Image generation failed.");
       setPreviewUrl(payload.data.previewUrl);
-      onImageUpdated(payload.data.imagePath);
+      onImageUpdated(payload.data.imagePath, payload.data.status);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Image generation failed.");
     } finally {
