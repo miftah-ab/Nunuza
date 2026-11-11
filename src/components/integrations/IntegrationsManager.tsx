@@ -512,7 +512,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
               <ol className="list-decimal pl-5 space-y-1.5 text-xs leading-5 text-ink-secondary">
                 <li>Open Claude Connectors using the button above.</li>
                 <li>Choose <strong className="text-ink">Add custom connector</strong>, name it <strong className="text-ink">Nunuza</strong>, and paste the server URL shown above.</li>
-                <li>Choose <strong className="text-ink">Sign in now</strong> or <strong className="text-ink">Sign in when needed</strong>. For OAuth client identity, choose Claude's published identity or automatic registration.</li>
+                <li>Choose <strong className="text-ink">Sign in now</strong> or <strong className="text-ink">Sign in when needed</strong>. For OAuth client identity, choose Claude&apos;s published identity or automatic registration.</li>
                 <li>When Claude starts the connection, sign in to Nunuza and review the permissions before approving.</li>
               </ol>
               <p className="text-[11px] leading-5 text-ink-secondary">
@@ -523,7 +523,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
             <div className="p-3 rounded-lg bg-surface border border-border text-xs text-ink-secondary flex items-start gap-2">
               <ShieldAlert className="w-4 h-4 shrink-0 text-ink-secondary mt-0.5" />
               <div>
-                <span className="font-semibold text-ink">Human approval stays mandatory:</span> Claude can read workspace data and manage drafts, but it cannot approve drafts or bypass Nunuza's approval rules. Scheduling is limited to drafts already approved by you.
+                <span className="font-semibold text-ink">Human approval stays mandatory:</span> Claude can read workspace data and manage drafts, but it cannot approve drafts or bypass Nunuza&apos;s approval rules. Scheduling is limited to drafts already approved by you.
               </div>
             </div>
 
