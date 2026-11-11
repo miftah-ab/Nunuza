@@ -6,10 +6,10 @@ import { Menu, X } from "lucide-react";
 import { Logo } from "@/components/layout/Logo";
 
 const navLinks = [
-  { label: "Product", href: "/#product" },
-  { label: "Why Nunuza", href: "/#difference-heading" },
-  { label: "Integrations", href: "/#integrations-heading" },
-  { label: "Pricing", href: "/#pricing" },
+  { label: "How it works", href: "/#how-it-works" },
+  { label: "Your context", href: "/#context-heading" },
+  { label: "Telegram & MCP", href: "/#interfaces-heading" },
+  { label: "Pricing", href: "/pricing" },
 ];
 
 export function MarketingHeader() {
@@ -31,7 +31,7 @@ export function MarketingHeader() {
           <div className="hidden items-center gap-5 md:flex">
             <Link href="/login" className="text-[13px] font-medium text-ink-secondary transition-colors hover:text-ink">Sign in</Link>
             <Link href="/login" id="header-cta" className="btn-primary px-4 py-2.5 text-[13px]">
-              Start free trial <span aria-hidden="true">↗</span>
+              Meet Nunuza <span aria-hidden="true">↗</span>
             </Link>
           </div>
           <button
@@ -57,7 +57,7 @@ export function MarketingHeader() {
             ))}
             <div className="mt-2 grid grid-cols-2 gap-2 border-t border-border pt-3">
               <Link href="/login" onClick={closeMenu} className="btn-secondary justify-center text-sm">Sign in</Link>
-              <Link href="/login" onClick={closeMenu} className="btn-primary justify-center text-sm">Start free trial</Link>
+              <Link href="/login" onClick={closeMenu} className="btn-primary justify-center text-sm">Meet Nunuza</Link>
             </div>
           </div>
         </nav>
