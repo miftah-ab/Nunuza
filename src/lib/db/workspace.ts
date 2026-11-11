@@ -86,7 +86,7 @@ export async function upsertVoiceProfile(
       ...input,
       version: (existing?.version ?? 0) + 1,
       updated_at: new Date().toISOString(),
-    })
+    }, { onConflict: "workspace_id" })
     .select()
     .single();
 
@@ -136,7 +136,7 @@ export async function upsertContentStrategy(
       ...input,
       version: (existing?.version ?? 0) + 1,
       updated_at: new Date().toISOString(),
-    })
+    }, { onConflict: "workspace_id" })
     .select()
     .single();
 
