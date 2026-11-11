@@ -44,7 +44,9 @@ export function ContentManager({
   usageCount,
   usageLimit,
 }: ContentManagerProps) {
-  const [posts, setPosts] = useState<ContentPost[]>(initialPosts);
+  const [posts, setPosts] = useState<ContentPost[]>(() => initialPosts.filter((post) => post.status !== "canceled"));
+  const [confirmation, setConfirmation] = useState<{ type: "delete" | "cancel-schedule"; postId: string } | null>(null);
+  const [isConfirmingAction, setIsConfirmingAction] = useState(false);
   const [filter, setFilter] = useState<string>("all");
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -147,7 +149,7 @@ export function ContentManager({
       setManualText("");
       setManualPillar("");
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Save failed.");
+      setPublishFeedback({ type: "error", message: err instanceof Error ? err.message : "Save failed." });
     } finally {
       setIsSavingManual(false);
     }
@@ -175,23 +177,38 @@ export function ContentManager({
         setEditingPost(null);
       }
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Update failed.");
+      setPublishFeedback({ type: "error", message: err instanceof Error ? err.message : "Update failed." });
     }
   };
 
-  // Handle Delete/Cancel
-  const handleDeletePost = async (postId: string) => {
-    if (!confirm("Are you sure you want to delete this post?")) return;
+  // Destructive actions use the app confirmation dialog, never browser-native popups.
+  const handleDeletePost = (postId: string) => {
+    setConfirmation({ type: "delete", postId });
+  };
 
+  const handleConfirmAction = async () => {
+    if (!confirmation || isConfirmingAction) return;
+    setIsConfirmingAction(true);
+    setPublishFeedback(null);
     try {
-      const res = await fetch(`/api/posts/${postId}`, { method: "DELETE" });
-      const json = (await res.json()) as any;
-      if (!res.ok) throw new Error(json.error ?? "Failed to delete post.");
-
-      setPosts((prev) => prev.filter((p) => p.id !== postId));
-      if (editingPost?.id === postId) setEditingPost(null);
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Delete failed.");
+      const deleting = confirmation.type === "delete";
+      const endpoint = deleting ? "/api/posts/" + confirmation.postId : "/api/posts/" + confirmation.postId + "/cancel-schedule";
+      const res = await fetch(endpoint, { method: deleting ? "DELETE" : "POST" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || (deleting ? "Failed to delete post." : "Failed to cancel schedule."));
+      if (deleting) {
+        setPosts((prev) => prev.filter((post) => post.id !== confirmation.postId));
+        if (editingPost && editingPost.id === confirmation.postId) setEditingPost(null);
+        setPublishFeedback({ type: "success", message: "Post removed from active content. Its record is retained for audit history." });
+      } else {
+        setPosts((prev) => prev.map((post) => post.id === confirmation.postId ? json.data.post : post));
+        setPublishFeedback({ type: "success", message: "Scheduled publication canceled." });
+      }
+      setConfirmation(null);
+    } catch (err) {
+      setPublishFeedback({ type: "error", message: err instanceof Error ? err.message : "The action could not be completed." });
+    } finally {
+      setIsConfirmingAction(false);
     }
   };
 
@@ -292,23 +309,8 @@ export function ContentManager({
   };
 
   // Handle Cancel Schedule
-  const handleCancelSchedule = async (postId: string) => {
-    if (!confirm("Are you sure you want to cancel this scheduled post?")) return;
-
-    try {
-      const res = await fetch(`/api/posts/${postId}/cancel-schedule`, {
-        method: "POST",
-      });
-
-      const json = (await res.json()) as any;
-      if (!res.ok) throw new Error(json.error ?? "Failed to cancel schedule.");
-
-      setPosts((prev) =>
-        prev.map((p) => (p.id === postId ? json.data.post : p))
-      );
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Cancel schedule failed.");
-    }
+  const handleCancelSchedule = (postId: string) => {
+    setConfirmation({ type: "cancel-schedule", postId });
   };
 
   // Handle Publish Now (immediate processing through agent_jobs pipeline)
@@ -981,6 +983,28 @@ export function ContentManager({
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* In-app confirmation for destructive actions */}
+      {confirmation && (
+        <div className="fixed inset-0 z-[60] bg-ink/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="card max-w-md w-full p-6 shadow-xl animate-fade-in" role="alertdialog" aria-modal="true" aria-labelledby="action-confirm-title" aria-describedby="action-confirm-description">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 shrink-0 rounded-full bg-error/10 flex items-center justify-center"><AlertCircle size={19} className="text-error" /></div>
+              <div className="min-w-0">
+                <h2 id="action-confirm-title" className="text-base font-bold text-ink">{confirmation.type === "delete" ? "Delete this post?" : "Cancel scheduled publication?"}</h2>
+                <p id="action-confirm-description" className="mt-1.5 text-sm text-ink-secondary">{confirmation.type === "delete" ? "This post will be removed from your active content list. Its record remains stored for audit history and will not be permanently erased." : "The scheduled publishing job will be canceled. The post will remain in your content list."}</p>
+              </div>
+            </div>
+            {publishFeedback?.type === "error" && <p className="mt-4 text-sm text-error" role="alert">{publishFeedback.message}</p>}
+            <div className="flex items-center justify-end gap-2.5 mt-6">
+              <button type="button" disabled={isConfirmingAction} onClick={() => setConfirmation(null)} className="btn-ghost text-xs">Keep post</button>
+              <button type="button" disabled={isConfirmingAction} onClick={handleConfirmAction} className="btn-danger text-xs min-w-28 flex items-center justify-center gap-2 disabled:opacity-60">
+                {isConfirmingAction ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}{isConfirmingAction ? "Processing..." : confirmation.type === "delete" ? "Delete post" : "Cancel schedule"}
+              </button>
             </div>
           </div>
         </div>
