@@ -19,21 +19,26 @@
 import crypto from "crypto";
 import { createServiceClient } from "@/lib/supabase/server";
 
-// ─── Deduplication Cache for update_id ─────────────────────────────────────────
+// ─── Durable webhook idempotency ──────────────────────────────────────────────
 
-const processedUpdateIds = new Set<number>();
-const MAX_PROCESSED_CACHE = 2000;
+export type TelegramUpdateClaim = "claimed" | "completed" | "processing";
 
-export function isUpdateProcessed(updateId: number): boolean {
-  return processedUpdateIds.has(updateId);
+export async function claimTelegramWebhookUpdate(updateId: number, supabaseOverride?: any): Promise<TelegramUpdateClaim> {
+  const supabase = supabaseOverride || createServiceClient();
+  const { data, error } = await supabase.rpc("claim_telegram_webhook_update", { p_update_id: updateId });
+  if (error) throw new Error("Could not claim Telegram update.");
+  if (data !== "claimed" && data !== "completed" && data !== "processing") throw new Error("Invalid Telegram update claim state.");
+  return data;
 }
-
-export function markUpdateProcessed(updateId: number): void {
-  if (processedUpdateIds.size >= MAX_PROCESSED_CACHE) {
-    const firstItems = Array.from(processedUpdateIds).slice(0, 500);
-    firstItems.forEach((id) => processedUpdateIds.delete(id));
-  }
-  processedUpdateIds.add(updateId);
+export async function completeTelegramWebhookUpdate(updateId: number, supabaseOverride?: any): Promise<void> {
+  const supabase = supabaseOverride || createServiceClient();
+  const { error } = await supabase.rpc("complete_telegram_webhook_update", { p_update_id: updateId });
+  if (error) throw new Error("Could not complete Telegram update.");
+}
+export async function failTelegramWebhookUpdate(updateId: number, supabaseOverride?: any): Promise<void> {
+  const supabase = supabaseOverride || createServiceClient();
+  const { error } = await supabase.rpc("fail_telegram_webhook_update", { p_update_id: updateId });
+  if (error) throw new Error("Could not release Telegram update for retry.");
 }
 
 // ─── Secret & Webhook Validation ──────────────────────────────────────────────
@@ -68,20 +73,18 @@ const TG_API = (token: string, method: string) =>
 
 async function tgPost(method: string, body: object): Promise<any> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || token.trim() === "") {
-    console.warn(`[telegram] ${method}: TELEGRAM_BOT_TOKEN not configured`);
-    return { ok: true };
-  }
+  if (!token || token.trim() === "") return { ok: false, error: "Telegram bot is not configured." };
   try {
     const res = await fetch(TG_API(token, method), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body), signal: AbortSignal.timeout(10_000),
     });
-    return await res.json();
+    const result: any = await res.json();
+    if (!res.ok || !result?.ok) return { ok: false, error: result?.description || `Telegram API returned HTTP ${res.status}.` };
+    return result;
   } catch (err: any) {
-    console.error(`[telegram] ${method} error:`, err.message);
-    return { ok: false, error: err.message };
+    console.error(`[telegram] ${method} request failed:`, err?.name || "UnknownError");
+    return { ok: false, error: "Telegram API request failed." };
   }
 }
 
@@ -109,7 +112,7 @@ export async function editTelegramMessage(
   };
   if (replyMarkup) payload.reply_markup = replyMarkup;
   const result = await tgPost("editMessageText", payload);
-  if (!result.ok && result.description && !result.description.includes("message is not modified")) {
+  if (!result.ok && result.error?.includes("can't parse entities")) {
     // Fallback: try without parse_mode
     const plainPayload: any = { chat_id: chatId, message_id: messageId, text: text.replace(/\\/g, "") };
     if (replyMarkup) plainPayload.reply_markup = replyMarkup;
@@ -128,7 +131,7 @@ function mainMenuKeyboard() {
       ],
       [
         { text: "📅 Schedule", callback_data: "menu:schedule" },
-        { text: "📊 Performance", callback_data: "menu:performance" },
+        { text: "📊 Usage & Limits", callback_data: "menu:performance" },
       ],
       [
         { text: "🤖 Agent Status", callback_data: "menu:agent" },
@@ -185,68 +188,16 @@ export async function generateTelegramPairingToken(
   return { token: rawToken, botUrl, expiresAt };
 }
 
-export async function linkTelegramAccount(
-  rawToken: string,
-  telegramUserId: number,
-  chatId: number,
-  supabaseOverride?: any
-): Promise<{ success: boolean; workspaceId?: string; error?: string }> {
+export async function linkTelegramAccount(rawToken: string, telegramUserId: number, chatId: number, supabaseOverride?: any): Promise<{ success: boolean; workspaceId?: string; error?: string }> {
+  if (!rawToken || rawToken.length > 256 || !Number.isSafeInteger(telegramUserId) || !Number.isSafeInteger(chatId)) return { success: false, error: "Invalid pairing request." };
   const tokenHash = crypto.createHash("sha256").update(rawToken.trim()).digest("hex");
   const supabase = supabaseOverride || createServiceClient();
-
-  const { data: tokenRecord, error: tokenError } = await supabase
-    .from("link_tokens")
-    .select("*")
-    .eq("token_hash", tokenHash)
-    .is("consumed_at", null)
-    .gt("expires_at", new Date().toISOString())
-    .single();
-
-  if (tokenError || !tokenRecord) {
-    return {
-      success: false,
-      error: "Invalid, expired, or already used pairing token. Please generate a new one from your Nunuza dashboard.",
-    };
+  const { data, error } = await supabase.rpc("link_telegram_account", { p_token_hash: tokenHash, p_telegram_user_id: telegramUserId, p_chat_id: chatId });
+  if (error || !data) {
+    console.warn("[telegram] Account pairing failed:", error?.code || "invalid_or_expired_token");
+    return { success: false, error: "Invalid, expired, or already used pairing token. Please generate a new one from your Nunuza dashboard." };
   }
-
-  await supabase
-    .from("link_tokens")
-    .update({ consumed_at: new Date().toISOString() })
-    .eq("id", tokenRecord.id);
-
-  await supabase
-    .from("telegram_links")
-    .update({ revoked_at: new Date().toISOString() })
-    .eq("workspace_id", tokenRecord.workspace_id)
-    .is("revoked_at", null);
-
-  await supabase
-    .from("telegram_links")
-    .update({ revoked_at: new Date().toISOString() })
-    .eq("telegram_user_id", telegramUserId)
-    .is("revoked_at", null);
-
-  const { error: linkError } = await supabase.from("telegram_links").insert({
-    workspace_id: tokenRecord.workspace_id,
-    telegram_user_id: telegramUserId,
-    chat_id: chatId,
-    linked_at: new Date().toISOString(),
-  });
-
-  if (linkError) {
-    return { success: false, error: `Linking failed: ${linkError.message}` };
-  }
-
-  await supabase.from("audit_events").insert({
-    workspace_id: tokenRecord.workspace_id,
-    actor_type: "user",
-    actor_id: tokenRecord.user_id,
-    action: "telegram_linked",
-    resource_type: "telegram_link",
-    safe_metadata: { telegram_user_id: telegramUserId, chat_id: chatId },
-  });
-
-  return { success: true, workspaceId: tokenRecord.workspace_id };
+  return { success: true, workspaceId: data };
 }
 
 export async function unlinkTelegramAccount(
@@ -307,9 +258,7 @@ export async function getTelegramLinkStatus(
 // ─── Command Handling ─────────────────────────────────────────────────────────
 
 export interface CommandContext {
-  telegramUserId: number;
-  chatId: number;
-  text: string;
+  telegramUserId: number; chatId: number; text: string; chatType?: string;
 }
 
 export interface CommandResponse {
@@ -319,24 +268,22 @@ export interface CommandResponse {
 
 /** Resolve active workspace for a Telegram user; returns null if unlinked. */
 async function resolveWorkspace(
-  telegramUserId: number,
-  supabase: any
+  telegramUserId: number, chatId: number, supabase: any
 ): Promise<{ workspaceId: string; workspace: any } | null> {
   const { data: link, error: linkErr } = await supabase
-    .from("telegram_links")
-    .select("workspace_id, chat_id")
-    .eq("telegram_user_id", telegramUserId)
-    .is("revoked_at", null)
-    .maybeSingle();
+    .from("telegram_links").select("workspace_id, chat_id")
+    .eq("telegram_user_id", telegramUserId).eq("chat_id", chatId)
+    .is("revoked_at", null).maybeSingle();
 
   if (linkErr || !link) return null;
 
-  const { data: workspace } = await supabase
+  const { data: workspace, error: workspaceError } = await supabase
     .from("workspaces")
     .select("id, name, entitlement_type, state, operating_mode, paused_at")
     .eq("id", link.workspace_id)
     .single();
 
+  if (workspaceError || !workspace) return null;
   return { workspaceId: link.workspace_id, workspace };
 }
 
@@ -367,6 +314,7 @@ export async function handleTelegramMessage(
 ): Promise<CommandResponse> {
   const supabase = supabaseOverride || createServiceClient();
   const text = (ctx.text || "").trim();
+  if (ctx.chatType && ctx.chatType !== "private") return { replyText: "🔒 Nunuza commands are available only in your private chat with the bot." };
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
   // 1. /start with deep-link token
@@ -392,7 +340,7 @@ export async function handleTelegramMessage(
   }
 
   // 2. Resolve workspace
-  const resolved = await resolveWorkspace(ctx.telegramUserId, supabase);
+  const resolved = await resolveWorkspace(ctx.telegramUserId, ctx.chatId, supabase);
 
   if (!resolved) {
     return notLinkedResponse(appUrl);
@@ -406,6 +354,7 @@ export async function handleTelegramMessage(
     .from("telegram_links")
     .update({ last_interaction_at: new Date().toISOString() })
     .eq("telegram_user_id", ctx.telegramUserId)
+    .eq("chat_id", ctx.chatId)
     .is("revoked_at", null);
 
   // 3. Dispatch commands
@@ -479,12 +428,13 @@ export async function handleTelegramMessage(
   }
 
   if (text === "/pause") {
-    await supabase
+    const { error: pauseError } = await supabase
       .from("workspaces")
       .update({ paused_at: new Date().toISOString(), state: "paused" })
       .eq("id", workspaceId);
+    if (pauseError) return { replyText: "❌ I couldn't pause the agent because the workspace update failed. Please retry." };
 
-    await supabase.from("audit_events").insert({
+    const { error: pauseAuditError } = await supabase.from("audit_events").insert({
       workspace_id: workspaceId,
       actor_type: "telegram",
       action: "agent_paused",
@@ -492,6 +442,7 @@ export async function handleTelegramMessage(
       resource_id: workspaceId,
       safe_metadata: { source: "telegram_command" },
     });
+    if (pauseAuditError) console.error("[telegram] Pause audit write failed:", pauseAuditError.code || "database_error");
 
     return {
       replyText: "⏸️ *Agent Paused*\n\nAutonomous operations are paused\\. Send `/resume` to reactivate\\.",
@@ -505,15 +456,16 @@ export async function handleTelegramMessage(
   }
 
   if (text === "/resume") {
-    await supabase
+    const { error: resumeError } = await supabase
       .from("workspaces")
       .update({
         paused_at: null,
         state: workspace?.operating_mode === "autopilot" ? "active_autopilot" : "active_approval_required",
       })
       .eq("id", workspaceId);
+    if (resumeError) return { replyText: "❌ I couldn't resume the agent because the workspace update failed. Please retry." };
 
-    await supabase.from("audit_events").insert({
+    const { error: resumeAuditError } = await supabase.from("audit_events").insert({
       workspace_id: workspaceId,
       actor_type: "telegram",
       action: "agent_resumed",
@@ -521,6 +473,7 @@ export async function handleTelegramMessage(
       resource_id: workspaceId,
       safe_metadata: { source: "telegram_command" },
     });
+    if (resumeAuditError) console.error("[telegram] Resume audit write failed:", resumeAuditError.code || "database_error");
 
     return {
       replyText: "▶️ *Agent Resumed*\n\nAutonomous operations are now active\\.",
@@ -531,7 +484,7 @@ export async function handleTelegramMessage(
   }
 
   if (text === "/drafts") {
-    const { data: drafts } = await supabase
+    const { data: drafts, error: draftsError } = await supabase
       .from("content_posts")
       .select("id, internal_title, text, status, created_at")
       .eq("workspace_id", workspaceId)
@@ -539,6 +492,7 @@ export async function handleTelegramMessage(
       .order("created_at", { ascending: false })
       .limit(5);
 
+    if (draftsError) return { replyText: "❌ I couldn't load your drafts. Please try again." };
     if (!drafts || drafts.length === 0) {
       return {
         replyText: "📝 *No drafts awaiting review\\.*\n\nYour review queue is currently clear\\.",
@@ -577,6 +531,7 @@ export async function handleTelegramMessage(
       };
     }
     const shortId = parts[1].trim();
+    if (shortId.length < 8 || shortId.length > 36) return { replyText: "Please use at least the first 8 characters of the draft ID from /drafts." };
 
     if (!canPublishEntitlement(entitlement)) {
       return {
@@ -587,12 +542,15 @@ export async function handleTelegramMessage(
       };
     }
 
-    const { data: posts } = await supabase
+    const { data: matches, error: lookupError } = await supabase
       .from("content_posts")
       .select("id, status")
-      .eq("workspace_id", workspaceId);
-
-    const targetPost = (posts || []).find((p: any) => p.id.startsWith(shortId) || p.id === shortId);
+      .eq("workspace_id", workspaceId)
+      .like("id", `${shortId}%`)
+      .limit(2);
+    if (lookupError) return { replyText: "❌ I couldn't find that draft. Please retry." };
+    if ((matches || []).length > 1) return { replyText: "⚠️ That draft ID is ambiguous. Copy more characters from /drafts and retry." };
+    const targetPost = matches?.[0];
 
     if (!targetPost) {
       return {
@@ -645,14 +603,18 @@ export async function handleTelegramMessage(
     }
 
     const shortId = parts[1].trim();
-    const reason = parts.slice(2).join(" ").trim() || "Rejected via Telegram";
+    if (shortId.length < 8 || shortId.length > 36) return { replyText: "Please use at least the first 8 characters of the draft ID from /drafts." };
+    const reason = parts.slice(2).join(" ").trim().slice(0, 500) || "Rejected via Telegram";
 
-    const { data: posts } = await supabase
+    const { data: matches, error: lookupError } = await supabase
       .from("content_posts")
       .select("id, status")
-      .eq("workspace_id", workspaceId);
-
-    const targetPost = (posts || []).find((p: any) => p.id.startsWith(shortId) || p.id === shortId);
+      .eq("workspace_id", workspaceId)
+      .like("id", `${shortId}%`)
+      .limit(2);
+    if (lookupError) return { replyText: "❌ I couldn't find that draft. Please retry." };
+    if ((matches || []).length > 1) return { replyText: "⚠️ That draft ID is ambiguous. Copy more characters from /drafts and retry." };
+    const targetPost = matches?.[0];
 
     if (!targetPost) {
       return {
@@ -738,11 +700,7 @@ export async function handleTelegramMessage(
 // ─── Callback Query Handler ───────────────────────────────────────────────────
 
 export interface CallbackContext {
-  callbackQueryId: string;
-  telegramUserId: number;
-  chatId: number;
-  messageId: number;
-  data: string;
+  callbackQueryId: string; telegramUserId: number; chatId: number; messageId: number; data: string; chatType?: string;
 }
 
 export async function handleCallbackQuery(
@@ -752,11 +710,13 @@ export async function handleCallbackQuery(
   const supabase = supabaseOverride || createServiceClient();
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
-  // Always answer to remove loading spinner
+  // Dismiss the Telegram spinner immediately; this acknowledgement exposes no workspace data.
+  if (ctx.chatType && ctx.chatType !== "private") {
+    await answerCallbackQuery(ctx.callbackQueryId, "Use Nunuza in your private chat.");
+    return;
+  }
   await answerCallbackQuery(ctx.callbackQueryId);
-
-  // Resolve workspace — every action requires server-side auth
-  const resolved = await resolveWorkspace(ctx.telegramUserId, supabase);
+  const resolved = await resolveWorkspace(ctx.telegramUserId, ctx.chatId, supabase);
 
   if (!resolved) {
     await editTelegramMessage(
@@ -781,6 +741,7 @@ export async function handleCallbackQuery(
     .from("telegram_links")
     .update({ last_interaction_at: new Date().toISOString() })
     .eq("telegram_user_id", ctx.telegramUserId)
+    .eq("chat_id", ctx.chatId)
     .is("revoked_at", null);
 
   // ── Main Menu ──
@@ -802,7 +763,7 @@ export async function handleCallbackQuery(
 
     const statusFilter = data === "menu:approvals" ? ["needs_review"] : ["draft", "needs_review"];
 
-    const { data: drafts } = await supabase
+    const { data: drafts, error: draftsError } = await supabase
       .from("content_posts")
       .select("id, internal_title, text, status, created_at")
       .eq("workspace_id", workspaceId)
@@ -810,6 +771,10 @@ export async function handleCallbackQuery(
       .order("created_at", { ascending: false })
       .range(offset, offset + 4);
 
+    if (draftsError) {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, "❌ *Could not load drafts\\.* Please retry\\.", { inline_keyboard: [navRow()] });
+      return;
+    }
     if (!drafts || drafts.length === 0) {
       await editTelegramMessage(
         ctx.chatId,
@@ -1042,7 +1007,7 @@ export async function handleCallbackQuery(
 
   // ── Schedule / Publishing ──
   if (data === "menu:schedule") {
-    const { data: scheduled } = await supabase
+    const { data: scheduled, error: scheduleError } = await supabase
       .from("content_posts")
       .select("id, internal_title, scheduled_at, status")
       .eq("workspace_id", workspaceId)
@@ -1050,6 +1015,10 @@ export async function handleCallbackQuery(
       .order("scheduled_at", { ascending: true })
       .limit(5);
 
+    if (scheduleError) {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, "❌ *Could not load the schedule\\.* Please retry\\.", { inline_keyboard: [navRow()] });
+      return;
+    }
     if (!scheduled || scheduled.length === 0) {
       await editTelegramMessage(
         ctx.chatId,
@@ -1183,10 +1152,18 @@ export async function handleCallbackQuery(
       return;
     }
 
-    await supabase
+    const { data: canceledRows, error: cancelError } = await supabase
       .from("content_posts")
       .update({ status: "approved", scheduled_at: null })
-      .eq("id", postId);
+      .eq("id", postId)
+      .eq("workspace_id", workspaceId)
+      .eq("status", "scheduled")
+      .select("id");
+
+    if (cancelError || !canceledRows?.length) {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, "❌ *Could not cancel this schedule\\.* Refresh the schedule and try again\\.", { inline_keyboard: [[{ text: "📅 Schedule", callback_data: "menu:schedule" }]] });
+      return;
+    }
 
     const title = escapeMd((post.internal_title || "Post").slice(0, 40));
     await editTelegramMessage(
@@ -1203,23 +1180,30 @@ export async function handleCallbackQuery(
     const now = new Date();
     const currentPeriod = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
 
-    const { data: usage } = await supabase
+    const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
+    const { data: usage, error: usageError } = await supabase
       .from("usage_counters")
-      .select("counter_value")
+      .select("count")
       .eq("workspace_id", workspaceId)
-      .eq("period_key", currentPeriod)
+      .eq("metric", "draft_items_created")
+      .eq("period_start", periodStart)
       .maybeSingle();
 
-    const used = usage?.counter_value ?? 0;
+    if (usageError) {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, "❌ *Monthly usage is temporarily unavailable\\.* Please retry\\.", { inline_keyboard: [navRow()] });
+      return;
+    }
+    const used = usage?.count ?? 0;
 
     await editTelegramMessage(
       ctx.chatId,
       ctx.messageId,
-      `📈 *Monthly Report \\— ${escapeMd(currentPeriod)}*\n\n` +
+      `📈 *Monthly Draft Usage \\— ${escapeMd(currentPeriod)}*\n\n` +
       `• *Drafts Generated:* ${used} / 30\n` +
       `• *Daily Cap:* Max 1 post/day\n` +
       `• *Weekly Cap:* Max 7 posts/week\n` +
-      `• *Reset:* 1st of next month`,
+      `• *Reset:* 1st of next month\n\n` +
+      `_Usage counters only; LinkedIn audience analytics are not connected._`,
       { inline_keyboard: [navRow()] }
     );
     return;
@@ -1278,10 +1262,14 @@ export async function handleCallbackQuery(
 
   // ── Agent Pause (confirmed) ──
   if (data === "agent:pause_confirm") {
-    await supabase
+    const { error: pauseError } = await supabase
       .from("workspaces")
       .update({ paused_at: new Date().toISOString(), state: "paused" })
       .eq("id", workspaceId);
+    if (pauseError) {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, "❌ *Could not pause the agent\\.* Please retry\\.", { inline_keyboard: [navRow("menu:agent")] });
+      return;
+    }
 
     await supabase.from("audit_events").insert({
       workspace_id: workspaceId,
@@ -1308,13 +1296,17 @@ export async function handleCallbackQuery(
 
   // ── Agent Resume ──
   if (data === "agent:resume") {
-    await supabase
+    const { error: resumeError } = await supabase
       .from("workspaces")
       .update({
         paused_at: null,
         state: workspace?.operating_mode === "autopilot" ? "active_autopilot" : "active_approval_required",
       })
       .eq("id", workspaceId);
+    if (resumeError) {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, "❌ *Could not resume the agent\\.* Please retry\\.", { inline_keyboard: [navRow("menu:agent")] });
+      return;
+    }
 
     await supabase.from("audit_events").insert({
       workspace_id: workspaceId,
@@ -1393,8 +1385,8 @@ export async function sendTelegramMessage(
 ): Promise<{ ok: boolean; error?: string }> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || token.trim() === "") {
-    console.warn(`[telegram] sendTelegramMessage: TELEGRAM_BOT_TOKEN not configured. Message to ${chatId}: ${text}`);
-    return { ok: true };
+    console.error("[telegram] sendTelegramMessage: TELEGRAM_BOT_TOKEN is not configured.");
+    return { ok: false, error: "Telegram bot is not configured." };
   }
 
   try {
@@ -1411,10 +1403,11 @@ export async function sendTelegramMessage(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10_000),
     });
 
     const data = (await response.json()) as any;
-    if (!data.ok) {
+    if (!response.ok || !data.ok) {
       // Fallback to plain text on parse error
       if (data.description && typeof data.description === "string" && data.description.includes("can't parse entities")) {
         delete payload.parse_mode;
@@ -1423,6 +1416,7 @@ export async function sendTelegramMessage(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(10_000),
         });
         const retryData = (await retryRes.json()) as any;
         if (!retryData.ok) {
@@ -1436,8 +1430,8 @@ export async function sendTelegramMessage(
     }
     return { ok: true };
   } catch (err: any) {
-    console.error("[telegram] sendMessage exception:", err);
-    return { ok: false, error: err.message };
+    console.error("[telegram] sendMessage request failed:", err?.name || "UnknownError");
+    return { ok: false, error: "Telegram API request failed." };
   }
 }
 
@@ -1491,12 +1485,22 @@ export async function registerBotCommands(): Promise<{ ok: boolean; description?
     { command: "help", description: "Show help & commands" },
   ];
 
-  const res = await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ commands }),
-  });
-  return await res.json();
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ commands }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const result: any = await res.json();
+    if (!res.ok || !result?.ok) {
+      return { ok: false, description: result?.description || `Telegram API returned HTTP ${res.status}.` };
+    }
+    return { ok: true };
+  } catch (err: any) {
+    console.error("[telegram] setMyCommands request failed:", err?.name || "UnknownError");
+    return { ok: false, description: "Telegram API request failed." };
+  }
 }
 
 // ─── Webhook Management ───────────────────────────────────────────────────────

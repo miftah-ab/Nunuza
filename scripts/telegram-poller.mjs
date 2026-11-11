@@ -37,6 +37,11 @@ if (!BOT_TOKEN) {
   process.exit(1);
 }
 
+if (WEBHOOK_SECRET.length < 32) {
+  console.error("[telegram-poller] TELEGRAM_WEBHOOK_SECRET must be configured with at least 32 characters.");
+  process.exit(1);
+}
+
 let isRunning = true;
 let offset = 0;
 
@@ -92,6 +97,7 @@ async function init() {
 
 async function poll() {
   while (isRunning) {
+    let forwardFailed = false;
     try {
       const url = `https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=${offset}&timeout=20`;
       const response = await fetch(url);
@@ -99,9 +105,9 @@ async function poll() {
 
       if (!data.ok) {
         if (data.error_code === 409) {
-          // Conflict: delete webhook and retry
-          console.log("⚠️ [telegram-poller] Conflict with webhook. Resetting webhook...");
-          await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/deleteWebhook`);
+          console.error("[telegram-poller] Polling conflicts with an active webhook. Stopping without changing webhook configuration.");
+          isRunning = false;
+          break;
         } else {
           console.warn("⚠️ [telegram-poller] getUpdates returned error:", data.description);
         }
@@ -111,12 +117,7 @@ async function poll() {
 
       const updates = data.result || [];
       for (const update of updates) {
-        offset = update.update_id + 1;
-        const msg = update.message;
-        const from = msg?.from ? `@${msg.from.username || msg.from.first_name}` : "Unknown";
-        const text = msg?.text || "[media/non-text]";
-
-        console.log(`📩 [telegram-poller] Update ${update.update_id} from ${from}: "${text.slice(0, 50)}"`);
+        console.log(`[telegram-poller] Forwarding update ${update.update_id}.`);
 
         // Forward to local Next.js route
         try {
@@ -130,12 +131,18 @@ async function poll() {
           });
 
           if (!webhookRes.ok) {
-            console.error(`❌ [telegram-poller] Webhook returned HTTP ${webhookRes.status}`);
+            console.error(`[telegram-poller] Local webhook returned HTTP ${webhookRes.status}; update will be retried.`);
+            forwardFailed = true;
+            break;
           }
+          offset = update.update_id + 1;
         } catch (fwdErr) {
-          console.error(`❌ [telegram-poller] Failed forwarding update ${update.update_id} to ${TARGET_URL}:`, fwdErr.message);
+          console.error(`[telegram-poller] Failed forwarding update ${update.update_id}; update will be retried:`, fwdErr?.name || "NetworkError");
+          forwardFailed = true;
+          break;
         }
       }
+      if (forwardFailed) await new Promise((r) => setTimeout(r, 1000));
     } catch (err) {
       console.warn("⚠️ [telegram-poller] Polling connection error:", err.message);
       await new Promise((r) => setTimeout(r, 2500));
