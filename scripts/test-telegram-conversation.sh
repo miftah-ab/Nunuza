@@ -24,6 +24,9 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN; END IF;
 END $$;
 
+CREATE TABLE public.agent_jobs (id UUID PRIMARY KEY);
+CREATE TABLE public.content_posts (id UUID PRIMARY KEY);
+CREATE TABLE public.content_post_versions (id UUID PRIMARY KEY);
 CREATE TABLE public.telegram_links (
   id UUID PRIMARY KEY,
   workspace_id UUID NOT NULL,
@@ -77,11 +80,28 @@ REVOKED=$(q -c "SELECT public.claim_telegram_conversation(101,202,'20000000-0000
 # Privileged RPCs must be callable only by the service role.
 CLAIM_SIG="public.claim_telegram_conversation(bigint,bigint,uuid,uuid)"
 RELEASE_SIG="public.release_telegram_conversation(bigint,bigint,uuid,uuid,jsonb)"
+COMPLETE_SIG="public.complete_telegram_conversation_job(bigint,bigint,uuid,uuid,jsonb)"
 [ "$(q -c "SELECT has_function_privilege('anon','$CLAIM_SIG','EXECUTE')")" = "f" ] || fail "anon must not claim Telegram conversations"
 [ "$(q -c "SELECT has_function_privilege('authenticated','$CLAIM_SIG','EXECUTE')")" = "f" ] || fail "authenticated must not claim Telegram conversations"
 [ "$(q -c "SELECT has_function_privilege('service_role','$CLAIM_SIG','EXECUTE')")" = "t" ] || fail "service_role must claim Telegram conversations"
 [ "$(q -c "SELECT has_function_privilege('anon','$RELEASE_SIG','EXECUTE')")" = "f" ] || fail "anon must not release Telegram conversations"
 [ "$(q -c "SELECT has_function_privilege('authenticated','$RELEASE_SIG','EXECUTE')")" = "f" ] || fail "authenticated must not release Telegram conversations"
 [ "$(q -c "SELECT has_function_privilege('service_role','$RELEASE_SIG','EXECUTE')")" = "t" ] || fail "service_role must release Telegram conversations"
+[ "$(q -c "SELECT has_function_privilege('anon','$COMPLETE_SIG','EXECUTE')")" = "f" ] || fail "anon must not complete Telegram conversations"
+[ "$(q -c "SELECT has_function_privilege('authenticated','$COMPLETE_SIG','EXECUTE')")" = "f" ] || fail "authenticated must not complete Telegram conversations"
+[ "$(q -c "SELECT has_function_privilege('service_role','$COMPLETE_SIG','EXECUTE')")" = "t" ] || fail "service_role must complete Telegram conversations"
+
+# The worker completion RPC is fenced by the pending job ID.
+JOB_ID='50000000-0000-0000-0000-000000000001'
+q -c "INSERT INTO public.agent_jobs(id) VALUES ('$JOB_ID')" >/dev/null
+q -c "UPDATE public.telegram_links SET conversation_state=jsonb_build_object('pendingJobId','$JOB_ID') WHERE telegram_user_id=303" >/dev/null
+DONE=$(q -c "SELECT public.complete_telegram_conversation_job(303,404,'20000000-0000-0000-0000-000000000002','$JOB_ID'::uuid,'{\"activePostId\":\"60000000-0000-0000-0000-000000000001\"}'::jsonb)")
+[ "$DONE" = "t" ] || fail "matching job must complete conversation state"
+STALE=$(q -c "SELECT public.complete_telegram_conversation_job(303,404,'20000000-0000-0000-0000-000000000002',gen_random_uuid(),'{}'::jsonb)")
+[ "$STALE" = "f" ] || fail "stale job must not overwrite conversation state"
+q -c "INSERT INTO public.content_posts(id,telegram_job_id) VALUES ('60000000-0000-0000-0000-000000000001','$JOB_ID')" >/dev/null
+if psql -v ON_ERROR_STOP=1 -c "INSERT INTO public.content_posts(id,telegram_job_id) VALUES ('60000000-0000-0000-0000-000000000002','$JOB_ID')" >/dev/null 2>&1; then
+  fail "one generation job must not create duplicate posts"
+fi
 
 echo "ALL TELEGRAM CONVERSATION MIGRATION CHECKS PASSED"
