@@ -53,3 +53,50 @@ REVOKE ALL ON FUNCTION public.claim_telegram_conversation(BIGINT, BIGINT, UUID, 
 REVOKE ALL ON FUNCTION public.release_telegram_conversation(BIGINT, BIGINT, UUID, UUID, JSONB) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.claim_telegram_conversation(BIGINT, BIGINT, UUID, UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION public.release_telegram_conversation(BIGINT, BIGINT, UUID, UUID, JSONB) TO service_role;
+
+
+-- Durable job provenance makes create/revision retries idempotent.
+ALTER TABLE public.content_posts
+  ADD COLUMN IF NOT EXISTS telegram_job_id UUID REFERENCES public.agent_jobs(id) ON DELETE SET NULL;
+ALTER TABLE public.content_post_versions
+  ADD COLUMN IF NOT EXISTS telegram_job_id UUID REFERENCES public.agent_jobs(id) ON DELETE SET NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS content_posts_telegram_job_unique
+  ON public.content_posts (telegram_job_id)
+  WHERE telegram_job_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS content_post_versions_telegram_job_unique
+  ON public.content_post_versions (telegram_job_id)
+  WHERE telegram_job_id IS NOT NULL;
+
+CREATE OR REPLACE FUNCTION public.complete_telegram_conversation_job(
+  p_telegram_user_id BIGINT,
+  p_chat_id BIGINT,
+  p_workspace_id UUID,
+  p_job_id UUID,
+  p_state JSONB
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_updated INTEGER;
+BEGIN
+  UPDATE public.telegram_links
+     SET conversation_state = COALESCE(p_state, '{}'::jsonb),
+         conversation_lock_token = NULL,
+         conversation_lock_expires_at = NULL
+   WHERE telegram_user_id = p_telegram_user_id
+     AND chat_id = p_chat_id
+     AND workspace_id = p_workspace_id
+     AND revoked_at IS NULL
+     AND conversation_state->>'pendingJobId' = p_job_id::TEXT;
+
+  GET DIAGNOSTICS v_updated = ROW_COUNT;
+  RETURN v_updated = 1;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.complete_telegram_conversation_job(BIGINT, BIGINT, UUID, UUID, JSONB) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.complete_telegram_conversation_job(BIGINT, BIGINT, UUID, UUID, JSONB) TO service_role;
