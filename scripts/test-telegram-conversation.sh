@@ -24,11 +24,12 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN; END IF;
 END $$;
 
+CREATE TYPE public.job_status AS ENUM ('queued','running','succeeded','failed_retryable','failed_terminal','canceled','needs_reconciliation');
 CREATE TABLE public.agent_jobs (
   id UUID PRIMARY KEY,
   workspace_id UUID NOT NULL,
   job_type TEXT NOT NULL,
-  status TEXT NOT NULL,
+  status public.job_status NOT NULL,
   idempotency_key TEXT NOT NULL,
   payload JSONB NOT NULL DEFAULT '{}'::JSONB,
   scheduled_for TIMESTAMPTZ NOT NULL DEFAULT NOW(),
