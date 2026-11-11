@@ -47,11 +47,15 @@ export async function generateMcpToken(
   const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
 
   // 2. Revoke any previous active credentials for this workspace
-  await supabase
+  const { error: revokeError } = await supabase
     .from("mcp_credentials")
     .update({ revoked_at: new Date().toISOString() })
     .eq("workspace_id", workspaceId)
     .is("revoked_at", null);
+
+  if (revokeError) {
+    throw new Error(`Failed to revoke previous MCP credential: ${revokeError.message}`);
+  }
 
   // 3. Insert new credential record
   const { data, error } = await supabase
