@@ -21,6 +21,7 @@ export interface McpTokenRecord {
   scopes: string[];
   lastUsedAt?: string | null;
   createdAt: string;
+  expiresAt?: number;
 }
 
 export interface GeneratedMcpToken {
@@ -265,5 +266,6 @@ export async function verifyMcpOAuthToken(
     scopes,
     lastUsedAt: null,
     createdAt: new Date(Number(claims.iat || Date.now() / 1000) * 1000).toISOString(),
+    expiresAt,
   };
 }
