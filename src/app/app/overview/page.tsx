@@ -164,7 +164,7 @@ export default async function OverviewPage() {
 
   const linkedin = linkedinRes.data;
   const linkedinExpiry = linkedin?.expires_at ? new Date(linkedin.expires_at).getTime() : null;
-  const linkedinExpired = linkedinExpiry !== null && linkedinExpiry <= Date.now();
+  const linkedinExpired = linkedin?.status === "expired" || (linkedinExpiry !== null && linkedinExpiry <= Date.now());
   const linkedinConnected = linkedin?.status === "connected" && !linkedinExpired;
   const linkedinProfileName = (linkedin?.metadata as Record<string, unknown> | null)?.name;
   const latestJob = latestJobRes.data;
