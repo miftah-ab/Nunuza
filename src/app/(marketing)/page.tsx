@@ -4,7 +4,7 @@ import Link from "next/link";
 import {
   ArrowRight, AudioLines, CalendarDays, Check, CheckCircle2, Clock3,
   Linkedin, MessageCircle, Mic, MoreHorizontal, Send, Sparkles,
-  WandSparkles, Workflow,
+  WandSparkles,
 } from "lucide-react";
 
 export const metadata: Metadata = {
@@ -17,9 +17,6 @@ export const metadata: Metadata = {
   },
 };
 
-const ink = "#202522";
-const muted = "#68716C";
-const green = "#174C3C";
 
 function Avatar({ label = "N", tone = "green", size = "md" }: {
   label?: string; tone?: "green" | "cream" | "dark"; size?: "sm" | "md" | "lg";
@@ -99,7 +96,7 @@ function HeroVisual() {
           <div className="mt-2 rounded-xl bg-[#EAF2EE] px-3 py-2 text-[9px] text-[#174C3C]">Updated. Take a look.</div>
         </div>
       </div>
-      <div className="col-span-5 col-start-2 row-start-1 z-20 -mt-[-205px] sm:-mt-[-255px]">
+      <div className="absolute bottom-0 left-[8%] z-20 w-[48%]">
         <div className="flex items-center gap-2.5 rounded-[15px] border border-[#E4E9E3] bg-white px-3 py-3 shadow-[0_16px_45px_-32px_rgba(23,76,60,.4)]">
           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#EAF2EE] text-[#174C3C]"><Check size={14} /></span>
           <div><p className="text-[9px] font-semibold text-[#303832]">Ready for your review</p><p className="mt-0.5 text-[8px] text-[#929A93]">You stay in control of every post</p></div>
