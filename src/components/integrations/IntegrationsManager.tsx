@@ -216,7 +216,6 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
       setCopiedKey(true);
       setTimeout(() => setCopiedKey(false), 2000);
     } else {
-    } else {
       setCopiedUrl(true);
       setTimeout(() => setCopiedUrl(false), 2000);
     }
