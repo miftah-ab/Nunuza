@@ -45,12 +45,12 @@ function escapeMarkdownV2(value: string): string {
 export function isRevisionRequest(text: string, hasActiveDraft: boolean): boolean {
   if (!hasActiveDraft) return false;
   const value = text.trim().toLocaleLowerCase();
-  if (/^\\/(new|cancel)\\b/.test(value)) return false;
+  if (/^\/(new|cancel)\b/.test(value)) return false;
   // An active draft is the conversational context. Unless the user clearly
   // asks for a separate post/topic, treat follow-up language as a revision.
   // This avoids creating accidental extra drafts for requests like
   // "I don't like this opening" or "the example needs more detail".
-  if (/\\b(new post|another post|different topic|write (?:me )?(?:a )?(?:new )?post|create (?:me )?(?:a )?(?:new )?post|draft a post|generate a post|post about|write about|start a new post|start over)\\b/.test(value)) {
+  if (/\b(new post|another post|different topic|write (?:me )?(?:a )?(?:new )?post|create (?:me )?(?:a )?(?:new )?post|draft a post|generate a post|post about|write about|start a new post|start over)\b/.test(value)) {
     return false;
   }
   return true;
