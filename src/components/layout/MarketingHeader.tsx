@@ -5,63 +5,25 @@ import { useState } from "react";
 import { Menu, X } from "lucide-react";
 import { Logo } from "@/components/layout/Logo";
 
-const navLinks = [
-  { label: "How it works", href: "/#how-it-works" },
-  { label: "Your context", href: "/#context-heading" },
-  { label: "Telegram & MCP", href: "/#interfaces-heading" },
-  { label: "Pricing", href: "/pricing" },
-];
-
 export function MarketingHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
   const closeMenu = () => setMenuOpen(false);
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-border bg-white/95 backdrop-blur-md">
+    <header className="sticky top-0 z-50 w-full border-b border-[#E7EBE6] bg-white/95 backdrop-blur-md">
       <div className="container-page">
         <div className="flex h-[68px] items-center justify-between">
           <Logo height={29} />
-          <nav aria-label="Main navigation" className="hidden items-center gap-7 md:flex">
-            {navLinks.map((link) => (
-              <Link key={link.href} href={link.href} className="text-[13px] font-medium text-ink-secondary transition-colors hover:text-forest">
-                {link.label}
-              </Link>
-            ))}
-          </nav>
-          <div className="hidden items-center gap-5 md:flex">
-            <Link href="/login" className="text-[13px] font-medium text-ink-secondary transition-colors hover:text-ink">Sign in</Link>
-            <Link href="/login" id="header-cta" className="btn-primary px-4 py-2.5 text-[13px]">
-              Meet Nunuza <span aria-hidden="true">↗</span>
-            </Link>
+          <div className="hidden items-center gap-6 md:flex">
+            <Link href="/login" className="text-[13px] font-medium text-[#68716C] transition-colors hover:text-[#202522]">Log in</Link>
+            <Link href="/login" className="inline-flex items-center gap-2 rounded-full bg-[#174C3C] px-5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#103B2F]">Message Nunuza <span aria-hidden="true">↗</span></Link>
           </div>
-          <button
-            type="button"
-            id="mobile-menu-toggle"
-            aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
-            aria-expanded={menuOpen}
-            aria-controls="mobile-menu"
-            className="btn-ghost p-2 md:hidden"
-            onClick={() => setMenuOpen((open) => !open)}
-          >
+          <button type="button" aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"} aria-expanded={menuOpen} aria-controls="mobile-menu" className="btn-ghost p-2 md:hidden" onClick={() => setMenuOpen((open) => !open)}>
             {menuOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
           </button>
         </div>
       </div>
-      {menuOpen && (
-        <nav id="mobile-menu" aria-label="Mobile navigation" className="animate-fade-in border-t border-border bg-white shadow-lg shadow-ink/5 md:hidden">
-          <div className="container-page flex flex-col gap-1 py-3">
-            {navLinks.map((link) => (
-              <Link key={link.href} href={link.href} onClick={closeMenu} className="rounded-lg px-3 py-3 text-sm font-medium text-ink-secondary transition-colors hover:bg-offwhite hover:text-forest">
-                {link.label}
-              </Link>
-            ))}
-            <div className="mt-2 grid grid-cols-2 gap-2 border-t border-border pt-3">
-              <Link href="/login" onClick={closeMenu} className="btn-secondary justify-center text-sm">Sign in</Link>
-              <Link href="/login" onClick={closeMenu} className="btn-primary justify-center text-sm">Meet Nunuza</Link>
-            </div>
-          </div>
-        </nav>
-      )}
+      {menuOpen && <nav id="mobile-menu" aria-label="Mobile navigation" className="animate-fade-in border-t border-[#E7EBE6] bg-white shadow-lg shadow-ink/5 md:hidden"><div className="container-page flex flex-col gap-1 py-3"><Link href="/login" onClick={closeMenu} className="rounded-lg px-3 py-3 text-sm font-medium text-[#68716C] hover:bg-[#F8F8F5]">Log in</Link><Link href="/login" onClick={closeMenu} className="mt-2 inline-flex justify-center rounded-full bg-[#174C3C] px-5 py-3 text-sm font-semibold text-white">Message Nunuza</Link></div></nav>}
     </header>
   );
 }
