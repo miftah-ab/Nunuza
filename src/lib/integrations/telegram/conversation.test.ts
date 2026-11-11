@@ -37,6 +37,13 @@ class FakeQuery {
         (!this.filters.telegram_job_id || item.telegram_job_id === this.filters.telegram_job_id) &&
         (!this.filters.workspace_id || item.workspace_id === this.filters.workspace_id)
       );
+      if (row && this.operation === "update") {
+        if ((this.filters.status && row.status !== this.filters.status) ||
+            (this.filters.version !== undefined && row.version !== this.filters.version)) {
+          return Promise.resolve({ data: null, error: null });
+        }
+        Object.assign(row, this.payload);
+      }
       return Promise.resolve({ data: row ?? null, error: null });
     }
     if (this.table === "content_post_versions") {
@@ -243,6 +250,70 @@ describe("Telegram conversational content", () => {
     expect(result.status).toBe("failed_terminal");
     expect(db.rpcCalls).toContain("reserve_draft_usage");
     expect(db.rpcCalls).toContain("release_draft_usage");
+  });
+
+
+  it("revises the active draft and appends a version instead of creating another post", async () => {
+    vi.mocked(aiService.generateDraft).mockResolvedValue({
+      ...generation,
+      text: "A stronger revised LinkedIn post with a concrete example.",
+      internalTitle: "A stronger lesson",
+    });
+    const db = new FakeDb();
+    db.conversationState = {
+      activePostId: "post-existing-123",
+      topic: "Hiring lessons",
+      pendingJobId: "job-revision-123",
+    };
+    db.posts.push({
+      id: "post-existing-123",
+      workspace_id: "workspace-1",
+      text: "The original LinkedIn draft.",
+      internal_title: "Hiring lessons",
+      pillar: "Founder lessons",
+      version: 1,
+      status: "draft",
+    });
+    const now = new Date().toISOString();
+    const job = {
+      id: "job-revision-123",
+      workspace_id: "workspace-1",
+      job_type: "telegram_content_generation",
+      status: "running",
+      idempotency_key: "telegram-content-987656",
+      payload: {
+        telegramUserId: 111,
+        chatId: 222,
+        ownerUserId: "user-1",
+        text: "I don't like the opening. Make it more specific.",
+        mode: "revision",
+        activePostId: "post-existing-123",
+        topic: "Hiring lessons",
+        pillar: "Founder lessons",
+      },
+      scheduled_for: now,
+      started_at: now,
+      finished_at: null,
+      attempt_count: 1,
+      max_attempts: 3,
+      lease_until: new Date(Date.now() + 60_000).toISOString(),
+      correlation_id: "correlation-revision",
+      last_error_code: null,
+      safe_error_message: null,
+      created_at: now,
+      updated_at: now,
+    } as AgentJob;
+
+    const result = await executeTelegramContentJob(job, db);
+
+    expect(result.success).toBe(true);
+    expect(db.posts).toHaveLength(1);
+    expect(db.posts[0].text).toBe("A stronger revised LinkedIn post with a concrete example.");
+    expect(db.posts[0].version).toBe(2);
+    expect(db.versions).toHaveLength(1);
+    expect(db.versions[0].change_source).toBe("ai_revision");
+    expect(db.rpcCalls).not.toContain("reserve_draft_usage");
+    expect(db.audit[0].action).toBe("telegram_draft_revised");
   });
 
 });
