@@ -50,6 +50,22 @@ Until this gate passes, the Integrations page shows only: "Integration not enabl
 
 ---
 
+## Claude custom connector setup
+
+Claude supports remote MCP connectors with fixed request headers. Nunuza uses its existing workspace-scoped MCP credential for this flow; a separate OAuth authorization server is not required for the current API-key model.
+
+1. In Nunuza, open **Integrations** and generate an MCP key. Copy it immediately; the raw key is never shown again.
+2. In Claude, open [Customize → Connectors](https://claude.ai/settings/connectors) and add a custom connector.
+3. Set the connector name to **Nunuza** and the server URL to the workspace's `/api/mcp` endpoint.
+4. Choose **No sign in** and add a request header named `Authorization` with value `Bearer <your_nunuza_mcp_key>`.
+5. Save the connector and enable it in the Claude conversation's connectors menu.
+
+Claude connects to remote connectors from Anthropic's cloud infrastructure. The Nunuza endpoint must therefore be publicly reachable over HTTPS. Treat the bearer key as a workspace secret; revoke or rotate it from Nunuza if it is exposed.
+
+The connector setup UI does not imply that the full MCP v1.0.0 gate has passed. The supported TypeScript SDK, complete transport compatibility, and all gate checks listed above remain required before the gate can be marked complete.
+
+---
+
 ## Security requirements
 
 - Exactly one active MCP credential set per workspace in v1.
