@@ -19,6 +19,7 @@ import { createPost } from "@/lib/db/posts";
 import { getVoiceProfile, getContentStrategy, logAuditEvent } from "@/lib/db/workspace";
 import { createClient } from "@/lib/supabase/server";
 import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
+import { assertNoExcludedPhrase } from "@/lib/ai/exclusions";
 
 interface GenerateDraftBody {
   topic: string;
@@ -59,6 +60,13 @@ export async function POST(request: Request) {
       supabase.from("profiles").select("display_name").eq("id", workspace.owner_user_id).single(),
     ]);
 
+    // Enforce configured exclusions before generation and against the returned text.
+    assertNoExcludedPhrase(
+      [body.topic.trim(), body.pillar?.trim(), body.notes?.trim()].filter(Boolean).join(" "),
+      strategy?.exclusions,
+      "draft request"
+    );
+
     // 3. Generate draft using AI service
     const generationResult = await aiService.generateDraft({
       topic: body.topic.trim(),
@@ -89,6 +97,8 @@ export async function POST(request: Request) {
           }
         : undefined,
     });
+
+    assertNoExcludedPhrase(generationResult.text, strategy?.exclusions, "generated draft");
 
     // 4. Persist post to DB in draft status
     const post = await createPost(workspace.id, workspace.owner_user_id, {
