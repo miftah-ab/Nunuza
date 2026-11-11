@@ -1,193 +1,161 @@
-/**
- * Remote Model Context Protocol (MCP) HTTP Endpoint.
- *
- * Endpoint: POST /api/mcp
- *
- * Transport: JSON-RPC 2.0 over HTTP (Streamable / Request-Response).
- * Authentication: Authorization: Bearer <nunuza_mcp_...>
- *
- * Conforms to Model Context Protocol specification:
- * - initialize
- * - tools/list
- * - tools/call
- * - ping
- */
+import {
+  McpServer,
+  OAuthError,
+  OAuthErrorCode,
+  createMcpHandler,
+  getOAuthProtectedResourceMetadataUrl,
+  requireBearerAuth,
+  type AuthInfo,
+  type OAuthTokenVerifier,
+} from "@modelcontextprotocol/server";
+import * as z from "zod/v4";
+import { NextRequest } from "next/server";
+import {
+  MCP_TOOLS,
+  executeMcpTool,
+  getMcpToolsForScopes,
+  type McpToolDefinition,
+} from "@/lib/integrations/mcp/tools";
+import {
+  verifyMcpOAuthToken,
+  verifyMcpToken,
+  type McpTokenRecord,
+} from "@/lib/integrations/mcp/tokens";
 
-import { NextRequest, NextResponse } from "next/server";
-import { verifyMcpToken, verifyMcpOAuthToken } from "@/lib/integrations/mcp/tokens";
-import { getMcpToolsForScopes, executeMcpTool } from "@/lib/integrations/mcp/tools";
+export const runtime = "nodejs";
 
-const MCP_PROTOCOL_VERSION = "2024-11-05";
+type NunuzaAuthInfo = AuthInfo & {
+  workspaceId: string;
+  userId: string;
+};
 
-function jsonRpcError(id: any, code: number, message: string, data?: any, status = 200) {
-  return NextResponse.json(
-    {
-      jsonrpc: "2.0",
-      id: id ?? null,
-      error: { code, message, ...(data ? { data } : {}) },
-    },
-    { status, headers: { "MCP-Protocol-Version": MCP_PROTOCOL_VERSION } }
-  );
-}
+const verifier: OAuthTokenVerifier = {
+  async verifyAccessToken(token) {
+    const credential: McpTokenRecord | null = token.startsWith("nunuza_mcp_")
+      ? await verifyMcpToken(token)
+      : await verifyMcpOAuthToken(token);
 
-function jsonRpcSuccess(id: any, result: any) {
-  return NextResponse.json(
-    { jsonrpc: "2.0", id: id ?? null, result },
-    { headers: { "MCP-Protocol-Version": MCP_PROTOCOL_VERSION } }
-  );
-}
-
-export async function POST(req: NextRequest) {
-  const contentType = req.headers.get("content-type") || "";
-  const accept = req.headers.get("accept") || "";
-  if (!contentType.toLowerCase().includes("application/json")) {
-    return jsonRpcError(null, -32600, "Content-Type must be application/json.", undefined, 415);
-  }
-  if (!accept.toLowerCase().includes("application/json") || !accept.toLowerCase().includes("text/event-stream")) {
-    return jsonRpcError(null, -32600, "Accept must include application/json and text/event-stream.", undefined, 406);
-  }
-
-  // 1. Authenticate Bearer Token
-  const authHeader = req.headers.get("authorization") || "";
-  const tokenMatch = authHeader.match(/^Bearer\s+([A-Za-z0-9._~+\/-]+)$/i);
-
-  if (!tokenMatch) {
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin).replace(/\/$/, "");
-    return NextResponse.json(
-      { jsonrpc: "2.0", id: null, error: { code: -32001, message: "Unauthorized: connect using Claude OAuth." } },
-      {
-        status: 401,
-        headers: {
-          "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
-          "WWW-Authenticate": `Bearer realm="Nunuza MCP", resource_metadata="${appUrl}/.well-known/oauth-protected-resource/mcp"`,
-        },
-      }
-    );
-  }
-
-  const rawToken = tokenMatch[1];
-  const credential = rawToken.startsWith("nunuza_mcp_")
-    ? await verifyMcpToken(rawToken)
-    : await verifyMcpOAuthToken(rawToken);
-
-  if (!credential) {
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin).replace(/\/$/, "");
-    return NextResponse.json(
-      { jsonrpc: "2.0", id: null, error: { code: -32001, message: "Unauthorized: a valid Nunuza OAuth access token is required." } },
-      {
-        status: 401,
-        headers: {
-          "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
-          "WWW-Authenticate": `Bearer realm="Nunuza MCP", resource_metadata="${appUrl}/.well-known/oauth-protected-resource/mcp"`,
-        },
-      }
-    );
-  }
-
-  // 2. Parse JSON-RPC Payload
-  let body: any;
-  try {
-    body = await req.json();
-  } catch {
-    return jsonRpcError(null, -32700, "Parse error: Invalid JSON");
-  }
-
-  const { jsonrpc, id, method, params } = body || {};
-
-  if (jsonrpc !== "2.0" || !method) {
-    return jsonRpcError(id, -32600, "Invalid Request: Expected JSON-RPC 2.0 request with 'method'");
-  }
-
-  // Every post-initialize request, including notifications, carries the negotiated version.
-  if (method !== "initialize" && req.headers.get("MCP-Protocol-Version") !== MCP_PROTOCOL_VERSION) {
-    return jsonRpcError(id, -32600, "Missing or unsupported MCP-Protocol-Version.", undefined, 400);
-  }
-
-  // Notifications have no JSON-RPC id and must not receive a JSON-RPC response.
-  if (typeof method === "string" && method.startsWith("notifications/") && id === undefined) {
-    return new NextResponse(null, { status: 202 });
-  }
-
-  // 3. Dispatch Methods
-  try {
-    switch (method) {
-      case "initialize": {
-        return jsonRpcSuccess(id, {
-          protocolVersion: MCP_PROTOCOL_VERSION,
-          serverInfo: {
-            name: "nunuza-remote-mcp",
-            version: "1.0.0",
-          },
-          capabilities: {
-            tools: {
-              listChanged: false,
-            },
-          },
-        });
-      }
-
-      case "ping": {
-        return jsonRpcSuccess(id, {});
-      }
-
-      case "tools/list": {
-        // Return tools (approve_draft is strictly absent)
-        return jsonRpcSuccess(id, {
-          tools: getMcpToolsForScopes(credential.scopes),
-        });
-      }
-
-      case "tools/call": {
-        const { name, arguments: toolArgs } = params || {};
-        if (!name) {
-          return jsonRpcError(id, -32602, "Invalid params: 'name' is required for tools/call");
-        }
-
-        // Explicit check against forbidden approve_draft
-        if (name === "approve_draft") {
-          return jsonRpcError(
-            id,
-            -32601,
-            "Method prohibited: approve_draft is not permitted via MCP. Approvals require human action via web UI or Telegram."
-          );
-        }
-
-        try {
-          const toolResult = await executeMcpTool(name, toolArgs || {}, {
-            workspaceId: credential.workspaceId,
-            userId: credential.userId,
-            scopes: credential.scopes,
-          });
-          return jsonRpcSuccess(id, {
-            content: [{
-              type: "text",
-              text: typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult, null, 2),
-            }],
-          });
-        } catch (toolError: any) {
-          return jsonRpcSuccess(id, {
-            isError: true,
-            content: [{ type: "text", text: toolError?.message || "Tool execution failed." }],
-          });
-        }
-      }
-
-      default:
-        return jsonRpcError(id, -32601, `Method not found: ${method}`);
+    if (!credential) {
+      throw new OAuthError(
+        OAuthErrorCode.InvalidToken,
+        "The Nunuza access token is invalid, expired, or revoked."
+      );
     }
-  } catch (err: any) {
-    console.error(`[mcp] Error in method "${method}":`, err);
-    return jsonRpcError(id, -32000, err.message || "Internal server error");
+
+    return {
+      token,
+      clientId: credential.id,
+      scopes: credential.scopes,
+      // Legacy workspace keys have no expiry; they are checked against the
+      // credential table on every request and can be revoked immediately.
+      expiresAt: credential.expiresAt ?? 253402300799,
+      workspaceId: credential.workspaceId,
+      userId: credential.userId,
+    } as NunuzaAuthInfo;
+  },
+};
+
+function toZodInputSchema(tool: McpToolDefinition) {
+  const shape: Record<string, any> = {};
+  const required = new Set(tool.inputSchema.required || []);
+
+  for (const [name, property] of Object.entries(tool.inputSchema.properties)) {
+    let field =
+      property.type === "number" ? z.number().finite() : z.string();
+
+    if (Array.isArray(property.enum) && property.enum.length > 0) {
+      field = z.enum(property.enum as [string, ...string[]]);
+    }
+
+    if (!required.has(name)) field = field.optional();
+    shape[name] = field;
   }
+
+  return z.object(shape).strict();
 }
 
+function buildServer(context: { authInfo?: AuthInfo }) {
+  const authInfo = context.authInfo as NunuzaAuthInfo | undefined;
+  if (!authInfo?.workspaceId || !authInfo.userId) {
+    throw new Error("Authenticated Nunuza workspace context is missing.");
+  }
 
-/** This endpoint is stateless and does not open server-sent event streams. */
-export async function GET() {
-  return new NextResponse(null, { status: 405, headers: { Allow: "POST" } });
+  const server = new McpServer({
+    name: "nunuza-remote-mcp",
+    version: "1.0.0",
+  });
+
+  const allowedTools = getMcpToolsForScopes(authInfo.scopes);
+  for (const tool of allowedTools) {
+    server.registerTool(
+      tool.name,
+      {
+        description: tool.description,
+        inputSchema: toZodInputSchema(tool),
+      },
+      async (args) => {
+        try {
+          const result = await executeMcpTool(
+            tool.name,
+            args as Record<string, any>,
+            {
+              workspaceId: authInfo.workspaceId,
+              userId: authInfo.userId,
+              scopes: authInfo.scopes,
+            }
+          );
+
+          return {
+            content: [{
+              type: "text" as const,
+              text: typeof result === "string" ? result : JSON.stringify(result, null, 2),
+            }],
+          };
+        } catch (error) {
+          return {
+            isError: true,
+            content: [{
+              type: "text" as const,
+              text: error instanceof Error ? error.message : "Tool execution failed.",
+            }],
+          };
+        }
+      }
+    );
+  }
+
+  // Fail closed if a future tool registry change accidentally exposes approvals.
+  if (MCP_TOOLS.some((tool) => tool.name === "approve_draft")) {
+    throw new Error("CRITICAL SECURITY VIOLATION: approve_draft must never be registered.");
+  }
+
+  return server;
 }
 
-/** Stateless sessions are not created, so there is no session to terminate. */
-export async function DELETE() {
-  return new NextResponse(null, { status: 405, headers: { Allow: "POST" } });
+const mcpHandler = createMcpHandler(buildServer);
+
+async function handleMcpRequest(request: NextRequest): Promise<Response> {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin;
+  const resourceUrl = new URL("/api/mcp", appUrl);
+  const gate = requireBearerAuth({
+    verifier,
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(resourceUrl),
+  });
+
+  const authInfo = await gate(request);
+  if (authInfo instanceof Response) return authInfo;
+
+  return mcpHandler.fetch(request, { authInfo });
+}
+
+export async function POST(request: NextRequest) {
+  return handleMcpRequest(request);
+}
+
+export async function GET(request: NextRequest) {
+  return handleMcpRequest(request);
+}
+
+export async function DELETE(request: NextRequest) {
+  return handleMcpRequest(request);
 }
