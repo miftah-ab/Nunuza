@@ -102,7 +102,7 @@ export interface UpsertStrategyInput {
   pillars?: unknown[];
   cadence_per_week?: number;
   preferred_days?: number[];
-  preferred_time?: string;
+  preferred_time?: string | null;
   timezone?: string;
   exclusions?: string[];
   cta_preferences?: string[];
@@ -135,6 +135,7 @@ export async function upsertContentStrategy(
       workspace_id: workspaceId,
       ...input,
       version: (existing?.version ?? 0) + 1,
+      updated_at: new Date().toISOString(),
     })
     .select()
     .single();
