@@ -82,6 +82,16 @@ class FakeDb {
   async rpc(name: string, args: any) {
     this.rpcCalls.push(name);
     if (name === "claim_telegram_conversation") return { data: { claimed: true, state: this.conversationState }, error: null };
+    if (name === "enqueue_telegram_content_job") {
+      const job = {
+        id: args.p_job_id, status: "queued", workspace_id: args.p_workspace_id,
+        job_type: "telegram_content_generation", idempotency_key: args.p_idempotency_key,
+        payload: args.p_payload,
+      };
+      this.jobs.push(job);
+      this.conversationState = { ...args.p_conversation_state, pendingJobId: args.p_job_id };
+      return { data: { queued: true, job_id: args.p_job_id, status: "queued" }, error: null };
+    }
     if (name === "release_telegram_conversation") {
       this.conversationState = args.p_state;
       return { data: true, error: null };
@@ -141,6 +151,7 @@ describe("Telegram conversational content", () => {
     expect(db.jobs).toHaveLength(1);
     expect(db.jobs[0].job_type).toBe("telegram_content_generation");
     expect(db.jobs[0].idempotency_key).toBe("telegram-content-987654");
+    expect(db.rpcCalls).toContain("enqueue_telegram_content_job");
     expect(db.jobs[0].payload.text).toContain("hiring carefully");
     expect(db.conversationState.pendingJobId).toBe(db.jobs[0].id);
     expect(aiService.generateDraft).not.toHaveBeenCalled();
