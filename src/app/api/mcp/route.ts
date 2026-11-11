@@ -135,6 +135,16 @@ function buildServer(context: { authInfo?: AuthInfo }) {
 const mcpHandler = createMcpHandler(buildServer);
 
 async function handleMcpRequest(request: NextRequest): Promise<Response> {
+  if (process.env.MCP_ENABLED !== "true") {
+    return Response.json(
+      { error: "The Nunuza MCP integration is not enabled." },
+      {
+        status: 503,
+        headers: { "Cache-Control": "no-store" },
+      }
+    );
+  }
+
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin;
   const resourceUrl = new URL(process.env.MCP_RESOURCE_URL || "/api/mcp", appUrl);
   const gate = requireBearerAuth({
