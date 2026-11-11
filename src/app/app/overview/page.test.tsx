@@ -76,7 +76,10 @@ describe("OverviewPage (Dashboard)", () => {
                 expect(col).toBe("workspace_id");
                 expect(val).toBe("ws-dash-test"); // Tenant isolation check
                 return {
-                  in: vi.fn().mockResolvedValue({ count: 0, error: null }),
+                  in: vi.fn().mockReturnValue({
+                    order: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue({ data: [], error: null }) }),
+                    then: (resolve: any) => resolve({ count: 0, error: null }),
+                  }),
                   eq: vi.fn().mockImplementation(() => ({
                     then: (resolve: (value: { count: number | null; error: null }) => void) => resolve({ count: 0, error: null }),
                     not: vi.fn().mockReturnValue({
@@ -133,7 +136,10 @@ describe("OverviewPage (Dashboard)", () => {
                 expect(col).toBe("workspace_id");
                 expect(val).toBe("ws-dash-test"); // Tenant isolation check
                 return {
-                  in: vi.fn().mockResolvedValue({ count: 4, error: null }),
+                  in: vi.fn().mockReturnValue({
+                    order: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue({ data: [], error: null }) }),
+                    then: (resolve: any) => resolve({ count: 4, error: null }),
+                  }),
                   eq: vi.fn().mockImplementation(() => ({
                     then: (resolve: (value: { count: number | null; error: null }) => void) => resolve({ count: 2, error: null }),
                     not: vi.fn().mockReturnValue({
@@ -241,7 +247,10 @@ describe("OverviewPage (Dashboard)", () => {
       from: vi.fn(() => ({
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({
-            in: vi.fn().mockResolvedValue({ count: 0, error: null }),
+            in: vi.fn().mockReturnValue({
+                    order: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue({ data: [], error: null }) }),
+                    then: (resolve: any) => resolve({ count: 0, error: null }),
+                  }),
             eq: vi.fn().mockImplementation(() => ({
                     then: (resolve: (value: { count: number | null; error: null }) => void) => resolve({ count: 0, error: null }),
                     not: vi.fn().mockReturnValue({
@@ -281,7 +290,10 @@ describe("OverviewPage (Dashboard)", () => {
       from: vi.fn(() => ({
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({
-            in: vi.fn().mockResolvedValue({ count: 1, error: null }),
+            in: vi.fn().mockReturnValue({
+                    order: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue({ data: [], error: null }) }),
+                    then: (resolve: any) => resolve({ count: 1, error: null }),
+                  }),
             eq: vi.fn().mockImplementation(() => ({
                     then: (resolve: (value: { count: number | null; error: null }) => void) => resolve({ count: 1, error: null }),
                     not: vi.fn().mockReturnValue({
