@@ -33,6 +33,7 @@ export interface DraftGenerationRequest {
   strategy?: ContentStrategyContext;
   userRole?: string;
   companyName?: string;
+  revision?: { previousDraft: string; instruction: string };
 }
 
 export interface DraftGenerationResult {
