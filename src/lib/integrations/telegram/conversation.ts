@@ -17,9 +17,9 @@ function escapeMarkdownV2(value: string): string {
 export function isRevisionRequest(text: string, hasActiveDraft: boolean): boolean {
   if (!hasActiveDraft) return false;
   const value = text.trim().toLocaleLowerCase();
-  if (/^\\/(new|cancel)\\b/.test(value)) return false;
-  if (/\\b(new post|another post|different topic|write a post|create a post|draft a post|generate a post|post about)\\b/.test(value)) return false;
-  return /\\b(edit|revise|rewrite|shorter|shorten|longer|expand|stronger|punchier|improve|change|replace|remove|add|less|more|simpler|simplify|try again|another angle|different angle|make it|turn it)\\b/.test(value);
+  if (/^\/(new|cancel)\b/.test(value)) return false;
+  if (/\b(new post|another post|different topic|write a post|create a post|draft a post|generate a post|post about)\b/.test(value)) return false;
+  return /\b(edit|revise|rewrite|shorter|shorten|longer|expand|stronger|punchier|improve|change|replace|remove|add|less|more|simpler|simplify|try again|another angle|different angle|make it|turn it)\b/.test(value);
 }
 
 function readConversationState(value: unknown): ConversationState {
