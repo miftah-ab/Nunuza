@@ -475,6 +475,29 @@ describe("Remote MCP Integration", () => {
       expect(credential?.scopes).toEqual(["read", "write"]);
     });
 
+    it("rejects OAuth tokens with a missing or incorrect MCP audience", async () => {
+      const { verifyMcpOAuthToken } = await import("./tokens");
+      const makeClient = (aud: string | undefined) => ({
+        auth: {
+          getClaims: async () => ({
+            data: {
+              claims: {
+                sub: "user-aaa",
+                client_id: "claude-client",
+                iss: "https://nunuza-test.supabase.co/auth/v1",
+                ...(aud ? { aud } : {}),
+                exp: Math.floor(Date.now() / 1000) + 300,
+              },
+            },
+            error: null,
+          }),
+        },
+      });
+
+      await expect(verifyMcpOAuthToken("header.payload.signature", makeClient(undefined))).resolves.toBeNull();
+      await expect(verifyMcpOAuthToken("header.payload.signature", makeClient("https://attacker.example/mcp"))).resolves.toBeNull();
+    });
+
     it("rejects tokens without an OAuth client identity", async () => {
       const { verifyMcpOAuthToken } = await import("./tokens");
       const supabase = {
