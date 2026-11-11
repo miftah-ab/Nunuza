@@ -204,7 +204,7 @@ describe("LinkedIn Client & Crypto Suite", () => {
           method: "POST",
           headers: expect.objectContaining({
             Authorization: `Bearer ${sampleToken}`,
-            "LinkedIn-Version": "202410",
+            "LinkedIn-Version": "202608",
             "X-Restli-Protocol-Version": "2.0.0",
             "Content-Type": "application/json",
           }),
