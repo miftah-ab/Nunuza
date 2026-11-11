@@ -14,7 +14,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { verifyMcpToken } from "@/lib/integrations/mcp/tokens";
+import { verifyMcpToken, verifyMcpOAuthToken } from "@/lib/integrations/mcp/tokens";
 import { getMcpToolsForScopes, executeMcpTool } from "@/lib/integrations/mcp/tools";
 
 const MCP_PROTOCOL_VERSION = "2024-11-05";
@@ -62,15 +62,21 @@ export async function POST(req: NextRequest) {
   }
 
   const rawToken = tokenMatch[1];
-  const credential = await verifyMcpToken(rawToken);
+  const credential = rawToken.startsWith("nunuza_mcp_")
+    ? await verifyMcpToken(rawToken)
+    : await verifyMcpOAuthToken(rawToken);
 
   if (!credential) {
-    return jsonRpcError(
-      null,
-      -32001,
-      "Unauthorized: Invalid, expired, or revoked MCP token.",
-      undefined,
-      401
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin).replace(/\\/$/, "");
+    return NextResponse.json(
+      { jsonrpc: "2.0", id: null, error: { code: -32001, message: "Unauthorized: a valid Nunuza OAuth access token is required." } },
+      {
+        status: 401,
+        headers: {
+          "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
+          "WWW-Authenticate": `Bearer realm="Nunuza MCP", resource_metadata="${appUrl}/.well-known/oauth-protected-resource/mcp"`,
+        },
+      }
     );
   }
 
