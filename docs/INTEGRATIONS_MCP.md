@@ -83,7 +83,7 @@ Supabase OAuth access tokens include a verified `client_id` claim. Nunuza valida
 
 ### Important gate status
 
-This OAuth path is an implementation in progress, not permission to enable MCP in production. The official MCP TypeScript SDK migration, audience-bound token validation, revocation behavior, cross-tenant tests, Claude interoperability testing, and all gate checks above must pass before `MCP_ENABLED=true` or before this integration is advertised as generally available. Legacy workspace API keys remain only for other MCP clients that cannot use OAuth; they are not part of Claude's setup.
+This OAuth path is an implementation in progress, not permission to enable MCP in production. The official MCP TypeScript SDK v2 now owns the Streamable HTTP transport and bearer-auth middleware. Audience-bound token validation, OAuth grant revocation from Nunuza, cross-tenant tests, hosted Supabase configuration, Claude interoperability testing, and all remaining gate checks above must pass before `MCP_ENABLED=true` or before this integration is advertised as generally available. Legacy workspace API keys remain only for other MCP clients that cannot use OAuth; they are not part of Claude's setup.
 
 ---
 
