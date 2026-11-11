@@ -3,11 +3,12 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import {
   ArrowRight, CalendarDays, Check, CheckCircle2, Clock3, Linkedin,
-  MessageCircle, Mic2, MoreHorizontal, Send, Sparkles, TrendingUp,
+  MessageCircle, MoreHorizontal, Send, Sparkles, TrendingUp,
 } from "lucide-react";
 import { PublishingCalendar } from "@/components/calendar/PublishingCalendar";
 import { ContentManager } from "@/components/content/ContentManager";
-import type { ContentPost, Workspace } from "@/types/database";
+import type { ContentPost, VoiceProfile, Workspace } from "@/types/database";
+import { VoiceEditor } from "@/components/voice/VoiceEditor";
 
 export const metadata: Metadata = {
   title: "Nunuza — Build your presence",
@@ -226,15 +227,24 @@ function ContentPreview() {
   );
 }
 
-function VoiceWorkflow() {
-  return <div className="mx-auto max-w-[620px] rounded-[24px] border border-[#E4E9E3] bg-white p-4 shadow-[0_28px_75px_-45px_rgba(23,76,60,.34)] sm:p-6">
-    <div className="flex items-center justify-between"><div className="flex items-center gap-2"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#EAF2EE] text-[#174C3C]"><Mic2 size={15} /></span><span className="text-[10px] font-semibold text-[#303832]">Voice note · 0:41</span></div><span className="text-[8px] text-[#929A93]">Example workflow</span></div>
-    <div className="my-5 flex h-9 items-center gap-[3px]">{Array.from({ length: 52 }, (_, i) => <span key={i} className="flex-1 rounded-full bg-[#C9DECE]" style={{ height: `${7 + ((i * 11) % 27)}px` }} />)}</div>
-    <div className="rounded-[16px] bg-[#F7F9F6] p-4"><p className="text-[10px] leading-[1.8] text-[#68716C]">“I want to talk about the moment we realized our users were struggling with something completely different from what we expected…”</p></div>
-    <div className="my-4 flex justify-center"><span className="rounded-full bg-[#EAF2EE] px-4 py-2 text-[8px] font-medium text-[#174C3C]">Nunuza shapes the thought into a draft</span></div>
-    <PostCard compact />
-    <div className="mt-4 grid grid-cols-3 gap-2">{[["01","Capture"],["02","Shape"],["03","Review"]].map(([n, label]) => <div key={n} className="rounded-xl bg-[#F5F7F4] px-2 py-3 text-center"><span className="mx-auto flex h-6 w-6 items-center justify-center rounded-full bg-[#EAF2EE] text-[9px] font-semibold text-[#174C3C]">{n}</span><p className="mt-2 text-[9px] font-semibold text-[#515A53]">{label}</p></div>)}</div>
-  </div>;
+function VoicePreview() {
+  const initialProfile = {
+    tone: "Direct, thoughtful, practical",
+    sentence_length: "Short and varied",
+    formality: "Conversational, professional",
+    phrases_use: ["Here’s what I learned", "The real problem was"],
+    phrases_avoid: ["Game changer", "Unlock your potential"],
+    exclusions: ["Unverified performance claims", "Generic motivational advice"],
+    sample_text: "I used to think shipping faster was the answer. Talking to customers changed that. The real work was understanding what they were struggling with.",
+    version: 3,
+    updated_at: new Date().toISOString(),
+  } as unknown as VoiceProfile;
+
+  return (
+    <div className="rounded-[22px] border border-[#E4E9E3] bg-white p-3 shadow-[0_28px_75px_-45px_rgba(23,76,60,.34)] sm:p-5">
+      <VoiceEditor initialProfile={initialProfile} preview />
+    </div>
+  );
 }
 
 function DifferencePreview() {
@@ -329,8 +339,8 @@ export default function HomePage() {
 
     <section className="border-y border-[#E7EBE6] bg-[#F8F8F5] py-20 md:py-28">
       <div className="container-page grid items-center gap-12 lg:grid-cols-[.8fr_1.2fr] lg:gap-20">
-        <SectionHeading eyebrow="The whole loop" description="Start with a rough thought or voice note. Nunuza helps shape it into a draft, you review it, and your next step stays clear.">You create. <span className="text-[#174C3C]">Nunuza keeps the work moving.</span></SectionHeading>
-        <VoiceWorkflow />
+        <SectionHeading eyebrow="Your voice profile" description="Set the tone, sentence length, phrases to use or avoid, and topics to exclude. Nunuza applies those preferences when shaping drafts.">Your voice, <span className="text-[#174C3C]">not a generic template.</span></SectionHeading>
+        <VoicePreview />
       </div>
     </section>
 
