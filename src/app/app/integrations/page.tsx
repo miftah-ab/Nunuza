@@ -37,12 +37,12 @@ export default async function IntegrationsPage() {
 
   // 3. Check MCP credential status
   const mcpStatus = await getMcpCredentialStatus(workspace.id, supabase);
-  const { data: oauthGrantData } = await supabase.auth.oauth.getUserGrants();
-  const oauthGrants = (oauthGrantData || []).map((grant: any) => ({
-    clientId: grant.client_id,
-    clientName: grant.client_name || "Authorized MCP client",
-    scopes: Array.isArray(grant.scopes) ? grant.scopes : [],
-    createdAt: grant.created_at,
+  const { data: oauthGrantData, error: oauthGrantError } = await supabase.auth.oauth.listGrants();
+  const oauthGrants = oauthGrantError ? [] : (oauthGrantData || []).map((grant) => ({
+    clientId: grant.client.client_id,
+    clientName: grant.client.client_name || "Authorized MCP client",
+    scopes: grant.scopes,
+    createdAt: grant.granted_at,
   }));
 
   // Determine enabled gates (BED-07, BED-09, BED-11)
