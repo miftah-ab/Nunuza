@@ -690,13 +690,15 @@ export async function handleTelegramMessage(
     };
   }
 
-  // Fallback
-  return {
-    replyText:
-      `💬 *Received:* _${escapeMd(text.slice(0, 60))}_\n\n` +
-      `Use the menu to manage your content:`,
-    replyMarkup: mainMenuKeyboard(),
-  };
+  // Natural-language content requests reuse the workspace AI and draft pipeline.
+  return handleTelegramConversation({
+    telegramUserId: ctx.telegramUserId,
+    chatId: ctx.chatId,
+    workspaceId,
+    ownerUserId: workspace.owner_user_id,
+    text,
+    supabase,
+  });
 }
 
 // ─── Callback Query Handler ───────────────────────────────────────────────────
