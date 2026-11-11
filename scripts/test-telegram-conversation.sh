@@ -38,7 +38,8 @@ CREATE TABLE public.telegram_links (
 INSERT INTO public.telegram_links (id, workspace_id, telegram_user_id, chat_id, revoked_at)
 VALUES
   ('10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 101, 202, NULL),
-  ('10000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000002', 303, 404, NOW());
+  ('10000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000002', 303, 404, NOW()),
+  ('10000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000003', 303, 404, NULL);
 SQL
 
 q -f supabase/migrations/0017_telegram_conversational_content.sql >/dev/null
@@ -94,8 +95,8 @@ COMPLETE_SIG="public.complete_telegram_conversation_job(bigint,bigint,uuid,uuid,
 # The worker completion RPC is fenced by the pending job ID.
 JOB_ID='50000000-0000-0000-0000-000000000001'
 q -c "INSERT INTO public.agent_jobs(id) VALUES ('$JOB_ID')" >/dev/null
-q -c "UPDATE public.telegram_links SET conversation_state=jsonb_build_object('pendingJobId','$JOB_ID') WHERE telegram_user_id=303" >/dev/null
-DONE=$(q -c "SELECT public.complete_telegram_conversation_job(303,404,'20000000-0000-0000-0000-000000000002','$JOB_ID'::uuid,'{\"activePostId\":\"60000000-0000-0000-0000-000000000001\"}'::jsonb)")
+q -c "UPDATE public.telegram_links SET conversation_state=jsonb_build_object('pendingJobId','$JOB_ID') WHERE telegram_user_id=303 AND revoked_at IS NULL" >/dev/null
+DONE=$(q -c "SELECT public.complete_telegram_conversation_job(303,404,'20000000-0000-0000-0000-000000000003','$JOB_ID'::uuid,'{\"activePostId\":\"60000000-0000-0000-0000-000000000001\"}'::jsonb)")
 [ "$DONE" = "t" ] || fail "matching job must complete conversation state"
 STALE=$(q -c "SELECT public.complete_telegram_conversation_job(303,404,'20000000-0000-0000-0000-000000000002',gen_random_uuid(),'{}'::jsonb)")
 [ "$STALE" = "f" ] || fail "stale job must not overwrite conversation state"
