@@ -5,13 +5,11 @@ import {
   Activity,
   AlertCircle,
   Bot,
-  CheckCircle2,
   Clock3,
   FileText,
   RefreshCw,
   ShieldCheck,
   UserRound,
-  XCircle,
   type LucideIcon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
