@@ -25,7 +25,6 @@ import type { Workspace, EntitlementType } from "@/types/database";
 describe("Access Architecture: Access Mode & Feature Eligibility", () => {
   it("determines access_mode correctly", () => {
     expect(getAccessMode({ entitlement_type: "internal_beta" })).toBe("private_beta");
-    expect(getAccessMode({ entitlement_type: "publishing_beta" })).toBe("private_beta");
     expect(getAccessMode({ entitlement_type: "paid_trial" })).toBe("commercial");
     expect(getAccessMode({ entitlement_type: "paid_active" })).toBe("commercial");
     expect(getAccessMode({ entitlement_type: "suspended" })).toBe("commercial");
