@@ -144,6 +144,10 @@ export interface ContentPost {
   plan_id: string | null;
   agent_cycle_key?: string | null;
   telegram_job_id?: string | null;
+  image_path?: string | null;
+  image_prompt?: string | null;
+  image_model?: string | null;
+  image_generated_at?: string | null;
   text: string;
   internal_title: string | null;
   pillar: string | null;
