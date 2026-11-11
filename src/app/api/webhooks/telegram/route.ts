@@ -1,22 +1,9 @@
-/**
- * Telegram Bot Webhook Route Handler.
- *
- * Endpoint: POST /api/webhooks/telegram
- *
- * Security:
- * - Validates X-Telegram-Bot-Api-Secret-Token against TELEGRAM_WEBHOOK_SECRET.
- * - Deduplicates incoming update_id to prevent replay attacks.
- * - Executes commands tenant-scoped and fails closed.
- *
- * GET /api/webhooks/telegram
- * - Registers bot commands with Telegram's setMyCommands API.
- */
-
 import { NextRequest, NextResponse } from "next/server";
 import {
   verifyTelegramSecret,
-  isUpdateProcessed,
-  markUpdateProcessed,
+  claimTelegramWebhookUpdate,
+  completeTelegramWebhookUpdate,
+  failTelegramWebhookUpdate,
   handleTelegramMessage,
   handleCallbackQuery,
   sendTelegramMessage,
@@ -24,72 +11,90 @@ import {
 } from "@/lib/integrations/telegram/service";
 
 export async function POST(req: NextRequest) {
-  // 1. Verify Secret Token Header
-  const secretHeader = req.headers.get("x-telegram-bot-api-secret-token");
-  if (!verifyTelegramSecret(secretHeader)) {
-    return NextResponse.json({ error: "Unauthorized: Invalid webhook secret token" }, { status: 401 });
+  if (!verifyTelegramSecret(req.headers.get("x-telegram-bot-api-secret-token"))) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  let updateId: number | undefined;
+  let claimed = false;
+
   try {
-    const update = (await req.json()) as any;
-
-    if (!update || typeof update !== "object") {
-      return NextResponse.json({ ok: false, error: "Empty payload" }, { status: 400 });
+    const update = await req.json();
+    if (!update || typeof update !== "object" || Array.isArray(update)) {
+      return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
     }
 
-    const updateId = update.update_id;
-
-    // 2. Replay attack prevention: Deduplicate update_id
-    if (typeof updateId === "number") {
-      if (isUpdateProcessed(updateId)) {
-        return NextResponse.json({ ok: true, note: "Duplicate update skipped" });
-      }
-      markUpdateProcessed(updateId);
+    updateId = update.update_id;
+    if (!Number.isSafeInteger(updateId) || updateId < 0) {
+      return NextResponse.json({ ok: false, error: "Invalid update_id" }, { status: 400 });
     }
 
-    // 3. Handle callback_query (inline button presses)
-    if (update.callback_query) {
+    const claim = await claimTelegramWebhookUpdate(updateId);
+    if (claim === "completed") {
+      return NextResponse.json({ ok: true, duplicate: true });
+    }
+    if (claim === "processing") {
+      return NextResponse.json(
+        { ok: false, retry: true, error: "Update is already being processed." },
+        { status: 503, headers: { "Retry-After": "3" } }
+      );
+    }
+    claimed = true;
+
+    // Nunuza is a private workspace control plane. Group and channel updates
+    // are acknowledged but never allowed to read or mutate workspace data.
+    if (update.callback_query?.from && update.callback_query?.message) {
       const cq = update.callback_query;
-      if (cq.from && cq.message) {
+      if (cq.message.chat?.type === "private") {
         await handleCallbackQuery({
           callbackQueryId: cq.id,
           telegramUserId: cq.from.id,
           chatId: cq.message.chat.id,
           messageId: cq.message.message_id,
           data: cq.data || "",
+          chatType: cq.message.chat.type,
         });
       }
-      return NextResponse.json({ ok: true });
-    }
-
-    // 4. Handle message content (text commands)
-    const message = update.message;
-    if (message && message.from && message.chat && message.text) {
+    } else if (update.message?.from && update.message?.chat?.type === "private" && typeof update.message.text === "string") {
+      const message = update.message;
       const result = await handleTelegramMessage({
         telegramUserId: message.from.id,
         chatId: message.chat.id,
+        chatType: message.chat.type,
         text: message.text,
       });
 
       if (result.replyText) {
-        await sendTelegramMessage(message.chat.id, result.replyText, result.replyMarkup);
+        const delivery = await sendTelegramMessage(message.chat.id, result.replyText, result.replyMarkup);
+        if (!delivery.ok) {
+          // The command's database effects have already committed. Do not replay
+          // them just because Telegram could not deliver the response.
+          console.error("[telegram-webhook] Reply delivery failed for update", updateId, delivery.error || "unknown_error");
+        }
       }
     }
 
+    await completeTelegramWebhookUpdate(updateId);
     return NextResponse.json({ ok: true });
-  } catch (err: any) {
-    console.error("[telegram-webhook] Error processing update:", err);
-    // Return 200 to prevent Telegram retry spam on application-level error
-    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("[telegram-webhook] Update processing failed:", err instanceof Error ? err.message : "Unknown error");
+    if (claimed && updateId !== undefined) {
+      try {
+        await failTelegramWebhookUpdate(updateId);
+      } catch {
+        console.error("[telegram-webhook] Could not release failed update claim:", updateId);
+      }
+    }
+    return NextResponse.json({ ok: false, retry: true }, { status: 500 });
   }
 }
 
-/** GET /api/webhooks/telegram — registers bot slash commands with Telegram */
+/** GET /api/webhooks/telegram — registers bot slash commands with Telegram. */
 export async function GET(_req: NextRequest) {
   try {
     const result = await registerBotCommands();
-    return NextResponse.json(result);
-  } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
+    return NextResponse.json(result, { status: result.ok ? 200 : 502 });
+  } catch {
+    return NextResponse.json({ ok: false, error: "Could not register Telegram commands." }, { status: 502 });
   }
 }
