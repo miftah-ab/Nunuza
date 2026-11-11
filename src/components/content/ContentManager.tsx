@@ -282,19 +282,12 @@ export function ContentManager({
       const json = (await res.json()) as any;
       if (!res.ok) throw new Error(json.error ?? "Could not record your answer.");
 
-      const newStatus = json.data.status as PostStatus;
+      const updatedPost = json.data as Partial<ContentPost>;
+      if (!updatedPost.id || !updatedPost.status) {
+        throw new Error("The server did not return the saved reconciliation state.");
+      }
       setPosts((prev) =>
-        prev.map((p) =>
-          p.id === post.id
-            ? {
-                ...p,
-                status: newStatus,
-                ...(newStatus === "published"
-                  ? { published_at: new Date().toISOString() }
-                  : { scheduled_at: null }),
-              }
-            : p
-        )
+        prev.map((p) => p.id === post.id ? { ...p, ...updatedPost } : p)
       );
       setPublishFeedback({
         type: "success",
@@ -338,12 +331,12 @@ export function ContentManager({
         throw new Error(json.error ?? "Failed to publish post.");
       }
 
+      const publishedPost = json.data?.post as ContentPost | undefined;
+      if (!publishedPost || publishedPost.status !== "published" || !publishedPost.published_at) {
+        throw new Error("The publishing request returned without a confirmed saved publication. Refresh the post before trying again.");
+      }
       setPosts((prev) =>
-        prev.map((p) =>
-          p.id === post.id
-            ? { ...p, status: "published" as PostStatus, published_at: new Date().toISOString() }
-            : p
-        )
+        prev.map((p) => p.id === post.id ? publishedPost : p)
       );
       setPublishFeedback({
         type: "success",
@@ -474,6 +467,9 @@ export function ContentManager({
           { key: "approved", label: "Approved" },
           { key: "scheduled", label: "Scheduled" },
           { key: "published", label: "Published" },
+          { key: "rejected", label: "Rejected" },
+          { key: "failed", label: "Failed" },
+          { key: "needs_reconciliation", label: "Check LinkedIn" },
         ].map((tab) => (
           <button
             key={tab.key}
@@ -604,6 +600,14 @@ export function ContentManager({
                         <Lock size={11} /> Approval Gated
                       </span>
                     )
+                  )}
+                  {(post.status === "failed" || post.status === "rejected") && (
+                    <button
+                      onClick={() => handleUpdatePost({ status: "needs_review" }, post)}
+                      className="text-forest hover:underline font-medium text-xs"
+                    >
+                      Return to Review
+                    </button>
                   )}
                   {post.status === "approved" && (
                     canPublishPosts ? (
