@@ -15,7 +15,16 @@ import {
   revokeMcpToken,
 } from "@/lib/integrations/mcp/tokens";
 
+function mcpDisabledResponse() {
+  return NextResponse.json(
+    { error: "The Nunuza MCP integration is not enabled." },
+    { status: 503, headers: { "Cache-Control": "no-store" } }
+  );
+}
+
 export async function GET() {
+  if (process.env.MCP_ENABLED !== "true") return mcpDisabledResponse();
+
   try {
     const workspace = await requireWorkspace();
     const status = await getMcpCredentialStatus(workspace.id);
@@ -26,6 +35,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  if (process.env.MCP_ENABLED !== "true") return mcpDisabledResponse();
+
   try {
     const userId = await requireAuth();
     const workspace = await requireWorkspace();
@@ -54,6 +65,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE() {
+  if (process.env.MCP_ENABLED !== "true") return mcpDisabledResponse();
+
   try {
     const userId = await requireAuth();
     const workspace = await requireWorkspace();
