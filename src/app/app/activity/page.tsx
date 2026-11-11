@@ -320,10 +320,10 @@ export default async function ActivityPage({
         <section className="card p-7" role="alert">
           <div className="flex items-center gap-2 text-error font-semibold text-sm">
             <AlertCircle size={18} aria-hidden="true" />
-            Activity couldn't be loaded
+            Activity couldn&apos;t be loaded
           </div>
           <p className="text-sm text-ink-secondary mt-2">
-            We couldn't retrieve your workspace history. Please refresh the page. Your content and scheduled work are unaffected.
+            We couldn&apos;t retrieve your workspace history. Please refresh the page. Your content and scheduled work are unaffected.
           </p>
         </section>
       ) : filteredItems.length === 0 ? (
