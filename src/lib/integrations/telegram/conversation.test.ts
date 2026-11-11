@@ -122,6 +122,8 @@ describe("Telegram conversational content", () => {
     expect(isRevisionRequest("Make the opening stronger", true)).toBe(true);
     expect(isRevisionRequest("Make it shorter", false)).toBe(false);
     expect(isRevisionRequest("Write a new post about hiring", true)).toBe(false);
+    expect(isRevisionRequest("I don't like this opening", true)).toBe(true);
+    expect(isRevisionRequest("The example needs more detail", true)).toBe(true);
     expect(isRevisionRequest("/new", true)).toBe(false);
   });
 
@@ -201,4 +203,44 @@ describe("Telegram conversational content", () => {
     expect(db.conversationState.activePostId).toBe(db.posts[0].id);
     expect(db.conversationState.pendingJobId).toBeUndefined();
   });
+
+  it("releases a reserved draft slot when generation exhausts retries", async () => {
+    vi.mocked(aiService.generateDraft).mockRejectedValue(new Error("provider unavailable"));
+    const db = new FakeDb();
+    db.conversationState = { pendingJobId: "job-terminal-123" };
+    const now = new Date().toISOString();
+    const job = {
+      id: "job-terminal-123",
+      workspace_id: "workspace-1",
+      job_type: "telegram_content_generation",
+      status: "running",
+      idempotency_key: "telegram-content-987655",
+      payload: {
+        telegramUserId: 111,
+        chatId: 222,
+        ownerUserId: "user-1",
+        text: "Write a LinkedIn post about hiring carefully",
+        mode: "new",
+        topic: "Hiring carefully",
+      },
+      scheduled_for: now,
+      started_at: now,
+      finished_at: null,
+      attempt_count: 3,
+      max_attempts: 3,
+      lease_until: new Date(Date.now() + 60_000).toISOString(),
+      correlation_id: "correlation-terminal",
+      last_error_code: null,
+      safe_error_message: null,
+      created_at: now,
+      updated_at: now,
+    } as AgentJob;
+
+    const result = await executeTelegramContentJob(job, db);
+
+    expect(result.status).toBe("failed_terminal");
+    expect(db.rpcCalls).toContain("reserve_draft_usage");
+    expect(db.rpcCalls).toContain("release_draft_usage");
+  });
+
 });
