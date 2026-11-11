@@ -20,6 +20,7 @@ import { getVoiceProfile, getContentStrategy, logAuditEvent } from "@/lib/db/wor
 import { createClient } from "@/lib/supabase/server";
 import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
 import { assertNoExcludedPhrase } from "@/lib/ai/exclusions";
+import { assertVoiceConstraints, VoiceConstraintError } from "@/lib/ai/voice-constraints";
 
 interface GenerateDraftBody {
   topic: string;
@@ -60,6 +61,22 @@ export async function POST(request: Request) {
       supabase.from("profiles").select("display_name").eq("id", workspace.owner_user_id).single(),
     ]);
 
+    const voiceContext = voice
+      ? {
+          tone: voice.tone,
+          sentenceLength: voice.sentence_length,
+          formality: voice.formality,
+          phrasesUse: voice.phrases_use,
+          phrasesAvoid: voice.phrases_avoid,
+          sampleText: voice.sample_text,
+          exclusions: voice.exclusions,
+        }
+      : undefined;
+    assertVoiceConstraints(
+      [body.topic.trim(), body.pillar?.trim() ?? "", body.notes?.trim() ?? ""].join("\n"),
+      voiceContext
+    );
+
     // Enforce configured exclusions before generation and against the returned text.
     assertNoExcludedPhrase(
       [body.topic.trim(), body.pillar?.trim(), body.notes?.trim()].filter(Boolean).join(" "),
@@ -74,17 +91,7 @@ export async function POST(request: Request) {
       notes: body.notes?.trim(),
       targetLength: body.targetLength,
       userRole: profile?.display_name ?? undefined,
-      voiceProfile: voice
-        ? {
-            tone: voice.tone,
-            sentenceLength: voice.sentence_length,
-            formality: voice.formality,
-            phrasesUse: voice.phrases_use,
-            phrasesAvoid: voice.phrases_avoid,
-            sampleText: voice.sample_text,
-            exclusions: voice.exclusions,
-          }
-        : undefined,
+      voiceProfile: voiceContext,
       strategy: strategy
         ? {
             audience: strategy.audience,
@@ -99,6 +106,7 @@ export async function POST(request: Request) {
     });
 
     assertNoExcludedPhrase(generationResult.text, strategy?.exclusions, "generated draft");
+    assertVoiceConstraints(generationResult.text, voiceContext);
 
     // 4. Persist post to DB in draft status
     const post = await createPost(workspace.id, workspace.owner_user_id, {
@@ -153,6 +161,9 @@ export async function POST(request: Request) {
       },
     }, 201);
   } catch (err) {
+    if (err instanceof VoiceConstraintError) {
+      return NextResponse.json({ error: err.message }, { status: 422 });
+    }
     return apiError(err);
   }
 }
