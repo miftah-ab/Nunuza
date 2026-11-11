@@ -200,15 +200,15 @@ export function ContentManager({
       };
       if (!res.ok) throw new Error(json.error || (deleting ? "Failed to delete post." : "Failed to cancel schedule."));
       const updatedPost = json.data?.post;
-      if (!deleting && !updatedPost) {
-        throw new Error("The server did not return the updated post.");
-      }
       if (deleting) {
         setPosts((prev) => prev.filter((post) => post.id !== confirmation.postId));
         if (editingPost && editingPost.id === confirmation.postId) setEditingPost(null);
         setPublishFeedback({ type: "success", message: "Post removed from active content. Its record is retained for audit history." });
       } else {
-        setPosts((prev) => prev.map((post) => post.id === confirmation.postId ? updatedPost! : post));
+        if (!updatedPost) {
+          throw new Error("The server did not return the updated post.");
+        }
+        setPosts((prev) => prev.map((post) => post.id === confirmation.postId ? updatedPost : post));
         setPublishFeedback({ type: "success", message: "Scheduled publication canceled." });
       }
       setConfirmation(null);
