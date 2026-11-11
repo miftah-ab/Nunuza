@@ -50,19 +50,40 @@ Until this gate passes, the Integrations page shows only: "Integration not enabl
 
 ---
 
-## Claude custom connector setup
+## Claude OAuth connection
 
-Claude supports remote MCP connectors with fixed request headers. Nunuza uses its existing workspace-scoped MCP credential for this flow; a separate OAuth authorization server is not required for the current API-key model.
+Nunuza uses Supabase Auth's OAuth 2.1 authorization-code flow with PKCE. Claude receives a user-scoped access token only after the Nunuza account owner signs in and approves the requested connection. No workspace API key or fixed Authorization header is required for Claude.
 
-1. In Nunuza, open **Integrations** and generate an MCP key. Copy it immediately; the raw key is never shown again.
-2. In Claude, open [Customize → Connectors](https://claude.ai/settings/connectors) and add a custom connector.
-3. Set the connector name to **Nunuza** and the server URL to the workspace's `/api/mcp` endpoint.
-4. Choose **No sign in** and add a request header named `Authorization` with value `Bearer <your_nunuza_mcp_key>`.
-5. Save the connector and enable it in the Claude conversation's connectors menu.
+### Customer flow
 
-Claude connects to remote connectors from Anthropic's cloud infrastructure. The Nunuza endpoint must therefore be publicly reachable over HTTPS. Treat the bearer key as a workspace secret; revoke or rotate it from Nunuza if it is exposed.
+1. In Nunuza, open **Integrations → Connect Claude**.
+2. Claude currently requires a one-time **Add custom connector** action in its own settings. Open [Claude Connectors](https://claude.ai/settings/connectors).
+3. Add a custom connector named **Nunuza** and use the Nunuza `/api/mcp` endpoint shown in the app.
+4. Choose **Sign in now** or **Sign in when needed**. Choose Claude's published OAuth identity (recommended) or automatic client registration.
+5. Claude discovers the OAuth server from the protected-resource metadata, then redirects the user to Nunuza.
+6. The user signs in to Nunuza, reviews the access summary, and explicitly approves or denies.
+7. Supabase Auth completes the authorization-code + PKCE exchange and Claude calls the MCP endpoint with the issued access token.
 
-The connector setup UI does not imply that the full MCP v1.0.0 gate has passed. The supported TypeScript SDK, complete transport compatibility, and all gate checks listed above remain required before the gate can be marked complete.
+Anthropic brokers remote connector traffic from its cloud infrastructure. The MCP endpoint must be publicly reachable over HTTPS. Claude's custom-connector registration is a one-time action; Nunuza cannot create that connector inside the user's Claude account through a supported prefilled URL.
+
+### Supabase project setup
+
+The repository's local Supabase config enables the OAuth 2.1 server and dynamic client registration:
+
+```toml
+[auth.oauth_server]
+enabled = true
+authorization_url_path = "/oauth/consent"
+allow_dynamic_registration = true
+```
+
+For the hosted Supabase project, an administrator must also enable **Authentication → OAuth Server**, configure the authorization path as `/oauth/consent`, and enable dynamic client registration. Confirm the production Site URL points to the Nunuza deployment.
+
+Supabase OAuth access tokens include a verified `client_id` claim. Nunuza validates the token with Supabase Auth, derives the workspace from the token subject, and never accepts a workspace ID from Claude. The current Supabase OAuth server only supports the standard OIDC scopes; it does not support custom read/write OAuth scopes. Therefore the Nunuza consent screen explicitly describes the full MCP capabilities being granted. Do not advertise fine-grained OAuth scopes until Supabase supports them or Nunuza adds a separate authorization-grant layer.
+
+### Important gate status
+
+This OAuth path is an implementation in progress, not permission to enable MCP in production. The official MCP TypeScript SDK migration, audience-bound token validation, revocation behavior, cross-tenant tests, Claude interoperability testing, and all gate checks above must pass before `MCP_ENABLED=true` or before this integration is advertised as generally available. Legacy workspace API keys remain only for other MCP clients that cannot use OAuth; they are not part of Claude's setup.
 
 ---
 
