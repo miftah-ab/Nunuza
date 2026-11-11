@@ -45,9 +45,15 @@ function escapeMarkdownV2(value: string): string {
 export function isRevisionRequest(text: string, hasActiveDraft: boolean): boolean {
   if (!hasActiveDraft) return false;
   const value = text.trim().toLocaleLowerCase();
-  if (/^\/(new|cancel)\b/.test(value)) return false;
-  if (/\b(new post|another post|different topic|write a post|create a post|draft a post|generate a post|post about)\b/.test(value)) return false;
-  return /\b(edit|revise|rewrite|shorter|shorten|longer|expand|stronger|punchier|improve|change|replace|remove|add|less|more|simpler|simplify|try again|another angle|different angle|make it|turn it)\b/.test(value);
+  if (/^\\/(new|cancel)\\b/.test(value)) return false;
+  // An active draft is the conversational context. Unless the user clearly
+  // asks for a separate post/topic, treat follow-up language as a revision.
+  // This avoids creating accidental extra drafts for requests like
+  // "I don't like this opening" or "the example needs more detail".
+  if (/\\b(new post|another post|different topic|write (?:me )?(?:a )?(?:new )?post|create (?:me )?(?:a )?(?:new )?post|draft a post|generate a post|post about|write about|start a new post|start over)\\b/.test(value)) {
+    return false;
+  }
+  return true;
 }
 
 function readConversationState(value: unknown): ConversationState {
@@ -515,6 +521,12 @@ export async function executeTelegramContentJob(job: AgentJob, supabase: any): P
     }
 
     if (job.attempt_count >= job.max_attempts) {
+      // A failed new-draft job must not consume the monthly draft allowance.
+      // The reservation is idempotently released by the existing usage RPC.
+      if (payload.mode === "new") {
+        const { error: releaseError } = await supabase.rpc("release_draft_usage", { p_job_id: job.id });
+        if (releaseError) throw new Error("Could not release unused draft usage reservation.");
+      }
       await completeConversationJob(supabase, payload, job.workspace_id, job.id, stateWithoutPending(state));
       await sendConversationReply(payload.chatId, "I couldn't finish that content request after several attempts. Your existing draft is unchanged. Please retry or open /drafts.");
       return { jobId: job.id, success: false, status: "failed_terminal", retryable: false, error: "Telegram content job exhausted retries." };
