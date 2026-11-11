@@ -124,7 +124,7 @@ function helpReply(): TelegramConversationResult {
       "✍️ *Create a LinkedIn post by chatting with me.*\n\n" +
       "Tell me the topic, point of view, audience, or rough idea. I'll create a draft using your workspace strategy and voice profile.\n\n" +
       "Then ask me to revise it naturally, for example: _make the opening stronger_, _shorten it_, or _add a practical example_.\n\n" +
-      "Your draft is saved in Nunuza. I never publish from a chat-generation request. Use /new to start another post or /cancel to leave the current draft unchanged.",
+      "Your draft is saved in Nunuza. I never publish from a chat-generation request. Use /new to start another post. /cancel ends an idle chat session; an in-progress generation must finish first.",
   };
 }
 
