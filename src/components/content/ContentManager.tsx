@@ -36,6 +36,8 @@ interface ContentManagerProps {
   workspace: Workspace;
   usageCount: number;
   usageLimit: number;
+  /** Read-only rendering for the public product preview. */
+  preview?: boolean;
 }
 
 export function ContentManager({
@@ -43,6 +45,7 @@ export function ContentManager({
   workspace,
   usageCount,
   usageLimit,
+  preview = false,
 }: ContentManagerProps) {
   const [posts, setPosts] = useState<ContentPost[]>(() => initialPosts.filter((post) => post.status !== "canceled"));
   const [confirmation, setConfirmation] = useState<{ type: "delete" | "cancel-schedule"; postId: string } | null>(null);
@@ -397,6 +400,79 @@ export function ContentManager({
     isPrivateBeta ||
     workspace.entitlement_type === "paid_trial" ||
     workspace.entitlement_type === "paid_active";
+
+  // The marketing page uses the same content manager UI with illustrative,
+  // read-only sample records. No API actions are exposed in preview mode.
+  if (preview) {
+    return (
+      <section aria-label="Content manager preview" className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-ink">Content & Drafts</h2>
+            <p className="mt-1 text-xs text-ink-secondary">Your LinkedIn content pipeline</p>
+          </div>
+          <span className="rounded-md border border-border bg-surface px-2.5 py-1 text-[10px] font-medium text-ink-secondary">
+            Sample workspace
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-border pb-2">
+          {[
+            ["all", "All Posts"],
+            ["draft", "Drafts"],
+            ["needs_review", "Needs Review"],
+            ["approved", "Approved"],
+          ].map(([key, label]) => (
+            <span
+              key={key}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium ${
+                key === "all"
+                  ? "bg-forest text-white"
+                  : "text-ink-secondary"
+              }`}
+            >
+              {label}
+            </span>
+          ))}
+        </div>
+        <div className="grid gap-3">
+          {filteredPosts.slice(0, 3).map((post) => (
+            <article key={post.id} className="card flex flex-col gap-3 p-4 sm:p-5">
+              <div className="flex flex-wrap items-center gap-2">
+                {getStatusBadge(post.status)}
+                {post.pillar && (
+                  <span className="rounded bg-forest-light px-2 py-0.5 text-xs font-medium text-forest">
+                    {post.pillar}
+                  </span>
+                )}
+                <span className="text-xs text-ink-secondary">
+                  v{post.version} · {new Date(post.updated_at).toLocaleDateString()}
+                </span>
+              </div>
+              <h3 className="text-sm font-semibold text-ink">
+                {post.internal_title ?? "Untitled Post"}
+              </h3>
+              <p className="line-clamp-3 whitespace-pre-line text-xs leading-relaxed text-ink/90">
+                {post.text}
+              </p>
+              <div className="flex items-center justify-between border-t border-border/60 pt-2 text-xs">
+                <span className="text-ink-secondary">{post.text.length} / 3000 chars</span>
+                <span className="font-medium text-forest">
+                  {post.status === "draft"
+                    ? "Submit for Review"
+                    : post.status === "needs_review"
+                      ? "Awaiting approval"
+                      : "Approved"}
+                </span>
+              </div>
+            </article>
+          ))}
+        </div>
+        <p className="text-[10px] text-ink-muted">
+          Illustrative records · Same content workflow as the Nunuza workspace
+        </p>
+      </section>
+    );
+  }
 
   return (
     <div className="space-y-6">
