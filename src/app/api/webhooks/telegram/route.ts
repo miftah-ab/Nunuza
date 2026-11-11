@@ -66,6 +66,7 @@ export async function POST(req: NextRequest) {
         telegramUserId: message.from.id,
         chatId: message.chat.id,
         chatType: message.chat.type,
+        updateId,
         text: message.text,
       });
 
