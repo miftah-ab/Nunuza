@@ -36,8 +36,6 @@ export function BillingClient({ details }: BillingClientProps) {
   const getStatusBanner = () => {
     switch (details.entitlement) {
       case "internal_beta":
-      case "publishing_beta":
-      case "internal_test":
         return {
           label: "Private Beta — Full Access",
           className: "notice-info",
@@ -93,8 +91,7 @@ export function BillingClient({ details }: BillingClientProps) {
   const isPrivateBeta =
     details.accessMode === "private_beta" ||
     details.entitlement === "internal_beta" ||
-    details.entitlement === "publishing_beta" ||
-    details.entitlement === "internal_test";
+    details.entitlement === "internal_beta";
   const isPaid = details.entitlement === "paid_trial" || details.entitlement === "paid_active";
 
   return (
