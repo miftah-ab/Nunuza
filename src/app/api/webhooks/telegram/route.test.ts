@@ -37,7 +37,7 @@ describe("Telegram webhook", () => {
     vi.clearAllMocks();
     vi.mocked(verifyTelegramSecret).mockReturnValue(true);
     vi.mocked(claimTelegramWebhookUpdate).mockResolvedValue("claimed");
-    vi.mocked(completeTelegramWebhookUpdate).mockResolvedValue();
+    vi.mocked(completeTelegramWebhookUpdate).mockResolvedValue(undefined);
     vi.mocked(failTelegramWebhookUpdate).mockResolvedValue();
     vi.mocked(handleTelegramMessage).mockResolvedValue({ replyText: "Hello" });
     vi.mocked(sendTelegramMessage).mockResolvedValue({ ok: true });
