@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# Exercises migration 0017 against real PostgreSQL, including per-chat lock
+# concurrency, persisted state, link binding, and RPC privilege boundaries.
+set -euo pipefail
+
+: "${PGHOST:=localhost}"
+: "${PGUSER:=postgres}"
+: "${PGPASSWORD:=postgres}"
+: "${PGDATABASE:=postgres}"
+export PGHOST PGUSER PGPASSWORD PGDATABASE
+
+OUT="$(mktemp -d)"
+fail() { echo "FAIL: $*" >&2; exit 1; }
+q() { psql -v ON_ERROR_STOP=1 -At "$@"; }
+
+PGDATABASE=postgres q -c "DROP DATABASE IF EXISTS telegramconversationtest" -c "CREATE DATABASE telegramconversationtest" >/dev/null
+export PGDATABASE=telegramconversationtest
+
+q >/dev/null <<'SQL'
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon NOLOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN; END IF;
+END $$;
+
+CREATE TABLE public.telegram_links (
+  id UUID PRIMARY KEY,
+  workspace_id UUID NOT NULL,
+  telegram_user_id BIGINT NOT NULL,
+  chat_id BIGINT NOT NULL,
+  revoked_at TIMESTAMPTZ
+);
+
+INSERT INTO public.telegram_links (id, workspace_id, telegram_user_id, chat_id, revoked_at)
+VALUES
+  ('10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 101, 202, NULL),
+  ('10000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000002', 303, 404, NOW());
+SQL
+
+q -f supabase/migrations/0017_telegram_conversational_content.sql >/dev/null
+echo "migration applied"
+
+# Eight independent webhook turns race for one linked chat. Exactly one may
+# acquire the per-chat lease; all others must observe it as busy.
+WINNER=""
+for n in $(seq 1 8); do
+  (
+    TOKEN=$(printf "30000000-0000-0000-0000-%012d" "$n")
+    RESULT=$(psql -At -c "SELECT public.claim_telegram_conversation(101,202,'20000000-0000-0000-0000-000000000001','$TOKEN'::uuid)->>'claimed'")
+    if [ "$RESULT" = "true" ]; then echo "$TOKEN" > "$OUT/winner-$n.txt"; fi
+  ) &
+done
+wait
+WINNERS=$(find "$OUT" -name 'winner-*.txt' | wc -l | tr -d ' ')
+[ "$WINNERS" = "1" ] || fail "expected one chat lock owner across 8 concurrent requests, got $WINNERS"
+WINNER=$(cat "$OUT"/winner-*.txt)
+echo "ok: one per-chat turn lock owner across 8 concurrent requests"
+
+# A wrong chat/user cannot acquire the active workspace conversation.
+WRONG=$(q -c "SELECT public.claim_telegram_conversation(101,999,'20000000-0000-0000-0000-000000000001',gen_random_uuid())->>'reason'")
+[ "$WRONG" = "not_linked" ] || fail "wrong chat must not access conversation state"
+
+# The lock owner persists only compact context, then another turn can claim it.
+STATE='{"activePostId":"40000000-0000-0000-0000-000000000001","topic":"Hiring lessons","updatedAt":"2026-11-11T13:00:00Z"}'
+RELEASED=$(q -c "SELECT public.release_telegram_conversation(101,202,'20000000-0000-0000-0000-000000000001','$WINNER'::uuid,'$STATE'::jsonb)")
+[ "$RELEASED" = "t" ] || fail "current lock owner must persist conversation state"
+CLAIM=$(q -c "SELECT public.claim_telegram_conversation(101,202,'20000000-0000-0000-0000-000000000001',gen_random_uuid())")
+echo "$CLAIM" | grep -q '"claimed": true' || fail "released conversation must be claimable"
+echo "$CLAIM" | grep -q '"activePostId": "40000000-0000-0000-0000-000000000001"' || fail "active draft pointer must persist"
+
+# Revoke the link while a lock is held; subsequent claims must fail closed.
+q -c "UPDATE public.telegram_links SET revoked_at=NOW() WHERE telegram_user_id=101 AND chat_id=202" >/dev/null
+REVOKED=$(q -c "SELECT public.claim_telegram_conversation(101,202,'20000000-0000-0000-0000-000000000001',gen_random_uuid())->>'reason'")
+[ "$REVOKED" = "not_linked" ] || fail "revoked Telegram links must not claim conversation state"
+
+# Privileged RPCs must be callable only by the service role.
+CLAIM_SIG="public.claim_telegram_conversation(bigint,bigint,uuid,uuid)"
+RELEASE_SIG="public.release_telegram_conversation(bigint,bigint,uuid,uuid,jsonb)"
+[ "$(q -c "SELECT has_function_privilege('anon','$CLAIM_SIG','EXECUTE')")" = "f" ] || fail "anon must not claim Telegram conversations"
+[ "$(q -c "SELECT has_function_privilege('authenticated','$CLAIM_SIG','EXECUTE')")" = "f" ] || fail "authenticated must not claim Telegram conversations"
+[ "$(q -c "SELECT has_function_privilege('service_role','$CLAIM_SIG','EXECUTE')")" = "t" ] || fail "service_role must claim Telegram conversations"
+[ "$(q -c "SELECT has_function_privilege('anon','$RELEASE_SIG','EXECUTE')")" = "f" ] || fail "anon must not release Telegram conversations"
+[ "$(q -c "SELECT has_function_privilege('authenticated','$RELEASE_SIG','EXECUTE')")" = "f" ] || fail "authenticated must not release Telegram conversations"
+[ "$(q -c "SELECT has_function_privilege('service_role','$RELEASE_SIG','EXECUTE')")" = "t" ] || fail "service_role must release Telegram conversations"
+
+echo "ALL TELEGRAM CONVERSATION MIGRATION CHECKS PASSED"
