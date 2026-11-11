@@ -33,16 +33,8 @@ describe("entitlementPermits()", () => {
     expect(entitlementPermits("draft_only", "draft_only")).toBe(true);
   });
 
-  it("draft_only does NOT permit publishing_beta", () => {
-    expect(entitlementPermits("draft_only", "publishing_beta")).toBe(false);
-  });
-
   it("draft_only does NOT permit paid_trial", () => {
     expect(entitlementPermits("draft_only", "paid_trial")).toBe(false);
-  });
-
-  it("publishing_beta permits publishing_beta", () => {
-    expect(entitlementPermits("publishing_beta", "publishing_beta")).toBe(true);
   });
 
   it("paid_active permits paid_trial (same level)", () => {
@@ -54,7 +46,7 @@ describe("entitlementPermits()", () => {
   });
 
   it("paid_active permits all lower levels", () => {
-    const levels: EntitlementType[] = ["draft_only", "publishing_beta", "paid_trial"];
+    const levels: EntitlementType[] = ["draft_only", "paid_trial"];
     levels.forEach((level) => {
       expect(entitlementPermits("paid_active", level)).toBe(true);
     });
@@ -70,13 +62,9 @@ describe("assertEntitlement()", () => {
 
   it("does not throw when entitlement is sufficient", () => {
     expect(() => assertEntitlement(ws("paid_active"), "draft_only")).not.toThrow();
-    expect(() => assertEntitlement(ws("publishing_beta"), "publishing_beta")).not.toThrow();
   });
 
   it("throws EntitlementError when entitlement is insufficient", () => {
-    expect(() => assertEntitlement(ws("draft_only"), "publishing_beta")).toThrow(
-      EntitlementError
-    );
   });
 
   it("EntitlementError has code SUBSCRIPTION_INACTIVE", () => {
@@ -104,13 +92,13 @@ describe("assertEntitlementIn()", () => {
 
   it("throws when entitlement is NOT in the allowed list", () => {
     expect(() =>
-      assertEntitlementIn(ws("publishing_beta"), ["paid_trial", "paid_active"])
+      assertEntitlementIn(ws("internal_beta"), ["paid_trial", "paid_active"])
     ).toThrow(EntitlementError);
   });
 
-  it("throws for draft_only even if publishing_beta is allowed", () => {
+  it("throws for draft_only when only paid entitlements are allowed", () => {
     expect(() =>
-      assertEntitlementIn(ws("draft_only"), ["publishing_beta", "paid_active"])
+      assertEntitlementIn(ws("draft_only"), ["paid_trial", "paid_active"])
     ).toThrow(EntitlementError);
   });
 });
@@ -124,8 +112,6 @@ describe("canPublish()", () => {
     ["suspended",        false],
     ["expired",          false],
     ["internal_beta",    true],
-    ["publishing_beta",  true],
-    ["internal_test",    true],   // only for acceptance-test post
     ["paid_trial",       true],
     ["paid_active",      true],
   ];
