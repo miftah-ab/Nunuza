@@ -379,7 +379,7 @@ export async function handleTelegramMessage(
     return {
       replyText:
         `🤖 *Nunuza Agent* — ${escapeMd(workspace?.name || "Workspace")}\n\n` +
-        `Send me a message describing the LinkedIn post you want. I can create and revise drafts in your voice.\\n\\nUse the menu below to manage your LinkedIn content:`,
+        `Send me a message describing the LinkedIn post you want. I can create and revise drafts in your voice.\n\nUse the menu below to manage your LinkedIn content:`,
       replyMarkup: mainMenuKeyboard(),
     };
   }
@@ -764,7 +764,7 @@ export async function handleCallbackQuery(
     await editTelegramMessage(
       ctx.chatId,
       ctx.messageId,
-      "✍️ *Create a LinkedIn post*\\n\\nSend me your topic, rough idea, audience, or point of view. I will create a draft using your saved voice and strategy. Then you can ask for revisions naturally.\\n\\nNothing is published without a separate approval action.",
+      "✍️ *Create a LinkedIn post*\\n\\nSend me your topic, rough idea, audience, or point of view. I will create a draft using your saved voice and strategy. Then you can ask for revisions naturally.\n\nNothing is published without a separate approval action.",
       { inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]] }
     );
     return;
