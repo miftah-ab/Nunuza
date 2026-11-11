@@ -73,6 +73,10 @@ export function buildDraftPrompt(request: DraftGenerationRequest): {
     if (strategy.ctaPreferences && strategy.ctaPreferences.length > 0) {
       systemLines.push(`- Preferred CTA style: ${strategy.ctaPreferences.join(", ")}`);
     }
+    if (strategy.exclusions && strategy.exclusions.length > 0) {
+      systemLines.push(`- HARD STRATEGY EXCLUSIONS: ${JSON.stringify(strategy.exclusions)}`);
+      systemLines.push("- Do not create, recommend, reference, or indirectly frame content around these excluded topics or phrases.");
+    }
   }
 
   const userLines: string[] = [
@@ -94,7 +98,7 @@ export function buildPlanPrompt(request: PlanGenerationRequest): {
   systemPrompt: string;
   userPrompt: string;
 } {
-  const { periodStart, periodDays, cadencePerWeek, preferredDays = [], strategy, userRole } = request;
+  const { periodStart, periodDays, cadencePerWeek, preferredDays = [], preferredTime, strategy, userRole } = request;
 
   const systemPrompt = [
     "You are Nunuza's strategic content planner for solo founders.",
@@ -111,9 +115,13 @@ export function buildPlanPrompt(request: PlanGenerationRequest): {
     `Duration: ${periodDays} days`,
     `Cadence: ${cadencePerWeek} posts per week`,
     preferredDays.length > 0 ? `Preferred posting days (0=Sun, 6=Sat): ${preferredDays.join(", ")}` : "",
+    preferredTime ? `Preferred posting time in the strategy timezone: ${preferredTime}` : "",
     `Author role: ${userRole ?? "Founder"}`,
     `Content pillars: ${pillarsList}`,
     strategy.audience ? `Target audience: ${JSON.stringify(strategy.audience)}` : "",
+    strategy.goals?.length ? `Strategic goals: ${strategy.goals.join("; ")}` : "",
+    strategy.ctaPreferences?.length ? `Preferred calls to action: ${strategy.ctaPreferences.join("; ")}` : "",
+    strategy.exclusions?.length ? `HARD EXCLUSIONS: ${JSON.stringify(strategy.exclusions)}. Do not include these topics, phrases, or closely related angles in any proposed topic or angle.` : "",
     "",
     "Generate a balanced plan. Output JSON matching this exact structure:",
     JSON.stringify({
