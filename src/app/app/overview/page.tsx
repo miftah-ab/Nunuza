@@ -90,6 +90,13 @@ function humanize(value: string): string {
   return value.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 }
 
+function isLinkedInConnectionExpired(status: string | null | undefined, expiresAt: string | null | undefined): boolean {
+  if (status === "expired") return true;
+  if (!expiresAt) return false;
+  const expiry = new Date(expiresAt).getTime();
+  return !Number.isFinite(expiry) || expiry <= Date.now();
+}
+
 function workerJobLabel(job: { status: string; lease_until: string | null } | null): { label: string; detail: string; tone: string } {
   if (!job) return { label: "No worker jobs yet", detail: "No job has been recorded for this workspace.", tone: "text-ink-muted" };
   if (job.status === "running" && (!job.lease_until || !Number.isFinite(new Date(job.lease_until).getTime()) || new Date(job.lease_until).getTime() < Date.now())) {
@@ -163,8 +170,7 @@ export default async function OverviewPage() {
   const weeklyTarget = strategy?.cadence_per_week ?? null;
 
   const linkedin = linkedinRes.data;
-  const linkedinExpiry = linkedin?.expires_at ? new Date(linkedin.expires_at).getTime() : null;
-  const linkedinExpired = linkedin?.status === "expired" || (linkedinExpiry !== null && linkedinExpiry <= Date.now());
+  const linkedinExpired = isLinkedInConnectionExpired(linkedin?.status, linkedin?.expires_at);
   const linkedinConnected = linkedin?.status === "connected" && !linkedinExpired;
   const linkedinProfileName = (linkedin?.metadata as Record<string, unknown> | null)?.name;
   const latestJob = latestJobRes.data;
