@@ -78,6 +78,12 @@ enable_anonymous_sign_ins = false
 # Allow/disallow testing manual linking of accounts
 enable_manual_linking = false
 
+
+[auth.oauth_server]
+enabled = true
+authorization_url_path = "/oauth/consent"
+allow_dynamic_registration = true
+
 [auth.email]
 # Allow/disallow new user signups via email to your project.
 enable_signup = false   # Nunuza: Google-only signup; email is disabled
