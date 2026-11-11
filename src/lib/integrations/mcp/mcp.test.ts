@@ -449,6 +449,7 @@ describe("Remote MCP Integration", () => {
             },
             error: null,
           }),
+          getUser: async () => ({ data: { user: { id: "user-aaa" } }, error: null }),
         },
         from: () => ({
           select: () => ({
