@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { generateMcpToken, verifyMcpToken, revokeMcpToken, getMcpCredentialStatus } from "./tokens";
 import { MCP_TOOLS, executeMcpTool, getMcpToolsForScopes, validateMcpToolArguments } from "./tools";
 import crypto from "crypto";
