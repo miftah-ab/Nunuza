@@ -17,6 +17,7 @@ import {
   ForbiddenError,
   EntitlementError,
 } from "@/lib/auth/workspace";
+import { StrategyExclusionError } from "@/lib/ai/exclusions";
 
 export type ApiSuccess<T> = { data: T };
 export type ApiError = { error: string };
@@ -42,6 +43,9 @@ export function apiError(err: unknown): NextResponse<ApiError> {
   }
   if (err instanceof ForbiddenError) {
     return NextResponse.json({ error: err.message }, { status: 403 });
+  }
+  if (err instanceof StrategyExclusionError) {
+    return NextResponse.json({ error: err.message }, { status: 422 });
   }
   // Unexpected error — log server-side, return generic message
   console.error("[api] Unexpected error:", err);
