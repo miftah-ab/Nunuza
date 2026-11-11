@@ -9,7 +9,7 @@ import type { JobStatus } from "@/types/database";
 // Only jobs actually enqueued by the v1 background worker. Planning remains
 // user-invoked, reconciliation is user-confirmed, and LinkedIn metrics are
 // unavailable under the current restricted r_member_social permission.
-export type AgentJobType = "publish_post" | "agent_cycle";
+export type AgentJobType = "publish_post" | "agent_cycle" | "telegram_content_generation";
 
 export interface PublishPostPayload {
   postId: string;
