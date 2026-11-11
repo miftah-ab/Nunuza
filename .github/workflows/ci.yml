@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, "ci/**", "fix/**"]
+    branches: ["**"]
   pull_request:
 
 jobs:
@@ -15,9 +15,94 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Production dependency security audit
+        run: npm audit --omit=dev --audit-level=high
       - name: Type check
         run: npm run type-check
       - name: Lint
         run: npm run lint
       - name: Unit tests
         run: npm test
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Production build
+        run: npm run build
+
+
+  db-worker-safety:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - name: Atomic publishing and usage reservations against real Postgres
+        run: bash scripts/test-worker-safety.sh
+
+  db-claim-concurrency:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - name: Atomic job claim against real Postgres (8 parallel workers)
+        run: bash scripts/test-claim-concurrency.sh
+
+  db-entitlement-migration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - name: Entitlement migration and privilege-boundary test
+        run: bash scripts/test-entitlement-migration.sh

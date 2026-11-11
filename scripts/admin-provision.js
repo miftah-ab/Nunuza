@@ -224,17 +224,6 @@ async function main() {
         .update(updatePayload)
         .eq('id', workspaceId);
 
-      if (upErr && upErr.code === '22P02') {
-        // Fallback for pre-migration enum
-        console.log('Postgres enum internal_beta pending migration, using publishing_beta as DB persistence alias...');
-        const fallbackPayload = {
-          entitlement_type: 'publishing_beta',
-          updated_at: new Date().toISOString(),
-        };
-        const res = await supabase.from('workspaces').update(fallbackPayload).eq('id', workspaceId);
-        upErr = res.error;
-      }
-
       if (upErr) {
         console.error('Error updating workspace:', upErr.message);
         process.exit(1);

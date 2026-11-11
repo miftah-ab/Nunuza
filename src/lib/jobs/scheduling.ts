@@ -14,12 +14,14 @@ import {
   requireWorkspace,
   canSchedule,
   canPublish,
+  canUseAutopilot,
   EntitlementError,
   ForbiddenError,
 } from "@/lib/auth/workspace";
 import { getPost } from "@/lib/db/posts";
 import { logAuditEvent } from "@/lib/db/workspace";
-import { publishPostToLinkedIn } from "@/lib/integrations/linkedin/client";
+import { publishPostToLinkedIn, LinkedInPublishError } from "@/lib/integrations/linkedin/client";
+import { transitionJob, markJobRetryable, markJobTerminal } from "./state";
 import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
 import type { AgentJob, ContentPost } from "@/types/database";
 import type { JobExecutionResult, PublishPostPayload } from "./types";
@@ -294,49 +296,126 @@ export async function cancelScheduledPost(
 }
 
 /**
- * Safe Job Worker execution logic.
+ * Safe Job Worker execution logic for publish_post.
  *
- * Implements strict fail-closed behavior:
- * If LinkedIn publishing permissions are not yet approved, it halts safely
- * and transitions job status to 'failed_terminal' or 'blocked_integration'
- * with transparent user-facing explanations. NEVER fakes a live LinkedIn post.
+ * Fail-closed and duplicate-safe:
+ *  - re-checks entitlement, pause state, post eligibility and posting caps immediately
+ *    before publishing (never trusts what was true at scheduling time);
+ *  - claims the post with compare-and-set (-> 'publishing') so two executors can
+ *    never both publish it;
+ *  - never fabricates a LinkedIn post ID: an unconfirmed publication becomes
+ *    needs_reconciliation and is never retried automatically;
+ *  - a job is only 'succeeded' after the post row was durably saved as 'published'.
  */
+
+/** Compare-and-set a post's status. Returns true only if exactly this transition happened. */
+async function casPostStatus(
+  supabase: any,
+  workspaceId: string,
+  postId: string,
+  fromStatuses: string[],
+  patch: Record<string, unknown>
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("content_posts")
+    .update(patch)
+    .eq("id", postId)
+    .eq("workspace_id", workspaceId)
+    .in("status", fromStatuses)
+    .select("id");
+  if (error) {
+    console.error(`[publisher] Post ${postId} status update failed: ${error.message}`);
+    return false;
+  }
+  return Array.isArray(data) && data.length > 0;
+}
+
 export async function executePublishJob(
   job: AgentJob,
-  supabaseOverride?: any
+  supabaseOverride?: any,
+  options: { deferJobFinalization?: boolean } = {}
 ): Promise<JobExecutionResult> {
   const supabase = supabaseOverride || createServiceClient();
 
-  // 1. Acquire lease if not already acquired by caller
-  let claimedJob = job;
+  const fail = (
+    status: JobExecutionResult["status"],
+    retryable: boolean,
+    error: string
+  ): JobExecutionResult => ({ jobId: job.id, success: false, status, retryable, error });
+
+  // 1. Lease: queued jobs (inline Publish Now) are claimed here with compare-and-set.
+  //    Jobs from the runner/queue arrive already 'running' with a lease and attempt counted.
+  let attemptCount = job.attempt_count;
   if (job.status === "queued") {
-    const leaseUntil = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-    const { data, error: leaseErr } = await supabase
+    try {
+      attemptCount = job.attempt_count + 1;
+      const inlineLeaseUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      await transitionJob(supabase, job.id, "queued", "running", {
+        started_at: new Date().toISOString(),
+        lease_until: inlineLeaseUntil,
+        attempt_count: attemptCount,
+      }, { attemptCount: job.attempt_count });
+      job.status = "running";
+      job.attempt_count = attemptCount;
+      job.lease_until = inlineLeaseUntil;
+    } catch {
+      return fail(job.status, false, "Could not acquire job lease.");
+    }
+  }
+  const jobGuard = () => ({
+    attemptCount,
+    leaseUntil: job.lease_until ?? undefined,
+  });
+  const transitionOutcome = async (
+    to: "succeeded" | "needs_reconciliation" | "canceled",
+    patch: Record<string, unknown>
+  ) => {
+    if (options.deferJobFinalization) return;
+    await transitionJob(supabase, job.id, "running", to, patch, jobGuard());
+  };
+  const retryOutcome = async (message: string, errorCode: string) => {
+    if (options.deferJobFinalization) return;
+    await markJobRetryable(
+      supabase,
+      { id: job.id, attempt_count: attemptCount },
+      message,
+      errorCode,
+      "running",
+      jobGuard()
+    );
+  };
+  const terminalOutcome = async (message: string, errorCode: string) => {
+    if (options.deferJobFinalization) return;
+    await markJobTerminal(supabase, job.id, message, errorCode, "running", jobGuard());
+  };
+  const persistJobPayloadPatch = async (patch: Record<string, unknown>) => {
+    let query = supabase
       .from("agent_jobs")
       .update({
-        status: "running",
-        started_at: new Date().toISOString(),
-        lease_until: leaseUntil,
-        attempt_count: job.attempt_count + 1,
+        payload: { ...(job.payload as Record<string, unknown>), ...patch },
+        updated_at: new Date().toISOString(),
       })
       .eq("id", job.id)
-      .eq("status", "queued")
-      .select()
-      .single();
-
-    if (leaseErr || !data) {
-      return {
-        jobId: job.id,
-        success: false,
-        status: job.status,
-        retryable: false,
-        error: "Could not acquire job lease.",
-      };
+      .eq("status", "running")
+      .eq("attempt_count", attemptCount);
+    if (job.lease_until) query = query.eq("lease_until", job.lease_until);
+    const { data, error } = await query.select("id");
+    if (error || !Array.isArray(data) || data.length === 0) {
+      throw new Error(
+        `Could not persist LinkedIn publication evidence for job ${job.id}: ${error?.message ?? "lease ownership changed"}`
+      );
     }
-    claimedJob = data as AgentJob;
-  }
+    job.payload = { ...(job.payload as Record<string, unknown>), ...patch };
+  };
+  const maxAttempts = job.max_attempts || 3;
+  const payload = job.payload as unknown as PublishPostPayload & { autopilot?: boolean };
 
-  // 2. Fetch workspace & verify entitlement
+  const terminal = async (code: string, message: string) => {
+    await terminalOutcome(message, code);
+    return fail("failed_terminal", false, message);
+  };
+
+  // 2. Workspace entitlement (re-checked at execution time)
   const { data: workspace } = await supabase
     .from("workspaces")
     .select("*")
@@ -344,179 +423,214 @@ export async function executePublishJob(
     .single();
 
   if (!workspace || !canPublish(workspace)) {
-    // Fail-closed
-    await supabase
-      .from("agent_jobs")
-      .update({
-        status: "failed_terminal",
-        finished_at: new Date().toISOString(),
-        last_error_code: "ENTITLEMENT_INSUFFICIENT",
-        safe_error_message: "Workspace entitlement does not permit automated publishing.",
-      })
-      .eq("id", job.id);
-
-    return {
-      jobId: job.id,
-      success: false,
-      status: "failed_terminal",
-      retryable: false,
-      error: "Workspace entitlement does not permit publishing.",
-    };
+    return terminal("ENTITLEMENT_INSUFFICIENT", "Workspace entitlement does not permit publishing.");
   }
 
-  // 3. Fetch post
-  const payload = job.payload as unknown as PublishPostPayload;
-  if (!payload?.postId) {
-    await supabase
-      .from("agent_jobs")
-      .update({
-        status: "failed_terminal",
-        finished_at: new Date().toISOString(),
-        last_error_code: "INVALID_PAYLOAD",
-        safe_error_message: "Missing postId in job payload.",
-      })
-      .eq("id", job.id);
+  if (
+    typeof payload?.postId !== "string" || !payload.postId.trim() ||
+    (payload.workspaceId !== undefined && payload.workspaceId !== job.workspace_id) ||
+    (payload.userId !== undefined && typeof payload.userId !== "string") ||
+    (payload.targetProvider !== undefined && payload.targetProvider !== "linkedin") ||
+    (payload.scheduledFor !== undefined &&
+      (typeof payload.scheduledFor !== "string" || !Number.isFinite(Date.parse(payload.scheduledFor)))) ||
+    (payload.autopilot !== undefined && typeof payload.autopilot !== "boolean")
+  ) {
+    return terminal("INVALID_PAYLOAD", "Publishing job payload is incomplete or inconsistent.");
+  }
+  if (payload.userId !== undefined && payload.userId !== workspace.owner_user_id) {
+    return terminal("INVALID_PAYLOAD", "Publishing job owner does not match the workspace owner.");
+  }
 
-    return {
-      jobId: job.id,
-      success: false,
-      status: "failed_terminal",
-      retryable: false,
-      error: "Missing postId in job payload.",
-    };
+  if (payload.autopilot === true && (!canUseAutopilot(workspace) || workspace.state !== "active_autopilot")) {
+    return terminal("AUTOPILOT_NOT_ENABLED", "Autopilot is no longer enabled for this workspace.");
+  }
+
+  // 3. Payload + post
+  if (!payload?.postId) {
+    return terminal("INVALID_PAYLOAD", "Missing postId in job payload.");
   }
 
   const { data: post } = await supabase
     .from("content_posts")
     .select("*")
     .eq("id", payload.postId)
+    .eq("workspace_id", job.workspace_id)
     .single();
 
   if (!post) {
-    await supabase
-      .from("agent_jobs")
-      .update({
-        status: "failed_terminal",
-        finished_at: new Date().toISOString(),
-        last_error_code: "POST_NOT_FOUND",
-        safe_error_message: `Post ${payload.postId} not found.`,
-      })
-      .eq("id", job.id);
-
-    return {
-      jobId: job.id,
-      success: false,
-      status: "failed_terminal",
-      retryable: false,
-      error: `Post ${payload.postId} not found.`,
-    };
+    return terminal("POST_NOT_FOUND", `Post ${payload.postId} not found.`);
   }
 
-  // 4. Execute publishing via LinkedIn Client (BED-03)
-  try {
-    const result = await publishPostToLinkedIn({
-      workspaceId: job.workspace_id,
-      text: post.text,
-      supabaseOverride: supabase,
+  // 4. Pause state: a paused agent never publishes. The post returns to 'approved'.
+  if (workspace.paused_at) {
+    await casPostStatus(supabase, job.workspace_id, post.id, ["scheduled"], { status: "approved", scheduled_at: null });
+    await transitionOutcome("canceled", {
+      finished_at: new Date().toISOString(),
+      lease_until: null,
+      last_error_code: "WORKSPACE_PAUSED",
+      safe_error_message: "Agent is paused. The post was not published. Resume and reschedule it.",
     });
+    return fail("canceled", false, "Agent is paused. The post was not published.");
+  }
 
-    // Success! Update post and job
-    await supabase
-      .from("content_posts")
-      .update({
-        status: "published",
-        published_at: result.publishedAt,
-        linkedin_post_id: result.linkedinPostId,
-      })
-      .eq("id", post.id);
-
-    await supabase
-      .from("agent_jobs")
-      .update({
-        status: "succeeded",
-        finished_at: new Date().toISOString(),
-        safe_error_message: null,
-      })
-      .eq("id", job.id);
-
-    await logAuditEvent({
-      workspaceId: job.workspace_id,
-      actorType: "system",
-      action: "publish_post",
-      resourceType: "content_post",
-      resourceId: post.id,
-      safeMetadata: {
-        linkedinPostId: result.linkedinPostId,
-        jobId: job.id,
-      },
+  // 5. Recover a publication already durably confirmed by a previous worker.
+  // A lease may expire after LinkedIn succeeds but before the original worker
+  // finalizes its job. Never cancel or republish a post already stored as live.
+  if (post.status === "published" && typeof post.linkedin_post_id === "string" && post.linkedin_post_id.startsWith("urn:li:")) {
+    await transitionOutcome("succeeded", {
+      finished_at: new Date().toISOString(),
+      lease_until: null,
+      safe_error_message: null,
     });
-
-    notifyWorkspaceTelegram(job.workspace_id, {
-      text:
-        `🚀 **Post Published to LinkedIn!**\n\n` +
-        `Your scheduled post is now live:\n` +
-        `**${post.internal_title || "LinkedIn Post"}**\n\n` +
-        `🔗 Post URN: \`${result.linkedinPostId}\``,
-    }, supabase).catch(() => {});
-
     return {
       jobId: job.id,
       success: true,
       status: "succeeded",
       retryable: false,
-      postUrn: result.linkedinPostId,
+      postUrn: post.linkedin_post_id,
     };
+  }
+
+  if (post.status === "published") {
+    const message = "The post is marked published but has no trustworthy LinkedIn post ID. Reconciliation is required; Nunuza will not retry it.";
+    await transitionOutcome("needs_reconciliation", {
+      lease_until: null,
+      last_error_code: "PUBLISHED_POST_ID_MISSING",
+      safe_error_message: message,
+    });
+    return fail("needs_reconciliation", false, message);
+  }
+
+  // A previous worker may have sent the LinkedIn request before its lease
+  // expired. Never cancel-and-retry a post already in the publishing state.
+  if (post.status === "publishing" || post.status === "needs_reconciliation") {
+    const message =
+      "A previous LinkedIn publication attempt may still have reached LinkedIn. " +
+      "Nunuza will not retry it automatically. Check LinkedIn and confirm the outcome.";
+    if (post.status === "publishing") {
+      await casPostStatus(supabase, job.workspace_id, post.id, ["publishing"], {
+        status: "needs_reconciliation",
+      });
+    }
+    await transitionOutcome("needs_reconciliation", {
+      lease_until: null,
+      last_error_code: "PUBLISH_ATTEMPT_ALREADY_IN_FLIGHT",
+      safe_error_message: message,
+    });
+    return fail("needs_reconciliation", false, message);
+  }
+
+  // 6. Post eligibility + duplicate guard (compare-and-set to 'publishing')
+  if (!["scheduled", "approved"].includes(post.status)) {
+    const message =
+      post.status === "published"
+        ? "This post has already been published."
+        : `Post is '${post.status}' and is not eligible for publishing.`;
+    await transitionOutcome("canceled", {
+      finished_at: new Date().toISOString(),
+      lease_until: null,
+      last_error_code: "POST_NOT_ELIGIBLE",
+      safe_error_message: message,
+    });
+    return fail("canceled", false, message);
+  }
+
+  // 6. Atomically reserve the workspace's daily and rolling weekly publish slot.
+  // The database serializes claims per workspace and marks this post publishing
+  // before any external side effect is attempted.
+  const priorStatus = post.status as "scheduled" | "approved";
+  const { data: slotData, error: slotError } = await supabase.rpc("claim_workspace_publish_slot", {
+    p_workspace_id: job.workspace_id,
+    p_post_id: post.id,
+  });
+
+  if (slotError) {
+    const message = "Could not safely reserve the workspace publishing slot: " + slotError.message;
+    if (attemptCount < maxAttempts) {
+      await retryOutcome(message, "PUBLISH_SLOT_CHECK_FAILED");
+      return fail("failed_retryable", true, message);
+    }
+    return terminal("PUBLISH_SLOT_CHECK_FAILED", message);
+  }
+
+  const slot = Array.isArray(slotData) ? slotData[0] : slotData;
+  if (!slot?.allowed) {
+    const reason = String(slot?.reason ?? "POST_NOT_ELIGIBLE");
+    const message = reason === "DAILY_CAP_REACHED"
+      ? "Cap reached: Maximum 1 post per calendar day."
+      : reason === "WEEKLY_CAP_REACHED"
+        ? "Cap reached: Maximum 7 posts per rolling 7-day period."
+        : "This post is no longer eligible for publishing.";
+    await transitionOutcome("canceled", {
+      finished_at: new Date().toISOString(),
+      lease_until: null,
+      last_error_code: reason,
+      safe_error_message: message,
+    });
+    if (post.status === "scheduled") {
+      await casPostStatus(supabase, job.workspace_id, post.id, ["scheduled"], {
+        status: "approved",
+        scheduled_at: null,
+      });
+    }
+    return fail("canceled", false, message);
+  }
+
+
+  // 7. Publish via the official LinkedIn API
+  let result: { linkedinPostId: string; publishedAt: string };
+  try {
+    result = await publishPostToLinkedIn({
+      workspaceId: job.workspace_id,
+      text: post.text,
+      supabaseOverride: supabase,
+    });
   } catch (publishErr: any) {
-    const errorMsg = publishErr.message || "Failed to publish post to LinkedIn.";
-    const isRetryable =
-      errorMsg.includes("RATE_LIMITED") ||
-      errorMsg.includes("500") ||
-      errorMsg.includes("502") ||
-      errorMsg.includes("503");
-    const isTerminalAuth =
-      errorMsg.includes("LINKEDIN_NOT_CONNECTED") ||
-      errorMsg.includes("LINKEDIN_AUTH_FAILED") ||
-      errorMsg.includes("LINKEDIN_AUTH_EXPIRED");
+    const kind: string | undefined =
+      publishErr instanceof LinkedInPublishError ? publishErr.kind : undefined;
+    const errorMsg: string = publishErr?.message || "Failed to publish post to LinkedIn.";
 
-    const attempts = claimedJob.attempt_count;
-    const maxAttempts = claimedJob.max_attempts || 3;
-
-    if (isRetryable && attempts < maxAttempts) {
-      await supabase
-        .from("agent_jobs")
-        .update({
-          status: "failed_retryable",
-          safe_error_message: errorMsg,
-        })
-        .eq("id", job.id);
-
-      return {
-        jobId: job.id,
-        success: false,
-        status: "failed_retryable",
-        retryable: true,
-        error: errorMsg,
-      };
+    // Ambiguous (or unknown error type): the post may be live. Never retry, never fail the post.
+    if (kind === "ambiguous" || kind === undefined) {
+      const userMessage =
+        "LinkedIn did not confirm this publication, so Nunuza cannot tell whether the post is live. " +
+        "Check your LinkedIn profile, then confirm in Nunuza whether it was published. Nunuza will not retry automatically, to avoid a duplicate post.";
+      await casPostStatus(supabase, job.workspace_id, post.id, ["publishing"], { status: "needs_reconciliation" });
+      await transitionOutcome("needs_reconciliation", {
+        lease_until: null,
+        last_error_code: "PUBLICATION_UNCONFIRMED",
+        safe_error_message: userMessage,
+      });
+      await logAuditEvent({
+        workspaceId: job.workspace_id,
+        actorType: "system",
+        action: "publish_unconfirmed",
+        resourceType: "content_post",
+        resourceId: post.id,
+        safeMetadata: { jobId: job.id, kind: kind ?? "unknown" },
+      }).catch(() => {});
+      notifyWorkspaceTelegram(job.workspace_id, {
+        text:
+          `⚠️ **Publication not confirmed**\n\n` +
+          `Post: **${post.internal_title || "LinkedIn Post"}**\n` +
+          `LinkedIn did not confirm whether this post went live. Please check your LinkedIn profile, ` +
+          `then open Nunuza to confirm. It will not be retried automatically.`,
+      }, supabase).catch(() => {});
+      return fail("needs_reconciliation", false, userMessage);
     }
 
-    // Terminal failure
-    await supabase
-      .from("agent_jobs")
-      .update({
-        status: "failed_terminal",
-        finished_at: new Date().toISOString(),
-        last_error_code: isTerminalAuth ? "LINKEDIN_INTEGRATION_ERROR" : "PUBLISH_FAILED",
-        safe_error_message: errorMsg,
-      })
-      .eq("id", job.id);
+    // Definitively NOT published: put the post back, then retry or fail.
+    if (kind === "rate_limited" && attemptCount < maxAttempts) {
+      await casPostStatus(supabase, job.workspace_id, post.id, ["publishing"], { status: priorStatus });
+      await retryOutcome(errorMsg, "LINKEDIN_RATE_LIMITED");
+      return fail("failed_retryable", true, errorMsg);
+    }
 
-    await supabase
-      .from("content_posts")
-      .update({
-        status: "failed",
-      })
-      .eq("id", payload.postId);
-
+    await casPostStatus(supabase, job.workspace_id, post.id, ["publishing"], { status: "failed" });
+    await terminalOutcome(
+      errorMsg,
+      kind === "auth" || kind === "not_connected" ? "LINKEDIN_INTEGRATION_ERROR" : "PUBLISH_FAILED"
+    );
     notifyWorkspaceTelegram(job.workspace_id, {
       text:
         `⚠️ **Publishing Failed**\n\n` +
@@ -524,15 +638,69 @@ export async function executePublishJob(
         `Error: ${errorMsg}\n\n` +
         `Visit your Nunuza dashboard to review and reschedule.`,
     }, supabase).catch(() => {});
-
-    return {
-      jobId: job.id,
-      success: false,
-      status: "failed_terminal",
-      retryable: false,
-      error: errorMsg,
-    };
+    return fail("failed_terminal", false, errorMsg);
   }
+
+  // 8. LinkedIn confirmed a post ID. Save it durably BEFORE calling the job a success.
+  let saved = false;
+  for (let attempt = 0; attempt < 2 && !saved; attempt++) {
+    saved = await casPostStatus(supabase, job.workspace_id, post.id, ["publishing"], {
+      status: "published",
+      published_at: result.publishedAt,
+      linkedin_post_id: result.linkedinPostId,
+    });
+  }
+
+  if (!saved) {
+    const message =
+      `LinkedIn confirmed the post (${result.linkedinPostId}) but Nunuza could not save that. ` +
+      `Check the post in Nunuza and confirm it as published.`;
+    await persistJobPayloadPatch({ linkedin_post_urn: result.linkedinPostId });
+    await transitionOutcome("needs_reconciliation", {
+      lease_until: null,
+      last_error_code: "PERSIST_FAILED_AFTER_PUBLISH",
+      safe_error_message: message,
+    });
+    await casPostStatus(supabase, job.workspace_id, post.id, ["publishing"], { status: "needs_reconciliation" });
+    return fail("needs_reconciliation", false, message);
+  }
+
+  if (!options.deferJobFinalization) {
+    try {
+      await transitionOutcome("succeeded", {
+        finished_at: new Date().toISOString(),
+        lease_until: null,
+        safe_error_message: null,
+      });
+    } catch (jobErr: any) {
+      console.error(`[publisher] Post ${post.id} published but job ${job.id} could not be marked succeeded: ${jobErr?.message}`);
+    }
+  }
+
+  await logAuditEvent({
+    workspaceId: job.workspace_id,
+    actorType: "system",
+    action: "publish_post",
+    resourceType: "content_post",
+    resourceId: post.id,
+    safeMetadata: { linkedinPostId: result.linkedinPostId, jobId: job.id },
+  }).catch(() => {});
+
+  notifyWorkspaceTelegram(job.workspace_id, {
+    text:
+      `🚀 **Post Published to LinkedIn!**\n\n` +
+      `Your post is now live:\n` +
+      `**${post.internal_title || "LinkedIn Post"}**\n\n` +
+      `🔗 Post URN: \`${result.linkedinPostId}\``,
+  }, supabase).catch(() => {});
+
+  return {
+    jobId: job.id,
+    success: true,
+    status: "succeeded",
+    retryable: false,
+    postUrn: result.linkedinPostId,
+  };
 }
 
 export interface PublishNowResult {

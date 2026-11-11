@@ -147,7 +147,7 @@ export default async function PerformancePage() {
               Direct LinkedIn Personal-Profile Publishing Architecture
             </p>
             <p className="text-ink-secondary mt-1 leading-relaxed">
-              Nunuza publishes directly to your personal LinkedIn profile using LinkedIn&apos;s official <code className="px-1 py-0.5 rounded bg-surface-alt font-mono text-ink">w_member_social</code> publishing scope. In accordance with LinkedIn API terms, read-analytics scopes (<code className="px-1 py-0.5 rounded bg-surface-alt font-mono text-ink">r_member_social</code>) are restricted exclusively to enterprise partner contracts. Nunuza provides authoritative operational velocity, cadence tracking, and content distribution metrics directly from your workspace database.
+              Nunuza publishes directly to your personal LinkedIn profile using LinkedIn&apos;s official <code className="px-1 py-0.5 rounded bg-surface-alt font-mono text-ink">w_member_social</code> scope. Personal post analytics use a separate LinkedIn Community Management permission, <code className="px-1 py-0.5 rounded bg-surface-alt font-mono text-ink">r_member_postAnalytics</code>. That permission is not currently granted to this app, so impressions, reactions, comments, and reach are unavailable here. Nunuza will not invent those numbers. This page reports verified operational velocity, publishing cadence, and content distribution from your workspace data.
             </p>
           </div>
         </div>

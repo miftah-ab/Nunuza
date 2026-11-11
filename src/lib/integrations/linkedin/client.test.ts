@@ -15,7 +15,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   getLinkedInAuthorizationUrl,
+  exchangeLinkedInCode,
   publishPostToLinkedIn,
+  LinkedInPublishError,
+  LINKEDIN_API_VERSION,
   LINKEDIN_SCOPES,
 } from "./client";
 import { encryptToken, decryptToken } from "./crypto";
@@ -78,6 +81,49 @@ describe("LinkedIn Client & Crypto Suite", () => {
     });
   });
 
+  describe("OAuth granted-scope verification", () => {
+    it("rejects an OAuth token that lacks the publishing permission", async () => {
+      vi.spyOn(global, "fetch").mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: async () => ({ access_token: "token", expires_in: 3600, scope: "openid profile email" }),
+      } as any);
+      await expect(exchangeLinkedInCode("code")).rejects.toThrow("did not grant w_member_social");
+    });
+
+    it("uses official token introspection when OAuth omits scope", async () => {
+      const fetchSpy = vi.spyOn(global, "fetch")
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: async () => ({ access_token: "token", expires_in: 3600 }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: async () => ({ active: true, scope: "w_member_social,openid,profile,email" }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: async () => ({ sub: "member-123", name: "Test Member" }),
+        } as any);
+      const result = await exchangeLinkedInCode("code");
+      expect(result.memberUrn).toBe("urn:li:person:member-123");
+      expect(result.grantedScopes).toContain("w_member_social");
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+    });
+
+    it("never manufactures a member URN when LinkedIn userinfo omits sub", async () => {
+      vi.spyOn(global, "fetch")
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: async () => ({ access_token: "token", expires_in: 3600, scope: "w_member_social openid profile email" }),
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: async () => ({ name: "Test Member" }),
+        } as any);
+      await expect(exchangeLinkedInCode("code")).rejects.toThrow("valid member identifier");
+    });
+  });
+
   describe("publishPostToLinkedIn", () => {
     const validMemberUrn = "urn:li:person:testMember123";
     const sampleToken = "AQV_valid_access_token_linkedin";
@@ -130,6 +176,7 @@ describe("LinkedIn Client & Crypto Suite", () => {
                     status: "connected",
                     encrypted_token_ref: validEncryptedRef,
                     external_account_id: validMemberUrn,
+                    granted_scopes: ["w_member_social", "openid", "profile", "email"],
                     expires_at: new Date(Date.now() - 3600000).toISOString(), // 1 hr ago
                   },
                   error: null,
@@ -166,6 +213,7 @@ describe("LinkedIn Client & Crypto Suite", () => {
                     status: "connected",
                     encrypted_token_ref: validEncryptedRef,
                     external_account_id: validMemberUrn,
+                    granted_scopes: ["w_member_social", "openid", "profile", "email"],
                     expires_at: new Date(Date.now() + 86400000).toISOString(),
                     metadata: { apiVersion: "202410" },
                   },
@@ -204,7 +252,7 @@ describe("LinkedIn Client & Crypto Suite", () => {
           method: "POST",
           headers: expect.objectContaining({
             Authorization: `Bearer ${sampleToken}`,
-            "LinkedIn-Version": "202608",
+            "LinkedIn-Version": LINKEDIN_API_VERSION,
             "X-Restli-Protocol-Version": "2.0.0",
             "Content-Type": "application/json",
           }),
@@ -235,6 +283,7 @@ describe("LinkedIn Client & Crypto Suite", () => {
                     status: "connected",
                     encrypted_token_ref: validEncryptedRef,
                     external_account_id: validMemberUrn,
+                    granted_scopes: ["w_member_social", "openid", "profile", "email"],
                     expires_at: new Date(Date.now() + 86400000).toISOString(),
                   },
                   error: null,
@@ -277,6 +326,7 @@ describe("LinkedIn Client & Crypto Suite", () => {
                     status: "connected",
                     encrypted_token_ref: validEncryptedRef,
                     external_account_id: validMemberUrn,
+                    granted_scopes: ["w_member_social", "openid", "profile", "email"],
                     expires_at: new Date(Date.now() + 86400000).toISOString(),
                   },
                   error: null,
@@ -300,6 +350,127 @@ describe("LinkedIn Client & Crypto Suite", () => {
           supabaseOverride: mockSupabase as any,
         })
       ).rejects.toThrow("LINKEDIN_RATE_LIMITED (429)");
+    });
+
+    // ─── Publication confirmation: never fabricate a post ID ───────────────────
+
+    const connectedDb = () =>
+      ({
+        from: vi.fn().mockReturnValue({
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                maybeSingle: vi.fn().mockResolvedValue({
+                  data: {
+                    id: "conn-1",
+                    workspace_id: "ws-1",
+                    provider: "linkedin",
+                    status: "connected",
+                    encrypted_token_ref: validEncryptedRef,
+                    external_account_id: validMemberUrn,
+                    granted_scopes: ["w_member_social", "openid", "profile", "email"],
+                    expires_at: new Date(Date.now() + 86400000).toISOString(),
+                  },
+                  error: null,
+                }),
+              }),
+            }),
+          }),
+          update: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) }),
+        }),
+      }) as any;
+
+    const publishAndCatch = async () => {
+      try {
+        await publishPostToLinkedIn({
+          workspaceId: "ws-1",
+          text: "Test post",
+          supabaseOverride: connectedDb(),
+        });
+      } catch (err) {
+        return err;
+      }
+      return null;
+    };
+
+    it("treats HTTP 201 with no post ID as AMBIGUOUS and never invents an ID", async () => {
+      vi.spyOn(global, "fetch").mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        headers: new Headers(),
+        json: async () => ({}),
+        text: async () => "{}",
+      } as any);
+
+      const err = await publishAndCatch();
+      expect(err).toBeInstanceOf(LinkedInPublishError);
+      expect((err as LinkedInPublishError).kind).toBe("ambiguous");
+      expect((err as Error).message).not.toMatch(/urn:li:share:\d{10,}/);
+    });
+
+    it("rejects an ID that is not a LinkedIn URN as unconfirmed", async () => {
+      vi.spyOn(global, "fetch").mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        headers: new Headers({ "x-restli-id": "not-a-urn" }),
+        json: async () => ({}),
+        text: async () => "{}",
+      } as any);
+
+      const err = await publishAndCatch();
+      expect((err as LinkedInPublishError).kind).toBe("ambiguous");
+    });
+
+    it("treats a network failure or timeout as AMBIGUOUS (the post may be live)", async () => {
+      vi.spyOn(global, "fetch").mockRejectedValueOnce(new Error("socket hang up"));
+      const err = await publishAndCatch();
+      expect((err as LinkedInPublishError).kind).toBe("ambiguous");
+    });
+
+    it("treats a 5xx response as AMBIGUOUS, not as a safe failure", async () => {
+      vi.spyOn(global, "fetch").mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        text: async () => "Service Unavailable",
+      } as any);
+      const err = await publishAndCatch();
+      expect((err as LinkedInPublishError).kind).toBe("ambiguous");
+    });
+
+    it("classifies other 4xx as a definite rejection and 429 as rate limited", async () => {
+      vi.spyOn(global, "fetch").mockResolvedValueOnce({
+        ok: false,
+        status: 422,
+        text: async () => "Unprocessable",
+      } as any);
+      expect(((await publishAndCatch()) as LinkedInPublishError).kind).toBe("rejected");
+
+      vi.spyOn(global, "fetch").mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        text: async () => "Too Many Requests",
+      } as any);
+      expect(((await publishAndCatch()) as LinkedInPublishError).kind).toBe("rate_limited");
+    });
+
+    it("classifies a missing connection as not_connected", async () => {
+      const db = {
+        from: vi.fn().mockReturnValue({
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+              }),
+            }),
+          }),
+        }),
+      } as any;
+      try {
+        await publishPostToLinkedIn({ workspaceId: "ws-1", text: "x", supabaseOverride: db });
+        expect.unreachable();
+      } catch (err) {
+        expect((err as LinkedInPublishError).kind).toBe("not_connected");
+      }
     });
   });
 });

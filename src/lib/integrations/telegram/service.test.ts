@@ -54,6 +54,7 @@ class MockTelegramDb {
     },
   ];
   auditEvents: any[] = [];
+  approvalEvents: any[] = [];
   usageCounters: any[] = [];
 
   createClient() {
@@ -73,6 +74,10 @@ class MockTelegramDb {
             const chain = {
               eq(col: string, val: any) {
                 filtered = filtered.filter((row) => row[col] === val);
+                return chain;
+              },
+              in(col: string, vals: any[]) {
+                filtered = filtered.filter((row) => vals.includes(row[col]));
                 return chain;
               },
               is(col: string, val: any) {
@@ -116,6 +121,7 @@ class MockTelegramDb {
             if (table === "link_tokens") db.linkTokens.push(...inserted);
             else if (table === "telegram_links") db.telegramLinks.push(...inserted);
             else if (table === "audit_events") db.auditEvents.push(...inserted);
+            else if (table === "approval_events") db.approvalEvents.push(...inserted);
             else if (table === "content_posts") db.contentPosts.push(...inserted);
             return Promise.resolve({ data: inserted, error: null });
           },
@@ -126,32 +132,35 @@ class MockTelegramDb {
             else if (table === "workspaces") targetRows = db.workspaces;
             else if (table === "content_posts") targetRows = db.contentPosts;
 
-            let filterCol: string | null = null;
-            let filterVal: any = null;
-            let isCol: string | null = null;
-            let isVal: any = null;
+            const filters: Array<(r: any) => boolean> = [];
+            let returning = false;
 
-            const chain = {
+            const chain: any = {
               eq(col: string, val: any) {
-                filterCol = col;
-                filterVal = val;
+                filters.push((r) => r[col] === val);
+                return chain;
+              },
+              in(col: string, vals: any[]) {
+                filters.push((r) => vals.includes(r[col]));
                 return chain;
               },
               is(col: string, val: any) {
-                isCol = col;
-                isVal = val;
+                filters.push((r) =>
+                  val === null ? r[col] === null || r[col] === undefined : r[col] === val
+                );
+                return chain;
+              },
+              select() {
+                returning = true;
                 return chain;
               },
               then(resolve: any) {
-                targetRows.forEach((r) => {
-                  let match = true;
-                  if (filterCol && r[filterCol] !== filterVal) match = false;
-                  if (isCol && (isVal === null ? r[isCol] !== null && r[isCol] !== undefined : r[isCol] !== isVal)) match = false;
-                  if (match) {
-                    Object.assign(r, updates);
-                  }
+                const matched = targetRows.filter((r) => filters.every((f) => f(r)));
+                matched.forEach((r) => Object.assign(r, updates));
+                return resolve({
+                  data: returning ? matched.map((r) => ({ id: r.id })) : null,
+                  error: null,
                 });
-                return resolve({ error: null });
               },
             };
             return chain;
@@ -310,8 +319,17 @@ describe("Telegram Service", () => {
       );
 
       expect(res.replyText).toContain("First draft hook");
-      // New UX uses inline buttons for Approve/Reject — text may include ID but not /approve command
       expect(res.replyText).toContain("post-aaa");
+      mockDb.contentPosts.push({
+        id: "post-needs-review", workspace_id: "ws-111",
+        internal_title: "Agent generated review draft", text: "Review this agent draft",
+        status: "needs_review", created_at: new Date().toISOString(),
+      });
+      const reviewRes = await handleTelegramMessage(
+        { telegramUserId: 555666, chatId: 777888, text: "/drafts" },
+        client
+      );
+      expect(reviewRes.replyText).toContain("Agent generated review draft");
     });
 
     it("strictly rejects /approve if workspace entitlement is draft_only (BED-01/02)", async () => {
@@ -344,6 +362,34 @@ describe("Telegram Service", () => {
       expect(mockDb.contentPosts[1].status).toBe("approved");
     });
 
+    it("does not claim approval for a draft that is not approvable (no silent failure)", async () => {
+      const client = mockDb.createClient();
+      mockDb.contentPosts[1].status = "published";
+      const { token } = await generateTelegramPairingToken("ws-222", "user-222", client);
+      await linkTelegramAccount(token, 777999, 888111, client);
+
+      const res = await handleTelegramMessage(
+        { telegramUserId: 777999, chatId: 888111, text: "/approve post-bbb" },
+        client
+      );
+
+      expect(res.replyText).not.toContain("Draft Approved!");
+      expect(mockDb.contentPosts[1].status).toBe("published");
+    });
+
+    it("never writes the nonexistent approved_at column when approving", async () => {
+      const client = mockDb.createClient();
+      const { token } = await generateTelegramPairingToken("ws-222", "user-222", client);
+      await linkTelegramAccount(token, 777999, 888111, client);
+
+      await handleTelegramMessage(
+        { telegramUserId: 777999, chatId: 888111, text: "/approve post-bbb" },
+        client
+      );
+
+      expect("approved_at" in mockDb.contentPosts[1]).toBe(false);
+    });
+
     it("handles /reject and updates draft status", async () => {
       const client = mockDb.createClient();
       const { token } = await generateTelegramPairingToken("ws-111", "user-111", client);
@@ -356,7 +402,8 @@ describe("Telegram Service", () => {
 
       expect(res.replyText).toContain("Draft Rejected");
       expect(mockDb.contentPosts[0].status).toBe("rejected");
-      expect(mockDb.contentPosts[0].rejection_reason).toBe("Needs a punchier opening");
+      expect(mockDb.approvalEvents[0].reason).toBe("Needs a punchier opening");
+      expect(mockDb.approvalEvents[0].action).toBe("rejected");
     });
   });
 });

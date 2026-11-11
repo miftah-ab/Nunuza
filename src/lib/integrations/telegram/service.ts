@@ -535,7 +535,7 @@ export async function handleTelegramMessage(
       .from("content_posts")
       .select("id, internal_title, text, status, created_at")
       .eq("workspace_id", workspaceId)
-      .eq("status", "draft")
+      .in("status", ["draft", "needs_review"])
       .order("created_at", { ascending: false })
       .limit(5);
 
@@ -600,10 +600,24 @@ export async function handleTelegramMessage(
       };
     }
 
-    await supabase
+    const { data: approvedRows, error: approveErr } = await supabase
       .from("content_posts")
-      .update({ status: "approved", approved_at: new Date().toISOString() })
-      .eq("id", targetPost.id);
+      .update({ status: "approved" })
+      .eq("id", targetPost.id)
+      .eq("workspace_id", workspaceId)
+      .in("status", ["draft", "needs_review"])
+      .select("id");
+
+    if (approveErr || !approvedRows || approvedRows.length === 0) {
+      return {
+        replyText: "❌ This draft could not be approved\\. It may already be approved, published or rejected\\. Run `/drafts` to see current drafts\\.",
+      };
+    }
+
+    const { error: approvalSignalError } = await supabase.from("approval_events").insert({
+      workspace_id: workspaceId, post_id: targetPost.id, actor_type: "telegram", action: "approved",
+    });
+    if (approvalSignalError) console.error("[telegram] Approval learning signal failed:", approvalSignalError.message);
 
     await supabase.from("audit_events").insert({
       workspace_id: workspaceId,
@@ -646,10 +660,25 @@ export async function handleTelegramMessage(
       };
     }
 
-    await supabase
+    const { data: rejectedRows, error: rejectError } = await supabase
       .from("content_posts")
-      .update({ status: "rejected", rejection_reason: reason })
-      .eq("id", targetPost.id);
+      .update({ status: "rejected" })
+      .eq("id", targetPost.id)
+      .eq("workspace_id", workspaceId)
+      .in("status", ["draft", "needs_review"])
+      .select("id");
+
+    if (rejectError || !rejectedRows?.length) {
+      return {
+        replyText: "❌ This draft could not be rejected. It may already have changed status. Run /drafts to refresh.",
+      };
+    }
+
+    const { error: rejectionSignalError } = await supabase.from("approval_events").insert({
+      workspace_id: workspaceId, post_id: targetPost.id, actor_type: "telegram",
+      action: "rejected", reason,
+    });
+    if (rejectionSignalError) console.error("[telegram] Rejection learning signal failed:", rejectionSignalError.message);
 
     await supabase.from("audit_events").insert({
       workspace_id: workspaceId,
@@ -671,15 +700,17 @@ export async function handleTelegramMessage(
   if (text === "/report") {
     const now = new Date();
     const currentPeriod = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+    const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
 
     const { data: usage } = await supabase
       .from("usage_counters")
-      .select("counter_value")
+      .select("count")
       .eq("workspace_id", workspaceId)
-      .eq("period_key", currentPeriod)
+      .eq("metric", "draft_items_created")
+      .eq("period_start", periodStart)
       .maybeSingle();
 
-    const used = usage?.counter_value ?? 0;
+    const used = usage?.count ?? 0;
 
     return {
       replyText:
@@ -875,10 +906,28 @@ export async function handleCallbackQuery(
       return;
     }
 
-    await supabase
+    const { data: approvedRows, error: approveErr } = await supabase
       .from("content_posts")
-      .update({ status: "approved", approved_at: new Date().toISOString() })
-      .eq("id", post.id);
+      .update({ status: "approved" })
+      .eq("id", post.id)
+      .eq("workspace_id", workspaceId)
+      .in("status", ["draft", "needs_review"])
+      .select("id");
+
+    if (approveErr || !approvedRows || approvedRows.length === 0) {
+      await editTelegramMessage(
+        ctx.chatId,
+        ctx.messageId,
+        `❌ *Could not approve this draft\\.* It may already be approved, published or rejected\\.`,
+        { inline_keyboard: [[{ text: "📝 Drafts", callback_data: "menu:drafts" }, { text: "🏠 Menu", callback_data: "menu:main" }]] }
+      );
+      return;
+    }
+
+    const { error: callbackApprovalSignalError } = await supabase.from("approval_events").insert({
+      workspace_id: workspaceId, post_id: post.id, actor_type: "telegram", action: "approved",
+    });
+    if (callbackApprovalSignalError) console.error("[telegram] Approval learning signal failed:", callbackApprovalSignalError.message);
 
     await supabase.from("audit_events").insert({
       workspace_id: workspaceId,
@@ -944,10 +993,29 @@ export async function handleCallbackQuery(
       return;
     }
 
-    await supabase
+    const { data: rejectedRows, error: rejectError } = await supabase
       .from("content_posts")
-      .update({ status: "rejected", rejection_reason: "Rejected via Telegram" })
-      .eq("id", post.id);
+      .update({ status: "rejected" })
+      .eq("id", post.id)
+      .eq("workspace_id", workspaceId)
+      .in("status", ["draft", "needs_review"])
+      .select("id");
+
+    if (rejectError || !rejectedRows?.length) {
+      await editTelegramMessage(
+        ctx.chatId,
+        ctx.messageId,
+        "❌ *Could not reject this draft\\.* It may already have changed status\\.",
+        { inline_keyboard: [[{ text: "📝 Drafts", callback_data: "menu:drafts" }]] }
+      );
+      return;
+    }
+
+    const { error: callbackRejectionSignalError } = await supabase.from("approval_events").insert({
+      workspace_id: workspaceId, post_id: post.id, actor_type: "telegram",
+      action: "rejected", reason: "Rejected via Telegram",
+    });
+    if (callbackRejectionSignalError) console.error("[telegram] Rejection learning signal failed:", callbackRejectionSignalError.message);
 
     await supabase.from("audit_events").insert({
       workspace_id: workspaceId,
