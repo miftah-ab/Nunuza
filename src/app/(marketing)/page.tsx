@@ -467,7 +467,7 @@ export default function HomePage() {
                   </span>
                 </div>
                 <p className="mt-2 text-sm leading-relaxed text-ink-secondary">
-                  Enable automation within the plan's hard publishing limits, quiet hours, and pause controls.
+                  Enable automation within the plan&apos;s hard publishing limits, quiet hours, and pause controls.
                 </p>
                 <div className="mt-4 flex items-center gap-2 border-t border-border pt-3 text-xs text-ink-muted">
                   <PauseCircle size={14} />
