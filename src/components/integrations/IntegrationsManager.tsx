@@ -512,7 +512,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
               <ol className="list-decimal pl-5 space-y-1.5 text-xs leading-5 text-ink-secondary">
                 <li>Open Claude Connectors using the button above.</li>
                 <li>Choose <strong className="text-ink">Add custom connector</strong>, name it <strong className="text-ink">Nunuza</strong>, and paste the server URL shown above.</li>
-                <li>Choose <strong className="text-ink">Sign in now</strong> or <strong className="text-ink">Sign in when needed</strong>. For OAuth client identity, choose Claude&apos;s published identity or automatic registration.</li>
+                <li>Choose <strong className="text-ink">Sign in now</strong> or <strong className="text-ink">Sign in when needed</strong>. Choose OAuth authentication (not No sign in). Allow Claude to register as a client if prompted.</li>
                 <li>When Claude starts the connection, sign in to Nunuza and review the permissions before approving.</li>
               </ol>
               <p className="text-[11px] leading-5 text-ink-secondary">
