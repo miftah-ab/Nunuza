@@ -764,7 +764,7 @@ export async function handleCallbackQuery(
     await editTelegramMessage(
       ctx.chatId,
       ctx.messageId,
-      "✍️ *Create a LinkedIn post*\\n\\nSend me your topic, rough idea, audience, or point of view. I will create a draft using your saved voice and strategy. Then you can ask for revisions naturally.\n\nNothing is published without a separate approval action.",
+      "✍️ *Create a LinkedIn post*\n\nSend me your topic, rough idea, audience, or point of view. I will create a draft using your saved voice and strategy. Then you can ask for revisions naturally.\n\nNothing is published without a separate approval action.",
       { inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]] }
     );
     return;
