@@ -237,6 +237,60 @@ export function ContentManager({
     }
   };
 
+  // Reconcile: LinkedIn did not confirm a publication. The customer checks their
+  // LinkedIn profile and tells us the outcome; Nunuza never guesses.
+  const [reconcilingPostId, setReconcilingPostId] = useState<string | null>(null);
+
+  const handleReconcile = async (
+    post: ContentPost,
+    outcome: "published" | "not_published"
+  ) => {
+    if (reconcilingPostId) return;
+    setReconcilingPostId(post.id);
+    setPublishFeedback(null);
+
+    try {
+      const res = await fetch(`/api/posts/${post.id}/reconcile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ outcome }),
+      });
+      const json = (await res.json()) as any;
+      if (!res.ok) throw new Error(json.error ?? "Could not record your answer.");
+
+      const newStatus = json.data.status as PostStatus;
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === post.id
+            ? {
+                ...p,
+                status: newStatus,
+                ...(newStatus === "published"
+                  ? { published_at: new Date().toISOString() }
+                  : { scheduled_at: null }),
+              }
+            : p
+        )
+      );
+      setPublishFeedback({
+        type: "success",
+        postId: post.id,
+        message:
+          outcome === "published"
+            ? "Recorded as published."
+            : "Recorded as not published. You can publish or schedule it again.",
+      });
+    } catch (err: unknown) {
+      setPublishFeedback({
+        type: "error",
+        postId: post.id,
+        message: err instanceof Error ? err.message : "Could not record your answer.",
+      });
+    } finally {
+      setReconcilingPostId(null);
+    }
+  };
+
   // Handle Cancel Schedule
   const handleCancelSchedule = async (postId: string) => {
     if (!confirm("Are you sure you want to cancel this scheduled post?")) return;
@@ -328,6 +382,8 @@ export function ContentManager({
         return <span className="badge-active flex items-center gap-1"><CheckCircle2 size={12} /> Published</span>;
       case "failed":
         return <span className="badge-error flex items-center gap-1"><AlertCircle size={12} /> Failed</span>;
+      case "needs_reconciliation":
+        return <span className="badge-error flex items-center gap-1"><AlertCircle size={12} /> Check LinkedIn</span>;
       default:
         return <span className="badge-draft-only">{status}</span>;
     }
@@ -590,6 +646,34 @@ export function ContentManager({
                       >
                         Cancel
                       </button>
+                    </div>
+                  )}
+                  {post.status === "needs_reconciliation" && (
+                    <div className="flex flex-col gap-1.5 max-w-xs">
+                      <p className="text-ink-secondary text-xs">
+                        LinkedIn didn&apos;t confirm this post. Check your LinkedIn profile, then tell us what you see.
+                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => handleReconcile(post, "published")}
+                          disabled={reconcilingPostId !== null}
+                          className="btn-primary text-xs flex items-center gap-1.5 py-1 px-2.5 font-medium disabled:opacity-50"
+                        >
+                          {reconcilingPostId === post.id ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : (
+                            <CheckCircle2 size={12} />
+                          )}
+                          <span>It&apos;s live</span>
+                        </button>
+                        <button
+                          onClick={() => handleReconcile(post, "not_published")}
+                          disabled={reconcilingPostId !== null}
+                          className="btn-secondary text-xs py-1 px-2.5 font-medium disabled:opacity-50"
+                        >
+                          It&apos;s not live
+                        </button>
+                      </div>
                     </div>
                   )}
                   {post.status === "published" && (
