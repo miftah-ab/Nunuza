@@ -13,6 +13,7 @@ import { getContentStrategy, logAuditEvent } from "@/lib/db/workspace";
 import { createPost } from "@/lib/db/posts";
 import { checkDraftLimit, incrementDraftCounter } from "@/lib/db/usage";
 import type { ContentPlan } from "@/types/database";
+import { assertNoExcludedPhrase } from "@/lib/ai/exclusions";
 
 export interface PlanGenerationOptions {
   periodDays?: number; // default: 7
@@ -46,6 +47,7 @@ export async function generateAndSavePlan(
     periodDays,
     cadencePerWeek: strategy.cadence_per_week,
     preferredDays: strategy.preferred_days ?? [],
+    preferredTime: strategy.preferred_time,
     strategy: {
       audience: strategy.audience,
       goals: strategy.goals,
@@ -56,6 +58,15 @@ export async function generateAndSavePlan(
       ctaPreferences: strategy.cta_preferences,
     },
   });
+
+  assertNoExcludedPhrase(planResult.summary, strategy.exclusions, "generated content plan summary");
+  for (const topic of planResult.topics) {
+    assertNoExcludedPhrase(
+      [topic.title, topic.angle, topic.pillar].filter(Boolean).join(" "),
+      strategy.exclusions,
+      "generated content plan"
+    );
+  }
 
   const supabase = await createClient();
 
@@ -145,7 +156,10 @@ export async function convertPlanItemToDraft(
 
   const strategy = await getContentStrategy(workspaceId);
 
-  // 2. Generate post text
+  // 2. Enforce strategy exclusions before generating a planned draft.
+  assertNoExcludedPhrase([input.topic, input.pillar, input.angle].filter(Boolean).join(" "), strategy?.exclusions, "planned draft");
+
+  // 3. Generate post text
   const generationResult = await aiService.generateDraft({
     topic: input.topic,
     pillar: input.pillar,
@@ -164,7 +178,9 @@ export async function convertPlanItemToDraft(
       : undefined,
   });
 
-  // 3. Create post with plan_id reference
+  assertNoExcludedPhrase(generationResult.text, strategy?.exclusions, "generated planned draft");
+
+  // 4. Create post with plan_id reference
   const post = await createPost(workspaceId, userId, {
     text: generationResult.text,
     internal_title: input.topic,
