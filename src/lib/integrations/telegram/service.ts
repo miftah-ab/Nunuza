@@ -79,7 +79,7 @@ async function tgPost(method: string, body: object): Promise<any> {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body), signal: AbortSignal.timeout(10_000),
     });
-    const result = await res.json();
+    const result: any = await res.json();
     if (!res.ok || !result?.ok) return { ok: false, error: result?.description || `Telegram API returned HTTP ${res.status}.` };
     return result;
   } catch (err: any) {
@@ -1492,7 +1492,7 @@ export async function registerBotCommands(): Promise<{ ok: boolean; description?
       body: JSON.stringify({ commands }),
       signal: AbortSignal.timeout(10_000),
     });
-    const result = await res.json();
+    const result: any = await res.json();
     if (!res.ok || !result?.ok) {
       return { ok: false, description: result?.description || `Telegram API returned HTTP ${res.status}.` };
     }
