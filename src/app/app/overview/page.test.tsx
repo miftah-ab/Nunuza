@@ -192,9 +192,9 @@ describe("OverviewPage (Dashboard)", () => {
           return {
             select: vi.fn().mockReturnValue({
               eq: vi.fn().mockReturnValue({
-                in: vi.fn().mockResolvedValue({
-                  count: null,
-                  error: { message: "Database connection timeout" },
+                in: vi.fn().mockReturnValue({
+                  order: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue({ data: [], error: null }) }),
+                  then: (resolve: any) => resolve({ count: null, error: { message: "Database connection timeout" } }),
                 }),
                 eq: vi.fn().mockImplementation(() => ({
                     then: (resolve: (value: { count: number | null; error: null }) => void) => resolve({ count: null, error: null }),
