@@ -19,21 +19,26 @@
 import crypto from "crypto";
 import { createServiceClient } from "@/lib/supabase/server";
 
-// ─── Deduplication Cache for update_id ─────────────────────────────────────────
+// ─── Durable webhook idempotency ──────────────────────────────────────────────
 
-const processedUpdateIds = new Set<number>();
-const MAX_PROCESSED_CACHE = 2000;
+export type TelegramUpdateClaim = "claimed" | "completed" | "processing";
 
-export function isUpdateProcessed(updateId: number): boolean {
-  return processedUpdateIds.has(updateId);
+export async function claimTelegramWebhookUpdate(updateId: number, supabaseOverride?: any): Promise<TelegramUpdateClaim> {
+  const supabase = supabaseOverride || createServiceClient();
+  const { data, error } = await supabase.rpc("claim_telegram_webhook_update", { p_update_id: updateId });
+  if (error) throw new Error("Could not claim Telegram update.");
+  if (data !== "claimed" && data !== "completed" && data !== "processing") throw new Error("Invalid Telegram update claim state.");
+  return data;
 }
-
-export function markUpdateProcessed(updateId: number): void {
-  if (processedUpdateIds.size >= MAX_PROCESSED_CACHE) {
-    const firstItems = Array.from(processedUpdateIds).slice(0, 500);
-    firstItems.forEach((id) => processedUpdateIds.delete(id));
-  }
-  processedUpdateIds.add(updateId);
+export async function completeTelegramWebhookUpdate(updateId: number, supabaseOverride?: any): Promise<void> {
+  const supabase = supabaseOverride || createServiceClient();
+  const { error } = await supabase.rpc("complete_telegram_webhook_update", { p_update_id: updateId });
+  if (error) throw new Error("Could not complete Telegram update.");
+}
+export async function failTelegramWebhookUpdate(updateId: number, supabaseOverride?: any): Promise<void> {
+  const supabase = supabaseOverride || createServiceClient();
+  const { error } = await supabase.rpc("fail_telegram_webhook_update", { p_update_id: updateId });
+  if (error) throw new Error("Could not release Telegram update for retry.");
 }
 
 // ─── Secret & Webhook Validation ──────────────────────────────────────────────
@@ -68,20 +73,18 @@ const TG_API = (token: string, method: string) =>
 
 async function tgPost(method: string, body: object): Promise<any> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || token.trim() === "") {
-    console.warn(`[telegram] ${method}: TELEGRAM_BOT_TOKEN not configured`);
-    return { ok: true };
-  }
+  if (!token || token.trim() === "") return { ok: false, error: "Telegram bot is not configured." };
   try {
     const res = await fetch(TG_API(token, method), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body), signal: AbortSignal.timeout(10_000),
     });
-    return await res.json();
+    const result = await res.json();
+    if (!res.ok || !result?.ok) return { ok: false, error: result?.description || `Telegram API returned HTTP ${res.status}.` };
+    return result;
   } catch (err: any) {
-    console.error(`[telegram] ${method} error:`, err.message);
-    return { ok: false, error: err.message };
+    console.error(`[telegram] ${method} request failed:`, err?.name || "UnknownError");
+    return { ok: false, error: "Telegram API request failed." };
   }
 }
 
@@ -185,68 +188,16 @@ export async function generateTelegramPairingToken(
   return { token: rawToken, botUrl, expiresAt };
 }
 
-export async function linkTelegramAccount(
-  rawToken: string,
-  telegramUserId: number,
-  chatId: number,
-  supabaseOverride?: any
-): Promise<{ success: boolean; workspaceId?: string; error?: string }> {
+export async function linkTelegramAccount(rawToken: string, telegramUserId: number, chatId: number, supabaseOverride?: any): Promise<{ success: boolean; workspaceId?: string; error?: string }> {
+  if (!rawToken || rawToken.length > 256 || !Number.isSafeInteger(telegramUserId) || !Number.isSafeInteger(chatId)) return { success: false, error: "Invalid pairing request." };
   const tokenHash = crypto.createHash("sha256").update(rawToken.trim()).digest("hex");
   const supabase = supabaseOverride || createServiceClient();
-
-  const { data: tokenRecord, error: tokenError } = await supabase
-    .from("link_tokens")
-    .select("*")
-    .eq("token_hash", tokenHash)
-    .is("consumed_at", null)
-    .gt("expires_at", new Date().toISOString())
-    .single();
-
-  if (tokenError || !tokenRecord) {
-    return {
-      success: false,
-      error: "Invalid, expired, or already used pairing token. Please generate a new one from your Nunuza dashboard.",
-    };
+  const { data, error } = await supabase.rpc("link_telegram_account", { p_token_hash: tokenHash, p_telegram_user_id: telegramUserId, p_chat_id: chatId });
+  if (error || !data) {
+    console.warn("[telegram] Account pairing failed:", error?.code || "invalid_or_expired_token");
+    return { success: false, error: "Invalid, expired, or already used pairing token. Please generate a new one from your Nunuza dashboard." };
   }
-
-  await supabase
-    .from("link_tokens")
-    .update({ consumed_at: new Date().toISOString() })
-    .eq("id", tokenRecord.id);
-
-  await supabase
-    .from("telegram_links")
-    .update({ revoked_at: new Date().toISOString() })
-    .eq("workspace_id", tokenRecord.workspace_id)
-    .is("revoked_at", null);
-
-  await supabase
-    .from("telegram_links")
-    .update({ revoked_at: new Date().toISOString() })
-    .eq("telegram_user_id", telegramUserId)
-    .is("revoked_at", null);
-
-  const { error: linkError } = await supabase.from("telegram_links").insert({
-    workspace_id: tokenRecord.workspace_id,
-    telegram_user_id: telegramUserId,
-    chat_id: chatId,
-    linked_at: new Date().toISOString(),
-  });
-
-  if (linkError) {
-    return { success: false, error: `Linking failed: ${linkError.message}` };
-  }
-
-  await supabase.from("audit_events").insert({
-    workspace_id: tokenRecord.workspace_id,
-    actor_type: "user",
-    actor_id: tokenRecord.user_id,
-    action: "telegram_linked",
-    resource_type: "telegram_link",
-    safe_metadata: { telegram_user_id: telegramUserId, chat_id: chatId },
-  });
-
-  return { success: true, workspaceId: tokenRecord.workspace_id };
+  return { success: true, workspaceId: data };
 }
 
 export async function unlinkTelegramAccount(
@@ -307,9 +258,7 @@ export async function getTelegramLinkStatus(
 // ─── Command Handling ─────────────────────────────────────────────────────────
 
 export interface CommandContext {
-  telegramUserId: number;
-  chatId: number;
-  text: string;
+  telegramUserId: number; chatId: number; text: string; chatType?: string;
 }
 
 export interface CommandResponse {
@@ -319,15 +268,12 @@ export interface CommandResponse {
 
 /** Resolve active workspace for a Telegram user; returns null if unlinked. */
 async function resolveWorkspace(
-  telegramUserId: number,
-  supabase: any
+  telegramUserId: number, chatId: number, supabase: any
 ): Promise<{ workspaceId: string; workspace: any } | null> {
   const { data: link, error: linkErr } = await supabase
-    .from("telegram_links")
-    .select("workspace_id, chat_id")
-    .eq("telegram_user_id", telegramUserId)
-    .is("revoked_at", null)
-    .maybeSingle();
+    .from("telegram_links").select("workspace_id, chat_id")
+    .eq("telegram_user_id", telegramUserId).eq("chat_id", chatId)
+    .is("revoked_at", null).maybeSingle();
 
   if (linkErr || !link) return null;
 
@@ -367,6 +313,7 @@ export async function handleTelegramMessage(
 ): Promise<CommandResponse> {
   const supabase = supabaseOverride || createServiceClient();
   const text = (ctx.text || "").trim();
+  if (ctx.chatType && ctx.chatType !== "private") return { replyText: "🔒 Nunuza commands are available only in your private chat with the bot." };
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
   // 1. /start with deep-link token
@@ -392,7 +339,7 @@ export async function handleTelegramMessage(
   }
 
   // 2. Resolve workspace
-  const resolved = await resolveWorkspace(ctx.telegramUserId, supabase);
+  const resolved = await resolveWorkspace(ctx.telegramUserId, ctx.chatId, supabase);
 
   if (!resolved) {
     return notLinkedResponse(appUrl);
@@ -406,6 +353,7 @@ export async function handleTelegramMessage(
     .from("telegram_links")
     .update({ last_interaction_at: new Date().toISOString() })
     .eq("telegram_user_id", ctx.telegramUserId)
+    .eq("chat_id", ctx.chatId)
     .is("revoked_at", null);
 
   // 3. Dispatch commands
@@ -738,11 +686,7 @@ export async function handleTelegramMessage(
 // ─── Callback Query Handler ───────────────────────────────────────────────────
 
 export interface CallbackContext {
-  callbackQueryId: string;
-  telegramUserId: number;
-  chatId: number;
-  messageId: number;
-  data: string;
+  callbackQueryId: string; telegramUserId: number; chatId: number; messageId: number; data: string; chatType?: string;
 }
 
 export async function handleCallbackQuery(
@@ -752,11 +696,13 @@ export async function handleCallbackQuery(
   const supabase = supabaseOverride || createServiceClient();
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
-  // Always answer to remove loading spinner
+  // Verify private-chat context and exact linked chat before authorizing a callback.
+  if (ctx.chatType && ctx.chatType !== "private") {
+    await answerCallbackQuery(ctx.callbackQueryId, "Use Nunuza in your private chat.");
+    return;
+  }
+  const resolved = await resolveWorkspace(ctx.telegramUserId, ctx.chatId, supabase);
   await answerCallbackQuery(ctx.callbackQueryId);
-
-  // Resolve workspace — every action requires server-side auth
-  const resolved = await resolveWorkspace(ctx.telegramUserId, supabase);
 
   if (!resolved) {
     await editTelegramMessage(
@@ -1393,8 +1339,8 @@ export async function sendTelegramMessage(
 ): Promise<{ ok: boolean; error?: string }> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || token.trim() === "") {
-    console.warn(`[telegram] sendTelegramMessage: TELEGRAM_BOT_TOKEN not configured. Message to ${chatId}: ${text}`);
-    return { ok: true };
+    console.error("[telegram] sendTelegramMessage: TELEGRAM_BOT_TOKEN is not configured.");
+    return { ok: false, error: "Telegram bot is not configured." };
   }
 
   try {
@@ -1411,6 +1357,7 @@ export async function sendTelegramMessage(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10_000),
     });
 
     const data = (await response.json()) as any;
@@ -1423,6 +1370,7 @@ export async function sendTelegramMessage(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(10_000),
         });
         const retryData = (await retryRes.json()) as any;
         if (!retryData.ok) {
@@ -1436,8 +1384,8 @@ export async function sendTelegramMessage(
     }
     return { ok: true };
   } catch (err: any) {
-    console.error("[telegram] sendMessage exception:", err);
-    return { ok: false, error: err.message };
+    console.error("[telegram] sendMessage request failed:", err?.name || "UnknownError");
+    return { ok: false, error: "Telegram API request failed." };
   }
 }
 
