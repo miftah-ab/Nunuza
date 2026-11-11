@@ -84,6 +84,12 @@ enabled = true
 authorization_url_path = "/oauth/consent"
 allow_dynamic_registration = true
 
+# Add the canonical MCP resource audience only to Supabase OAuth-issued JWTs.
+# The migration creates this function and limits execution to supabase_auth_admin.
+[auth.hook.custom_access_token]
+enabled = true
+uri = "pg-functions://postgres/public/custom_access_token_hook"
+
 [auth.email]
 # Allow/disallow new user signups via email to your project.
 enable_signup = false   # Nunuza: Google-only signup; email is disabled
