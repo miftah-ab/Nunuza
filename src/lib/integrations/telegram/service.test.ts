@@ -6,8 +6,6 @@ import {
   getTelegramLinkStatus,
   handleTelegramMessage,
   verifyTelegramSecret,
-  isUpdateProcessed,
-  markUpdateProcessed,
 } from "./service";
 import crypto from "crypto";
 
@@ -60,6 +58,27 @@ class MockTelegramDb {
   createClient() {
     const db = this;
     return {
+      rpc(name: string, args: any) {
+        if (name !== "link_telegram_account") return Promise.resolve({ data: null, error: new Error("Unknown RPC") });
+        const token = db.linkTokens.find((row) =>
+          row.token_hash === args.p_token_hash && !row.consumed_at && row.expires_at > new Date().toISOString()
+        );
+        if (!token) return Promise.resolve({ data: null, error: null });
+        token.consumed_at = new Date().toISOString();
+        db.telegramLinks
+          .filter((row) => !row.revoked_at && (row.workspace_id === token.workspace_id || row.telegram_user_id === args.p_telegram_user_id))
+          .forEach((row) => { row.revoked_at = new Date().toISOString(); });
+        db.telegramLinks.push({
+          id: `telegram-link-${db.telegramLinks.length + 1}`,
+          workspace_id: token.workspace_id,
+          telegram_user_id: args.p_telegram_user_id,
+          chat_id: args.p_chat_id,
+          linked_at: new Date().toISOString(),
+          revoked_at: null,
+        });
+        db.auditEvents.push({ workspace_id: token.workspace_id, action: "telegram_linked" });
+        return Promise.resolve({ data: token.workspace_id, error: null });
+      },
       from(table: string) {
         return {
           select(fields = "*", options?: any) {
@@ -250,12 +269,15 @@ describe("Telegram Service", () => {
       expect(verifyTelegramSecret(null)).toBe(false);
     });
 
-    it("deduplicates update_id to prevent replay attacks", () => {
-      const updateId = 554433221;
-      expect(isUpdateProcessed(updateId)).toBe(false);
-
-      markUpdateProcessed(updateId);
-      expect(isUpdateProcessed(updateId)).toBe(true);
+    it("rejects webhook requests without a configured secret outside tests", () => {
+      const previous = process.env.TELEGRAM_WEBHOOK_SECRET;
+      delete process.env.TELEGRAM_WEBHOOK_SECRET;
+      const previousNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = "production";
+      expect(verifyTelegramSecret("anything")).toBe(false);
+      if (previous === undefined) delete process.env.TELEGRAM_WEBHOOK_SECRET;
+      else process.env.TELEGRAM_WEBHOOK_SECRET = previous;
+      process.env.NODE_ENV = previousNodeEnv;
     });
   });
 
@@ -269,6 +291,20 @@ describe("Telegram Service", () => {
 
       expect(res.replyText).toContain("Nunuza Account Not Linked");
       expect(res.replyText).toContain("Integrations");
+    });
+
+    it("does not authorize a linked Telegram user from a different chat", async () => {
+      const client = mockDb.createClient();
+      const { token } = await generateTelegramPairingToken("ws-111", "user-111", client);
+      await linkTelegramAccount(token, 555666, 777888, client);
+
+      const res = await handleTelegramMessage(
+        { telegramUserId: 555666, chatId: 999000, text: "/drafts", chatType: "private" },
+        client
+      );
+
+      expect(res.replyText).toContain("Nunuza Account Not Linked");
+      expect(res.replyText).not.toContain("First draft hook");
     });
 
     it("handles /status for connected workspace", async () => {
