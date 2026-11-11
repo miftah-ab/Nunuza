@@ -39,8 +39,8 @@ export default async function IntegrationsPage() {
   const mcpStatus = await getMcpCredentialStatus(workspace.id, supabase);
   const { data: oauthGrantData, error: oauthGrantError } = await supabase.auth.oauth.listGrants();
   const oauthGrants = oauthGrantError ? [] : (oauthGrantData || []).map((grant) => ({
-    clientId: grant.client.client_id,
-    clientName: grant.client.client_name || "Authorized MCP client",
+    clientId: grant.client.id,
+    clientName: grant.client.name || "Authorized MCP client",
     scopes: grant.scopes,
     createdAt: grant.granted_at,
   }));
