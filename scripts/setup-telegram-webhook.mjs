@@ -53,16 +53,28 @@ async function run() {
   }
 
   const webhookUrl = arg;
-  console.log(`Setting webhook to: ${webhookUrl}`);
-  const url = new URL(`https://api.telegram.org/bot${BOT_TOKEN}/setWebhook`);
-  url.searchParams.set("url", webhookUrl);
-  if (WEBHOOK_SECRET) {
-    url.searchParams.set("secret_token", WEBHOOK_SECRET);
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(webhookUrl);
+  } catch {
+    throw new Error("Webhook URL must be a valid HTTPS URL.");
+  }
+  if (parsedUrl.protocol !== "https:") {
+    throw new Error("Telegram production webhooks require HTTPS.");
+  }
+  if (!WEBHOOK_SECRET || WEBHOOK_SECRET.length < 32) {
+    throw new Error("TELEGRAM_WEBHOOK_SECRET must be configured with at least 32 characters before setting the webhook.");
   }
 
-  const res = await fetch(url.toString());
+  const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/setWebhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url: webhookUrl, secret_token: WEBHOOK_SECRET }),
+    signal: AbortSignal.timeout(10_000),
+  });
   const data = await res.json();
-  console.log("✅ Webhook Result:", data);
+  if (!res.ok || !data.ok) throw new Error(data.description || `Telegram returned HTTP ${res.status}.`);
+  console.log("Webhook configured successfully.");
 }
 
 run().catch(console.error);
