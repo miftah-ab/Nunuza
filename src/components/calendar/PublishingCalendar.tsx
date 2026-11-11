@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   CalendarDays,
@@ -57,14 +57,6 @@ export function PublishingCalendar({
     () => new Date(initialMonth).getDate()
   );
 
-  // Keep server and first client render deterministic, then use the viewer's
-  // local calendar month (the scheduling form stores an absolute ISO instant).
-  useEffect(() => {
-    const today = new Date();
-    setVisibleMonth(new Date(today.getFullYear(), today.getMonth(), 1));
-    setSelectedDate(today.getDate());
-  }, []);
-
   const postsByDate = useMemo(() => {
     const grouped = new Map<string, ScheduledCalendarPost[]>();
     for (const post of posts) {
@@ -98,7 +90,7 @@ export function PublishingCalendar({
   const leadingDays = (monthStart.getDay() + 6) % 7;
   const daysInMonth = monthEnd.getDate();
   const calendarCells = Math.ceil((leadingDays + daysInMonth) / 7) * 7;
-  const todayKey = dateKey(new Date());
+  const todayKey = dateKey(new Date(initialMonth));
   const selectedDateObject = new Date(
     visibleMonth.getFullYear(),
     visibleMonth.getMonth(),
