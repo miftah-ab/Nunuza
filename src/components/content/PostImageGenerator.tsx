@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { ImagePlus, Loader2, RefreshCw } from "lucide-react";
 
@@ -25,7 +26,6 @@ export function PostImageGenerator({
 }: PostImageGeneratorProps) {
   const [prompt, setPrompt] = useState("");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,7 +33,6 @@ export function PostImageGenerator({
     let active = true;
     if (!imagePath) return;
 
-    setIsLoadingPreview(true);
     fetch(`/api/generate/image?postId=${encodeURIComponent(postId)}`)
       .then(async (response) => {
         const payload = (await response.json()) as ImageApiResponse;
@@ -42,9 +41,6 @@ export function PostImageGenerator({
       })
       .catch((cause: unknown) => {
         if (active) setError(cause instanceof Error ? cause.message : "Could not load image preview.");
-      })
-      .finally(() => {
-        if (active) setIsLoadingPreview(false);
       });
 
     return () => { active = false; };
@@ -84,12 +80,15 @@ export function PostImageGenerator({
       </div>
 
       {imagePath && previewUrl ? (
-        <img
+        <Image
           src={previewUrl}
           alt="Generated LinkedIn post visual"
+          width={1024}
+          height={1024}
+          unoptimized
           className="w-full max-h-72 object-contain rounded-md bg-surface"
         />
-      ) : isLoadingPreview ? (
+      ) : imagePath ? (
         <div className="h-24 flex items-center justify-center text-ink-secondary text-xs">
           <Loader2 size={14} className="animate-spin mr-2" /> Loading image...
         </div>
@@ -116,7 +115,7 @@ export function PostImageGenerator({
       <button
         type="button"
         onClick={generate}
-        disabled={isGenerating || isLoadingPreview}
+        disabled={isGenerating}
         className="btn-secondary text-xs flex items-center justify-center gap-2 disabled:opacity-50"
       >
         {isGenerating ? (
