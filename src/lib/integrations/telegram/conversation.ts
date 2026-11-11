@@ -203,44 +203,34 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
       topic,
       ...(existingPost?.pillar || state.pillar ? { pillar: existingPost?.pillar || state.pillar } : {}),
     };
-
-    let job: any;
-    const { data: insertedJob, error: insertError } = await input.supabase.from("agent_jobs").insert({
-      workspace_id: input.workspaceId,
-      job_type: "telegram_content_generation",
-      status: "queued",
-      idempotency_key: idempotencyKey,
-      payload,
-      scheduled_for: new Date().toISOString(),
-      attempt_count: 0,
-      max_attempts: 3,
-    }).select("id, status").single();
-
-    if (insertError?.code === "23505") {
-      const { data: existingJob, error: lookupError } = await input.supabase.from("agent_jobs")
-        .select("id, status").eq("workspace_id", input.workspaceId).eq("idempotency_key", idempotencyKey).maybeSingle();
-      if (lookupError || !existingJob) throw new Error("Could not recover the existing content request.");
-      job = existingJob;
-    } else if (insertError || !insertedJob) {
-      throw new Error("Could not queue your content request.");
-    } else {
-      job = insertedJob;
-    }
-
-    if (job.status === "succeeded") {
-      await releaseConversation(input, lockToken, stateWithoutPending(state));
-      return { replyText: "That request has already completed. Use /drafts to find the saved post." };
-    }
-
+    const jobId = crypto.randomUUID();
     const nextState: ConversationState = {
       ...(state.activePostId ? { activePostId: state.activePostId } : {}),
       topic,
       ...(payload.pillar ? { pillar: payload.pillar } : {}),
-      pendingJobId: job.id,
-      pendingSince: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    await releaseConversation(input, lockToken, nextState);
+    const { data: enqueueResult, error: enqueueError } = await input.supabase.rpc("enqueue_telegram_content_job", {
+      p_telegram_user_id: input.telegramUserId,
+      p_chat_id: input.chatId,
+      p_workspace_id: input.workspaceId,
+      p_lock_token: lockToken,
+      p_job_id: jobId,
+      p_idempotency_key: idempotencyKey,
+      p_payload: payload,
+      p_conversation_state: nextState,
+    });
+    if (enqueueError) throw new Error("Could not queue your content request.");
+    if (!enqueueResult?.queued) {
+      if (enqueueResult?.reason === "already_completed") {
+        return { replyText: "That request has already completed. Use /drafts to find the saved post." };
+      }
+      if (enqueueResult?.reason === "previous_failed") {
+        return { replyText: "Your previous attempt failed. Send the content request again to retry it." };
+      }
+      return { replyText: "Your content session changed while I was queueing that request. Please send it again." };
+    }
+
     return {
       replyText:
         "⏳ I'm working on your LinkedIn post now. I'll send the draft here when it's ready.\n\n" +
