@@ -13,6 +13,7 @@
  */
 
 import React, { useState } from "react";
+import { PostImageGenerator } from "@/components/content/PostImageGenerator";
 import type { ContentPost, PostStatus, Workspace } from "@/types/database";
 import {
   Sparkles,
@@ -1037,6 +1038,17 @@ export function ContentManager({
                   className="input-field text-sm resize-none"
                 />
               </div>
+
+              <PostImageGenerator
+                postId={editingPost.id}
+                imagePath={editingPost.image_path ?? null}
+                onImageUpdated={(imagePath, status) => {
+                  setEditingPost((current) => current ? { ...current, image_path: imagePath, status: status as PostStatus } : current);
+                  setPosts((current) => current.map((post) =>
+                    post.id === editingPost.id ? { ...post, image_path: imagePath, status: status as PostStatus } : post
+                  ));
+                }}
+              />
 
               <div className="flex items-center justify-between pt-2">
                 <button
