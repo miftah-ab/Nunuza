@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { generateMcpToken, verifyMcpToken, revokeMcpToken, getMcpCredentialStatus } from "./tokens";
-import { MCP_TOOLS, executeMcpTool } from "./tools";
+import { MCP_TOOLS, executeMcpTool, getMcpToolsForScopes, validateMcpToolArguments } from "./tools";
 import crypto from "crypto";
 
 class MockMcpDb {
@@ -224,6 +224,30 @@ describe("Remote MCP Integration", () => {
       expect(toolNames).toContain("resume_agent");
       expect(toolNames).toContain("schedule_post");
       expect(toolNames).toContain("cancel_scheduled_post");
+    });
+  });
+
+  describe("Credential scopes and argument validation", () => {
+    it("only advertises tools permitted by the credential scopes", () => {
+      const readTools = getMcpToolsForScopes(["read"]).map((tool) => tool.name);
+      const writeTools = getMcpToolsForScopes(["write"]).map((tool) => tool.name);
+      expect(readTools).toContain("list_drafts");
+      expect(readTools).not.toContain("create_draft");
+      expect(writeTools).toContain("create_draft");
+      expect(writeTools).not.toContain("list_drafts");
+    });
+
+    it("rejects calls outside the credential scope", async () => {
+      const client = mockDb.createClient();
+      await expect(executeMcpTool("create_draft", { text: "Blocked" }, { workspaceId: "ws-aaa", userId: "user-aaa", scopes: ["read"] }, client))
+        .rejects.toThrow("does not have the write scope");
+    });
+
+    it("rejects unknown and malformed tool arguments", () => {
+      expect(() => validateMcpToolArguments("create_draft", { text: "Valid", unexpected: true })).toThrow("Unexpected argument");
+      expect(() => validateMcpToolArguments("create_draft", { text: 123 })).toThrow("must be a string");
+      expect(() => validateMcpToolArguments("create_draft", {})).toThrow("Missing required argument");
+      expect(() => validateMcpToolArguments("not_a_tool", {})).toThrow("Unknown MCP tool");
     });
   });
 
