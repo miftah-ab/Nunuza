@@ -19,15 +19,20 @@ export async function POST(req: NextRequest) {
   let claimed = false;
 
   try {
-    const update = await req.json();
+    const update = (await req.json()) as Record<string, any>;
     if (!update || typeof update !== "object" || Array.isArray(update)) {
       return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
     }
 
-    updateId = update.update_id;
-    if (!Number.isSafeInteger(updateId) || updateId < 0) {
+    const candidateUpdateId = update.update_id;
+    if (
+      typeof candidateUpdateId !== "number" ||
+      !Number.isSafeInteger(candidateUpdateId) ||
+      candidateUpdateId < 0
+    ) {
       return NextResponse.json({ ok: false, error: "Invalid update_id" }, { status: 400 });
     }
+    updateId = candidateUpdateId;
 
     const claim = await claimTelegramWebhookUpdate(updateId);
     if (claim === "completed") {
