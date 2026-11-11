@@ -90,7 +90,10 @@ export async function POST(req: NextRequest) {
 }
 
 /** GET /api/webhooks/telegram — registers bot slash commands with Telegram. */
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
+  if (!verifyTelegramSecret(req.headers.get("x-telegram-bot-api-secret-token"))) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   try {
     const result = await registerBotCommands();
     return NextResponse.json(result, { status: result.ok ? 200 : 502 });
