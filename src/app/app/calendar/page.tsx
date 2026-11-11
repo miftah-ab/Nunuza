@@ -64,7 +64,7 @@ export default async function CalendarPage() {
       </div>
 
       {/* Private Beta Notice */}
-      {(workspace.entitlement_type === "internal_beta" || workspace.entitlement_type === "publishing_beta") && (
+      {workspace.entitlement_type === "internal_beta" && (
         <div className="notice-info mb-6">
           <Clock size={15} className="shrink-0 mt-0.5" />
           <div>
