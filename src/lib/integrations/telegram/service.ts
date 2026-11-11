@@ -112,7 +112,7 @@ export async function editTelegramMessage(
   };
   if (replyMarkup) payload.reply_markup = replyMarkup;
   const result = await tgPost("editMessageText", payload);
-  if (!result.ok && result.error && !result.error.includes("message is not modified")) {
+  if (!result.ok && result.error?.includes("can't parse entities")) {
     // Fallback: try without parse_mode
     const plainPayload: any = { chat_id: chatId, message_id: messageId, text: text.replace(/\\/g, "") };
     if (replyMarkup) plainPayload.reply_markup = replyMarkup;
@@ -710,13 +710,13 @@ export async function handleCallbackQuery(
   const supabase = supabaseOverride || createServiceClient();
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
-  // Verify private-chat context and exact linked chat before authorizing a callback.
+  // Dismiss the Telegram spinner immediately; this acknowledgement exposes no workspace data.
   if (ctx.chatType && ctx.chatType !== "private") {
     await answerCallbackQuery(ctx.callbackQueryId, "Use Nunuza in your private chat.");
     return;
   }
-  const resolved = await resolveWorkspace(ctx.telegramUserId, ctx.chatId, supabase);
   await answerCallbackQuery(ctx.callbackQueryId);
+  const resolved = await resolveWorkspace(ctx.telegramUserId, ctx.chatId, supabase);
 
   if (!resolved) {
     await editTelegramMessage(
@@ -741,6 +741,7 @@ export async function handleCallbackQuery(
     .from("telegram_links")
     .update({ last_interaction_at: new Date().toISOString() })
     .eq("telegram_user_id", ctx.telegramUserId)
+    .eq("chat_id", ctx.chatId)
     .is("revoked_at", null);
 
   // ── Main Menu ──
