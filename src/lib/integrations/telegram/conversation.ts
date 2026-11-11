@@ -202,7 +202,7 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
     while (visibleBody.length > 0 && escapeMarkdownV2(visibleBody).length > 3400) {
       visibleBody = visibleBody.slice(0, Math.max(0, visibleBody.length - 100));
     }
-    const body = escapeMarkdownV2(visibleBody) + (visibleBody.length < rawBody.length ? "\\n\\n[Open Nunuza to view the complete draft.]" : "");
+    const body = escapeMarkdownV2(visibleBody) + (visibleBody.length < rawBody.length ? "\n\n[Open Nunuza to view the complete draft.]" : "");
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://nunuza.com";
     return {
       replyText:
