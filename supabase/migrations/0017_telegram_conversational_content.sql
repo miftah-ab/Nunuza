@@ -192,3 +192,63 @@ $$;
 
 REVOKE ALL ON FUNCTION public.enqueue_telegram_content_job(BIGINT, BIGINT, UUID, UUID, UUID, TEXT, JSONB, JSONB) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.enqueue_telegram_content_job(BIGINT, BIGINT, UUID, UUID, UUID, TEXT, JSONB, JSONB) TO service_role;
+
+
+-- Extend the existing reservation release logic: a Telegram job that already
+-- committed its draft must consume its monthly slot even if later bookkeeping
+-- exhausts retries. Preserve the existing autonomous-cycle recovery behavior.
+CREATE OR REPLACE FUNCTION public.release_draft_usage(p_job_id UUID)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  v_workspace_id UUID;
+  v_payload JSONB;
+  v_period_start DATE;
+  v_cycle_date TEXT;
+BEGIN
+  SELECT workspace_id, payload INTO v_workspace_id, v_payload
+    FROM public.agent_jobs WHERE id = p_job_id FOR UPDATE;
+  IF NOT FOUND OR NOT (v_payload ? 'draft_usage_reserved_period') THEN
+    RETURN;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.content_posts
+     WHERE workspace_id = v_workspace_id AND telegram_job_id = p_job_id
+  ) THEN
+    UPDATE public.agent_jobs
+       SET payload = payload - 'draft_usage_reserved_period', updated_at = NOW()
+     WHERE id = p_job_id;
+    RETURN;
+  END IF;
+
+  v_cycle_date := v_payload->>'cycleDate';
+  IF v_cycle_date IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.content_posts
+     WHERE workspace_id = v_workspace_id
+       AND agent_cycle_key = v_workspace_id::TEXT || ':' || v_cycle_date
+  ) THEN
+    UPDATE public.agent_jobs
+       SET payload = payload - 'draft_usage_reserved_period', updated_at = NOW()
+     WHERE id = p_job_id;
+    RETURN;
+  END IF;
+
+  v_period_start := (v_payload->>'draft_usage_reserved_period')::DATE;
+  UPDATE public.usage_counters
+     SET count = GREATEST(count - 1, 0), updated_at = NOW()
+   WHERE workspace_id = v_workspace_id
+     AND metric = 'draft_items_created'
+     AND period_start = v_period_start;
+
+  UPDATE public.agent_jobs
+     SET payload = payload - 'draft_usage_reserved_period', updated_at = NOW()
+   WHERE id = p_job_id;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.release_draft_usage(UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.release_draft_usage(UUID) TO service_role;
