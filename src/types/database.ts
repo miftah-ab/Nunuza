@@ -20,8 +20,6 @@ export type EntitlementType =
   | "paid_active"
   | "suspended"
   | "expired"
-  | "publishing_beta"
-  | "internal_test"
   | "draft_only"
   | "inactive";
 
