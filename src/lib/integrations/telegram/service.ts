@@ -18,6 +18,7 @@
 
 import crypto from "crypto";
 import { createServiceClient } from "@/lib/supabase/server";
+import { handleTelegramConversation } from "./conversation";
 
 // ─── Durable webhook idempotency ──────────────────────────────────────────────
 
@@ -125,6 +126,7 @@ export async function editTelegramMessage(
 function mainMenuKeyboard() {
   return {
     inline_keyboard: [
+      [{ text: "✍️ Create a Post", callback_data: "conversation:create" }],
       [
         { text: "📝 My Drafts", callback_data: "menu:drafts" },
         { text: "✅ Approvals", callback_data: "menu:approvals" },
@@ -258,7 +260,7 @@ export async function getTelegramLinkStatus(
 // ─── Command Handling ─────────────────────────────────────────────────────────
 
 export interface CommandContext {
-  telegramUserId: number; chatId: number; text: string; chatType?: string;
+  telegramUserId: number; chatId: number; text: string; chatType?: string; updateId?: number;
 }
 
 export interface CommandResponse {
@@ -279,7 +281,7 @@ async function resolveWorkspace(
 
   const { data: workspace, error: workspaceError } = await supabase
     .from("workspaces")
-    .select("id, name, entitlement_type, state, operating_mode, paused_at")
+    .select("id, owner_user_id, name, entitlement_type, state, operating_mode, paused_at")
     .eq("id", link.workspace_id)
     .single();
 
@@ -377,7 +379,7 @@ export async function handleTelegramMessage(
     return {
       replyText:
         `🤖 *Nunuza Agent* — ${escapeMd(workspace?.name || "Workspace")}\n\n` +
-        `Use the menu below to manage your LinkedIn content:`,
+        `Send me a message describing the LinkedIn post you want. I can create and revise drafts in your voice.\n\nUse the menu below to manage your LinkedIn content:`,
       replyMarkup: mainMenuKeyboard(),
     };
   }
@@ -688,13 +690,16 @@ export async function handleTelegramMessage(
     };
   }
 
-  // Fallback
-  return {
-    replyText:
-      `💬 *Received:* _${escapeMd(text.slice(0, 60))}_\n\n` +
-      `Use the menu to manage your content:`,
-    replyMarkup: mainMenuKeyboard(),
-  };
+  // Natural-language content requests reuse the workspace AI and draft pipeline.
+  return handleTelegramConversation({
+    telegramUserId: ctx.telegramUserId,
+    chatId: ctx.chatId,
+    workspaceId,
+    ownerUserId: workspace.owner_user_id,
+    updateId: ctx.updateId,
+    text,
+    supabase,
+  });
 }
 
 // ─── Callback Query Handler ───────────────────────────────────────────────────
@@ -751,6 +756,17 @@ export async function handleCallbackQuery(
       ctx.messageId,
       `🤖 *Nunuza Agent* — ${escapeMd(workspace?.name || "Workspace")}\n\nUse the menu below:`,
       mainMenuKeyboard()
+    );
+    return;
+  }
+
+  // ── Start conversational content creation ──
+  if (data === "conversation:create") {
+    await editTelegramMessage(
+      ctx.chatId,
+      ctx.messageId,
+      "✍️ *Create a LinkedIn post*\n\nSend me your topic, rough idea, audience, or point of view. I will create a draft using your saved voice and strategy. Then you can ask for revisions naturally.\n\nNothing is published without a separate approval action.",
+      { inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]] }
     );
     return;
   }
@@ -1482,6 +1498,8 @@ export async function registerBotCommands(): Promise<{ ok: boolean; description?
     { command: "resume", description: "Resume the agent" },
     { command: "report", description: "Monthly performance report" },
     { command: "settings", description: "Account settings" },
+    { command: "new", description: "Start a new content draft" },
+    { command: "cancel", description: "End the current chat session" },
     { command: "help", description: "Show help & commands" },
   ];
 
