@@ -278,12 +278,12 @@ describe("Telegram Service", () => {
       const previous = process.env.TELEGRAM_WEBHOOK_SECRET;
       delete process.env.TELEGRAM_WEBHOOK_SECRET;
       const previousNodeEnv = process.env.NODE_ENV;
-      process.env.NODE_ENV = "production";
+      Reflect.set(process.env, "NODE_ENV", "production");
       expect(verifyTelegramSecret("anything")).toBe(false);
       if (previous === undefined) delete process.env.TELEGRAM_WEBHOOK_SECRET;
       else process.env.TELEGRAM_WEBHOOK_SECRET = previous;
-      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
-      else process.env.NODE_ENV = previousNodeEnv;
+      if (previousNodeEnv === undefined) Reflect.deleteProperty(process.env, "NODE_ENV");
+      else Reflect.set(process.env, "NODE_ENV", previousNodeEnv);
     });
   });
 
