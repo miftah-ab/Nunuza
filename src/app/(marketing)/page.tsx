@@ -4,7 +4,6 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
-  Clock3,
   FileText,
   LockKeyhole,
   MessageCircle,
