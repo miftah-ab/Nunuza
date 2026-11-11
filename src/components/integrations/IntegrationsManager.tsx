@@ -49,6 +49,12 @@ export interface IntegrationStatusData {
     createdAt?: string;
     lastUsedAt?: string | null;
     endpointUrl: string;
+    oauthGrants: Array<{
+      clientId: string;
+      clientName: string;
+      scopes: string[];
+      createdAt: string;
+    }>;
   };
   workspaceEntitlement: string;
 }
@@ -171,6 +177,32 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
         },
       }));
       setSuccessMsg("New MCP API key created. Copy it now, as it will not be displayed again.");
+    } catch (err: any) {
+      setErrorMsg(err.message);
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handleRevokeOAuthGrant = async (clientId: string, clientName: string) => {
+    setLoadingAction(`oauth_revoke:${clientId}`);
+    setErrorMsg(null);
+    try {
+      const res = await fetch("/api/integrations/mcp/oauth-grants", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId }),
+      });
+      const json = (await res.json()) as any;
+      if (!res.ok) throw new Error(json.error || "Failed to revoke Claude access");
+      setData((prev) => ({
+        ...prev,
+        mcp: {
+          ...prev.mcp,
+          oauthGrants: prev.mcp.oauthGrants.filter((grant) => grant.clientId !== clientId),
+        },
+      }));
+      setSuccessMsg(`${clientName} access revoked.`);
     } catch (err: any) {
       setErrorMsg(err.message);
     } finally {
@@ -519,6 +551,32 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
                 Anthropic currently requires custom connectors to be added in Claude settings. After this one-time setup, reconnecting uses the OAuth consent flow.
               </p>
             </div>
+
+            {data.mcp.oauthGrants.length > 0 && (
+              <div className="rounded-lg border border-border p-4 space-y-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-ink">Authorized Claude connections</h3>
+                  <p className="mt-1 text-xs text-ink-secondary">Revoke a client to invalidate its OAuth grant and refresh tokens.</p>
+                </div>
+                {data.mcp.oauthGrants.map((grant) => (
+                  <div key={grant.clientId} className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-ink">{grant.clientName}</p>
+                      <p className="text-[11px] text-ink-secondary">
+                        Authorized {new Date(grant.createdAt).toLocaleDateString()} · {grant.scopes.join(", ") || "No OIDC scopes"}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleRevokeOAuthGrant(grant.clientId, grant.clientName)}
+                      disabled={loadingAction === `oauth_revoke:${grant.clientId}`}
+                      className="btn-secondary text-xs px-3 py-1.5 text-red-400 hover:text-red-300"
+                    >
+                      {loadingAction === `oauth_revoke:${grant.clientId}` ? "Revoking..." : "Revoke access"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="p-3 rounded-lg bg-surface border border-border text-xs text-ink-secondary flex items-start gap-2">
               <ShieldAlert className="w-4 h-4 shrink-0 text-ink-secondary mt-0.5" />
