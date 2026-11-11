@@ -119,7 +119,7 @@ describe("[MOCKED] draft_only entitlement invariants", () => {
     expect(canUseAutopilot({ ...draftWorkspace, operating_mode: "autopilot" })).toBe(false);
   });
 
-  it("draft_only assertEntitlement throws for publishing_beta", () => {
+  it("draft_only assertEntitlement throws for internal_beta", () => {
     expect(() => assertEntitlement(draftWorkspace, "internal_beta")).toThrow(EntitlementError);
   });
 
@@ -310,10 +310,10 @@ describeRls("[INTEGRATION — VERIFIED] Supabase RLS cross-tenant isolation", ()
     expect(rpcAnon).toBeNull();
   }, 60000);
 
-  it("entitlement_type cannot be set to publishing_beta via anon UPDATE", async () => {
+  it("entitlement_type cannot be set to internal_beta via anon UPDATE", async () => {
     const { data: updated } = await anonClient
       .from("workspaces")
-      .update({ entitlement_type: "publishing_beta" })
+      .update({ entitlement_type: "internal_beta" })
       .eq("id", wsAId)
       .select();
 

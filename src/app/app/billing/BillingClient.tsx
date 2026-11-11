@@ -88,7 +88,9 @@ export function BillingClient({ details }: BillingClientProps) {
   };
 
   const statusBanner = getStatusBanner();
-  const isPrivateBeta = details.accessMode === "private_beta";
+  const isPrivateBeta =
+    details.accessMode === "private_beta" ||
+    details.entitlement === "internal_beta";
   const isPaid = details.entitlement === "paid_trial" || details.entitlement === "paid_active";
 
   return (

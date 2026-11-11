@@ -4,7 +4,7 @@
  * Verifies:
  * - Unauthenticated request returns 401
  * - draft_only workspace is strictly rejected with 403 EntitlementError
- * - publishing_beta workspace is permitted to schedule an approved post
+ * - internal_beta workspace is permitted to schedule an approved post
  * - Paused workspace cannot schedule
  * - Missing scheduledFor returns 400
  * - Non-existent post or unapproved post cannot be scheduled
@@ -103,7 +103,7 @@ describe("POST /api/posts/[id]/schedule", () => {
     expect(json.error).toContain("requires internal_beta or paid entitlement");
   });
 
-  it("succeeds when workspace entitlement is publishing_beta", async () => {
+  it("succeeds when workspace entitlement is internal_beta", async () => {
     vi.mocked(requireWorkspace).mockResolvedValueOnce(publishingBetaWorkspace);
     vi.mocked(schedulingService.schedulePost).mockResolvedValueOnce({
       job: {

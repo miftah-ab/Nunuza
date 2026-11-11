@@ -223,7 +223,7 @@ export function assertEntitlementIn(
 /**
  * Checks whether publishing is permitted for this workspace.
  * Requires internal_beta, paid_trial, or paid_active.
- * Retired legacy entitlements are migrated and cannot authorize publishing.
+ * draft_only, suspended, expired, and inactive cannot publish.
  */
 export function canPublish(workspace: Pick<Workspace, "entitlement_type">): boolean {
   return (
@@ -241,10 +241,8 @@ export function canPublish(workspace: Pick<Workspace, "entitlement_type">): bool
 export function canUseAutopilot(
   workspace: Pick<Workspace, "entitlement_type" | "operating_mode">
 ): boolean {
-  // Autopilot is restricted to current entitlements and explicit opt-in.
-  // Retired legacy values are removed by migration 0011.
   return (
-    ["internal_beta", "paid_trial", "paid_active"].includes(workspace.entitlement_type) &&
+    canPublish(workspace) &&
     workspace.operating_mode === "autopilot"
   );
 }

@@ -33,16 +33,8 @@ describe("entitlementPermits()", () => {
     expect(entitlementPermits("draft_only", "draft_only")).toBe(true);
   });
 
-  it("draft_only does NOT permit internal_beta", () => {
-    expect(entitlementPermits("draft_only", "internal_beta")).toBe(false);
-  });
-
   it("draft_only does NOT permit paid_trial", () => {
     expect(entitlementPermits("draft_only", "paid_trial")).toBe(false);
-  });
-
-  it("internal_beta permits internal_beta", () => {
-    expect(entitlementPermits("internal_beta", "internal_beta")).toBe(true);
   });
 
   it("paid_active permits paid_trial (same level)", () => {
@@ -54,7 +46,7 @@ describe("entitlementPermits()", () => {
   });
 
   it("paid_active permits all lower levels", () => {
-    const levels: EntitlementType[] = ["draft_only", "internal_beta", "paid_trial"];
+    const levels: EntitlementType[] = ["draft_only", "paid_trial"];
     levels.forEach((level) => {
       expect(entitlementPermits("paid_active", level)).toBe(true);
     });
@@ -70,11 +62,10 @@ describe("assertEntitlement()", () => {
 
   it("does not throw when entitlement is sufficient", () => {
     expect(() => assertEntitlement(ws("paid_active"), "draft_only")).not.toThrow();
-    expect(() => assertEntitlement(ws("internal_beta"), "internal_beta")).not.toThrow();
   });
 
   it("throws EntitlementError when entitlement is insufficient", () => {
-    expect(() => assertEntitlement(ws("draft_only"), "internal_beta")).toThrow(
+    expect(() => assertEntitlement(ws("draft_only"), "paid_trial")).toThrow(
       EntitlementError
     );
   });
@@ -108,9 +99,9 @@ describe("assertEntitlementIn()", () => {
     ).toThrow(EntitlementError);
   });
 
-  it("throws for draft_only even if internal_beta is allowed", () => {
+  it("throws for draft_only when only paid entitlements are allowed", () => {
     expect(() =>
-      assertEntitlementIn(ws("draft_only"), ["internal_beta", "paid_active"])
+      assertEntitlementIn(ws("draft_only"), ["paid_trial", "paid_active"])
     ).toThrow(EntitlementError);
   });
 });
