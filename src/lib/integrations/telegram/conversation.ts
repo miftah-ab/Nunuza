@@ -91,8 +91,12 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
         .select("id, text, internal_title, pillar, version, status")
         .eq("workspace_id", input.workspaceId).eq("id", state.activePostId).maybeSingle();
       if (error) throw new Error("Could not load the active draft.");
-      if (data?.status === "draft") existingPost = data;
-      else state = {};
+      if (data?.status === "draft") {
+        existingPost = data;
+      } else {
+        await releaseConversation(input, lockToken, {});
+        return { replyText: "That draft is no longer editable from this chat. It may have been approved, rejected, or deleted. Send /new to start another post." };
+      }
     }
 
     const [voiceResult, strategyResult, profileResult] = await Promise.all([
@@ -134,8 +138,13 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
       exclusions: strategy.exclusions, ctaPreferences: strategy.cta_preferences,
     } : undefined;
 
+    const targetLength = /\\b(short|brief|concise|shorter)\\b/i.test(text)
+      ? "short"
+      : /\\b(long|detailed|in-depth|deep dive|more detail)\\b/i.test(text)
+        ? "long"
+        : "medium";
     const generation = await aiService.generateDraft({
-      topic, pillar: pillar || undefined, targetLength: "medium",
+      topic, pillar: pillar || undefined, targetLength,
       userRole: profile?.display_name ?? undefined, voiceProfile: voiceContext, strategy: strategyContext,
       ...(existingPost ? { revision: { previousDraft: existingPost.text, instruction: text } } : {}),
     });
