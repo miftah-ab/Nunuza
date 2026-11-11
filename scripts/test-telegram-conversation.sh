@@ -36,10 +36,12 @@ CREATE TABLE public.agent_jobs (
   attempt_count INTEGER NOT NULL DEFAULT 0,
   max_attempts INTEGER NOT NULL DEFAULT 3,
   correlation_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (workspace_id, idempotency_key)
 );
-CREATE TABLE public.content_posts (id UUID PRIMARY KEY);
+CREATE TABLE public.content_posts (id UUID PRIMARY KEY, workspace_id UUID, agent_cycle_key TEXT);
 CREATE TABLE public.content_post_versions (id UUID PRIMARY KEY);
+CREATE TABLE public.usage_counters (workspace_id UUID, metric TEXT, period_start DATE, count INTEGER, updated_at TIMESTAMPTZ DEFAULT NOW());
 CREATE TABLE public.telegram_links (
   id UUID PRIMARY KEY,
   workspace_id UUID NOT NULL,
@@ -127,9 +129,13 @@ DONE=$(q -c "SELECT public.complete_telegram_conversation_job(303,404,'20000000-
 [ "$DONE" = "t" ] || fail "matching job must complete conversation state"
 STALE=$(q -c "SELECT public.complete_telegram_conversation_job(303,404,'20000000-0000-0000-0000-000000000002',gen_random_uuid(),'{}'::jsonb)")
 [ "$STALE" = "f" ] || fail "stale job must not overwrite conversation state"
-q -c "INSERT INTO public.content_posts(id,telegram_job_id) VALUES ('60000000-0000-0000-0000-000000000001','$JOB_ID')" >/dev/null
+q -c "INSERT INTO public.content_posts(id,workspace_id,telegram_job_id) VALUES ('60000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000003','$JOB_ID')" >/dev/null
+q -c "UPDATE public.agent_jobs SET payload=payload || jsonb_build_object('draft_usage_reserved_period','2026-11-01') WHERE id='$JOB_ID'" >/dev/null
+q -c "INSERT INTO public.usage_counters(workspace_id,metric,period_start,count) VALUES ('20000000-0000-0000-0000-000000000003','draft_items_created','2026-11-01',1)" >/dev/null
+q -c "SELECT public.release_draft_usage('$JOB_ID')" >/dev/null
+[ "$(q -c "SELECT count FROM public.usage_counters WHERE workspace_id='20000000-0000-0000-0000-000000000003' AND period_start='2026-11-01'")" = "1" ] || fail "terminal cleanup must preserve usage for an already committed Telegram draft"
 q -c "INSERT INTO public.content_post_versions(id,telegram_job_id) VALUES ('80000000-0000-0000-0000-000000000001','$JOB_ID')" >/dev/null
-if psql -v ON_ERROR_STOP=1 -c "INSERT INTO public.content_posts(id,telegram_job_id) VALUES ('60000000-0000-0000-0000-000000000002','$JOB_ID')" >/dev/null 2>&1; then
+if psql -v ON_ERROR_STOP=1 -c "INSERT INTO public.content_posts(id,workspace_id,telegram_job_id) VALUES ('60000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000003','$JOB_ID')" >/dev/null 2>&1; then
   fail "one generation job must not create duplicate posts"
 fi
 if psql -v ON_ERROR_STOP=1 -c "INSERT INTO public.content_post_versions(id,telegram_job_id) VALUES ('80000000-0000-0000-0000-000000000002','$JOB_ID')" >/dev/null 2>&1; then
