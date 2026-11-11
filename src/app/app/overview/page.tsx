@@ -104,8 +104,6 @@ type EntitlementInfo = { label: string; badgeClass: string };
 
 const ENTITLEMENT_INFO: Record<string, EntitlementInfo> = {
   internal_beta: { label: "Private Beta", badgeClass: "bg-forest-light text-forest border-forest-muted" },
-  publishing_beta: { label: "Private Beta", badgeClass: "bg-forest-light text-forest border-forest-muted" },
-  internal_test: { label: "Internal Beta", badgeClass: "bg-forest-light text-forest border-forest-muted" },
   paid_trial: { label: "Trial Active", badgeClass: "bg-success-light text-success border-success/20" },
   paid_active: { label: "Nunuza Solo", badgeClass: "bg-success-light text-success border-success/20" },
   suspended: { label: "Suspended", badgeClass: "bg-error-light text-error border-error/20" },
@@ -257,7 +255,6 @@ export default async function OverviewPage() {
 
   const isBetaOrPaid =
     workspace.entitlement_type === "internal_beta" ||
-    workspace.entitlement_type === "publishing_beta" ||
     workspace.entitlement_type === "paid_trial" ||
     workspace.entitlement_type === "paid_active";
 
@@ -371,7 +368,7 @@ export default async function OverviewPage() {
         </div>
       )}
 
-      {(workspace.entitlement_type === "internal_beta" || workspace.entitlement_type === "publishing_beta") && (
+      {workspace.entitlement_type === "internal_beta" && (
         <div className="notice-info flex items-center gap-3">
           <Sparkles size={15} className="shrink-0 text-forest" />
           <p className="text-sm text-ink-secondary">
