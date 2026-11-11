@@ -21,6 +21,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export interface ListPostsOptions {
   status?: PostStatus | PostStatus[];
+  /** Exclude soft-deleted records from active content lists. */
+  excludeCanceled?: boolean;
   limit?: number;
   offset?: number;
   orderBy?: "created_at" | "updated_at" | "scheduled_at";
@@ -57,6 +59,7 @@ export async function listPosts(
   const supabase = await createClient();
   const {
     status,
+    excludeCanceled = false,
     limit = 50,
     offset = 0,
     orderBy = "updated_at",
@@ -69,6 +72,10 @@ export async function listPosts(
     .eq("workspace_id", workspaceId)
     .order(orderBy, { ascending: orderDir === "asc" })
     .range(offset, offset + limit - 1);
+
+  if (excludeCanceled) {
+    query = query.neq("status", "canceled");
+  }
 
   if (status) {
     const statuses = Array.isArray(status) ? status : [status];
