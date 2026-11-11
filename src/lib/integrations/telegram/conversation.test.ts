@@ -130,8 +130,10 @@ describe("Telegram conversational content", () => {
   it("adds the existing draft and user instruction as untrusted revision context", () => {
     const prompt = buildDraftPrompt({
       topic: "Hiring lessons",
+      strategy: { pillars: ["Founder lessons", "AI operations"] },
       revision: { previousDraft: "Old draft text", instruction: "Make the hook stronger" },
     });
+    expect(prompt.systemPrompt).toContain("Founder lessons, AI operations");
     expect(prompt.userPrompt).toContain("REVISION MODE");
     expect(prompt.userPrompt).toContain("Old draft text");
     expect(prompt.userPrompt).toContain("Make the hook stronger");
