@@ -71,7 +71,7 @@ export async function generateCloudflareImage(
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ prompt: normalizedPrompt, steps: 4 }),
-        signal: AbortSignal.timeout(90_000),
+        signal: AbortSignal.timeout(55_000),
       }
     );
   } catch {
