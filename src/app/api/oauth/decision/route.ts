@@ -32,10 +32,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(new URL(`/login?redirect=${encodeURIComponent(returnTo)}`, request.url), { status: 303 });
   }
 
+  // Do not issue new OAuth grants while the MCP feature is disabled.
+  const effectiveDecision = process.env.MCP_ENABLED === "true" ? decision : "deny";
   const result =
-    decision === "approve"
-      ? await supabase.auth.oauth.approveAuthorization(authorizationId)
-      : await supabase.auth.oauth.denyAuthorization(authorizationId);
+    effectiveDecision === "approve"
+      ? await supabase.auth.oauth.approveAuthorization(authorizationId, { skipBrowserRedirect: true })
+      : await supabase.auth.oauth.denyAuthorization(authorizationId, { skipBrowserRedirect: true });
 
   if (result.error || !result.data?.redirect_url) {
     return NextResponse.json(
@@ -44,7 +46,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const redirectUrl = new URL(result.data.redirect_url);
+  let redirectUrl: URL;
+  try {
+    redirectUrl = new URL(result.data.redirect_url);
+  } catch {
+    return NextResponse.json({ error: "The authorization provider returned an invalid redirect." }, { status: 400 });
+  }
+
   if (redirectUrl.protocol !== "https:" && redirectUrl.hostname !== "localhost" && redirectUrl.hostname !== "127.0.0.1") {
     return NextResponse.json({ error: "The authorization provider returned an unsafe redirect." }, { status: 400 });
   }
