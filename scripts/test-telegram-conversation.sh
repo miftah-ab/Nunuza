@@ -117,13 +117,22 @@ ENQUEUED=$(q -c "SELECT public.enqueue_telegram_content_job(303,404,'20000000-00
 echo "$ENQUEUED" | grep -q '"queued": true' || fail "job and pending conversation state must be enqueued atomically"
 [ "$(q -c "SELECT status FROM public.agent_jobs WHERE id='$JOB_ID'")" = "queued" ] || fail "Telegram content job must be queued"
 [ "$(q -c "SELECT conversation_state->>'pendingJobId' FROM public.telegram_links WHERE telegram_user_id=303 AND revoked_at IS NULL")" = "$JOB_ID" ] || fail "conversation must point to the queued job"
+LOCK_TOKEN_2='70000000-0000-0000-0000-000000000002'
+q -c "SELECT public.claim_telegram_conversation(303,404,'20000000-0000-0000-0000-000000000003','$LOCK_TOKEN_2'::uuid)" >/dev/null
+DUPLICATE=$(q -c "SELECT public.enqueue_telegram_content_job(303,404,'20000000-0000-0000-0000-000000000003','$LOCK_TOKEN_2'::uuid,'50000000-0000-0000-0000-000000000002'::uuid,'telegram-content-987654','{\"text\":\"same request\"}'::jsonb,'{\"topic\":\"Hiring\"}'::jsonb)")
+echo "$DUPLICATE" | grep -q '"job_id": "50000000-0000-0000-0000-000000000001"' || fail "duplicate webhook delivery must reuse the existing job"
+[ "$(q -c "SELECT COUNT(*) FROM public.agent_jobs WHERE workspace_id='20000000-0000-0000-0000-000000000003' AND idempotency_key='telegram-content-987654'")" = "1" ] || fail "idempotency key must prevent duplicate jobs"
 DONE=$(q -c "SELECT public.complete_telegram_conversation_job(303,404,'20000000-0000-0000-0000-000000000003','$JOB_ID'::uuid,'{\"activePostId\":\"60000000-0000-0000-0000-000000000001\"}'::jsonb)")
 [ "$DONE" = "t" ] || fail "matching job must complete conversation state"
 STALE=$(q -c "SELECT public.complete_telegram_conversation_job(303,404,'20000000-0000-0000-0000-000000000002',gen_random_uuid(),'{}'::jsonb)")
 [ "$STALE" = "f" ] || fail "stale job must not overwrite conversation state"
 q -c "INSERT INTO public.content_posts(id,telegram_job_id) VALUES ('60000000-0000-0000-0000-000000000001','$JOB_ID')" >/dev/null
+q -c "INSERT INTO public.content_post_versions(id,telegram_job_id) VALUES ('80000000-0000-0000-0000-000000000001','$JOB_ID')" >/dev/null
 if psql -v ON_ERROR_STOP=1 -c "INSERT INTO public.content_posts(id,telegram_job_id) VALUES ('60000000-0000-0000-0000-000000000002','$JOB_ID')" >/dev/null 2>&1; then
   fail "one generation job must not create duplicate posts"
+fi
+if psql -v ON_ERROR_STOP=1 -c "INSERT INTO public.content_post_versions(id,telegram_job_id) VALUES ('80000000-0000-0000-0000-000000000002','$JOB_ID')" >/dev/null 2>&1; then
+  fail "one revision job must not create duplicate versions"
 fi
 
 echo "ALL TELEGRAM CONVERSATION MIGRATION CHECKS PASSED"
