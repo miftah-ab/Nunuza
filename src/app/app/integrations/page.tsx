@@ -40,7 +40,7 @@ export default async function IntegrationsPage() {
 
   // Determine enabled gates (BED-07, BED-09, BED-11)
   const telegramEnabled = process.env.TELEGRAM_ENABLED !== "false";
-  const mcpEnabled = process.env.MCP_ENABLED !== "false";
+  const mcpEnabled = process.env.MCP_ENABLED === "true";
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://127.0.0.1:3000";
   const endpointUrl = `${appUrl.replace(/\/$/, "")}/api/mcp`;
