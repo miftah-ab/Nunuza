@@ -37,6 +37,19 @@ export default async function OAuthConsentPage({
     redirect(`/login?redirect=${encodeURIComponent(returnTo)}`);
   }
 
+  if (process.env.MCP_ENABLED !== "true") {
+    const { data: denied, error: denyError } = await supabase.auth.oauth.denyAuthorization(
+      authorizationId,
+      { skipBrowserRedirect: true }
+    );
+
+    if (!denyError && denied?.redirect_url) {
+      redirect(denied.redirect_url);
+    }
+
+    return <ConsentError message="Claude connections are temporarily disabled for this Nunuza environment. Return to Claude and try again later." />;
+  }
+
   const { data, error } = await supabase.auth.oauth.getAuthorizationDetails(authorizationId);
 
   if (error || !data) {
