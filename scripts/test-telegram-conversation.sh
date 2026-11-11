@@ -24,7 +24,19 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN; END IF;
 END $$;
 
-CREATE TABLE public.agent_jobs (id UUID PRIMARY KEY);
+CREATE TABLE public.agent_jobs (
+  id UUID PRIMARY KEY,
+  workspace_id UUID NOT NULL,
+  job_type TEXT NOT NULL,
+  status TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}'::JSONB,
+  scheduled_for TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 3,
+  correlation_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  UNIQUE (workspace_id, idempotency_key)
+);
 CREATE TABLE public.content_posts (id UUID PRIMARY KEY);
 CREATE TABLE public.content_post_versions (id UUID PRIMARY KEY);
 CREATE TABLE public.telegram_links (
@@ -82,6 +94,7 @@ REVOKED=$(q -c "SELECT public.claim_telegram_conversation(101,202,'20000000-0000
 CLAIM_SIG="public.claim_telegram_conversation(bigint,bigint,uuid,uuid)"
 RELEASE_SIG="public.release_telegram_conversation(bigint,bigint,uuid,uuid,jsonb)"
 COMPLETE_SIG="public.complete_telegram_conversation_job(bigint,bigint,uuid,uuid,jsonb)"
+ENQUEUE_SIG="public.enqueue_telegram_content_job(bigint,bigint,uuid,uuid,uuid,text,jsonb,jsonb)"
 [ "$(q -c "SELECT has_function_privilege('anon','$CLAIM_SIG','EXECUTE')")" = "f" ] || fail "anon must not claim Telegram conversations"
 [ "$(q -c "SELECT has_function_privilege('authenticated','$CLAIM_SIG','EXECUTE')")" = "f" ] || fail "authenticated must not claim Telegram conversations"
 [ "$(q -c "SELECT has_function_privilege('service_role','$CLAIM_SIG','EXECUTE')")" = "t" ] || fail "service_role must claim Telegram conversations"
@@ -91,11 +104,19 @@ COMPLETE_SIG="public.complete_telegram_conversation_job(bigint,bigint,uuid,uuid,
 [ "$(q -c "SELECT has_function_privilege('anon','$COMPLETE_SIG','EXECUTE')")" = "f" ] || fail "anon must not complete Telegram conversations"
 [ "$(q -c "SELECT has_function_privilege('authenticated','$COMPLETE_SIG','EXECUTE')")" = "f" ] || fail "authenticated must not complete Telegram conversations"
 [ "$(q -c "SELECT has_function_privilege('service_role','$COMPLETE_SIG','EXECUTE')")" = "t" ] || fail "service_role must complete Telegram conversations"
+[ "$(q -c "SELECT has_function_privilege('anon','$ENQUEUE_SIG','EXECUTE')")" = "f" ] || fail "anon must not enqueue Telegram content jobs"
+[ "$(q -c "SELECT has_function_privilege('authenticated','$ENQUEUE_SIG','EXECUTE')")" = "f" ] || fail "authenticated must not enqueue Telegram content jobs"
+[ "$(q -c "SELECT has_function_privilege('service_role','$ENQUEUE_SIG','EXECUTE')")" = "t" ] || fail "service_role must enqueue Telegram content jobs"
 
 # The worker completion RPC is fenced by the pending job ID.
 JOB_ID='50000000-0000-0000-0000-000000000001'
-q -c "INSERT INTO public.agent_jobs(id) VALUES ('$JOB_ID')" >/dev/null
-q -c "UPDATE public.telegram_links SET conversation_state=jsonb_build_object('pendingJobId','$JOB_ID') WHERE telegram_user_id=303 AND revoked_at IS NULL" >/dev/null
+LOCK_TOKEN='70000000-0000-0000-0000-000000000001'
+CLAIM=$(q -c "SELECT public.claim_telegram_conversation(303,404,'20000000-0000-0000-0000-000000000003','$LOCK_TOKEN'::uuid)")
+echo "$CLAIM" | grep -q '"claimed": true' || fail "active chat must acquire a conversation lock"
+ENQUEUED=$(q -c "SELECT public.enqueue_telegram_content_job(303,404,'20000000-0000-0000-0000-000000000003','$LOCK_TOKEN'::uuid,'$JOB_ID'::uuid,'telegram-content-987654','{\"text\":\"draft request\"}'::jsonb,'{\"topic\":\"Hiring\"}'::jsonb)")
+echo "$ENQUEUED" | grep -q '"queued": true' || fail "job and pending conversation state must be enqueued atomically"
+[ "$(q -c "SELECT status FROM public.agent_jobs WHERE id='$JOB_ID'")" = "queued" ] || fail "Telegram content job must be queued"
+[ "$(q -c "SELECT conversation_state->>'pendingJobId' FROM public.telegram_links WHERE telegram_user_id=303 AND revoked_at IS NULL")" = "$JOB_ID" ] || fail "conversation must point to the queued job"
 DONE=$(q -c "SELECT public.complete_telegram_conversation_job(303,404,'20000000-0000-0000-0000-000000000003','$JOB_ID'::uuid,'{\"activePostId\":\"60000000-0000-0000-0000-000000000001\"}'::jsonb)")
 [ "$DONE" = "t" ] || fail "matching job must complete conversation state"
 STALE=$(q -c "SELECT public.complete_telegram_conversation_job(303,404,'20000000-0000-0000-0000-000000000002',gen_random_uuid(),'{}'::jsonb)")
