@@ -5,7 +5,7 @@
  *
  * Rules (BED-11 & Spec §11):
  * - Exactly one active credential set per workspace (revoked_at IS NULL).
- * - High-entropy keys prefixed with \`nunuza_mcp_\`.
+ * - High-entropy keys prefixed with "nunuza_mcp_".
  * - Stored as SHA-256 hash; raw key shown only once at creation.
  * - Key rotation revokes previous credential immediately.
  * - Credentials never expose service-role secrets.
@@ -38,7 +38,7 @@ export async function generateMcpToken(
 ): Promise<GeneratedMcpToken> {
   const supabase = supabaseOverride || createServiceClient();
   const randomHex = crypto.randomBytes(24).toString("hex");
-  const rawToken = \`nunuza_mcp_\${randomHex}\`;
+  const rawToken = "nunuza_mcp_" + randomHex;
   const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
 
   const { error: revokeError } = await supabase
@@ -48,7 +48,7 @@ export async function generateMcpToken(
     .is("revoked_at", null);
 
   if (revokeError) {
-    throw new Error(\`Failed to revoke previous MCP credential: \${revokeError.message}\`);
+    throw new Error("Failed to revoke previous MCP credential: " + revokeError.message);
   }
 
   const { data, error } = await supabase
@@ -64,7 +64,7 @@ export async function generateMcpToken(
     .single();
 
   if (error || !data) {
-    throw new Error(\`Failed to create MCP credential: \${error?.message || "Unknown error"}\`);
+    throw new Error("Failed to create MCP credential: " + (error?.message || "Unknown error"));
   }
 
   await supabase.from("audit_events").insert({
@@ -195,7 +195,7 @@ export async function verifyMcpOAuthToken(
   const userId = claims.sub;
   const clientId = claims.client_id;
   const expiresAt = Number(claims.exp);
-  const expectedIssuer = \`\${(process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\/$/, "")}/auth/v1\`;
+  const expectedIssuer = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\/$/, "") + "/auth/v1";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
   const expectedAudience = process.env.MCP_RESOURCE_URL
     || (appUrl ? new URL("/api/mcp", appUrl).toString() : null);
@@ -233,7 +233,7 @@ export async function verifyMcpOAuthToken(
   if (scopes.length === 0) return null;
 
   return {
-    id: \`oauth:\${clientId}\`,
+    id: "oauth:" + clientId,
     workspaceId: workspace.id,
     userId,
     scopes,
