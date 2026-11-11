@@ -333,9 +333,7 @@ export function ContentManager({
     }
   };
 
-  const isPrivateBeta =
-    workspace.entitlement_type === "internal_beta" ||
-    false;
+  const isPrivateBeta = workspace.entitlement_type === "internal_beta";
 
   const canPublishPosts =
     isPrivateBeta ||
