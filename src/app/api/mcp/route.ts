@@ -15,7 +15,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { verifyMcpToken } from "@/lib/integrations/mcp/tokens";
-import { MCP_TOOLS, executeMcpTool } from "@/lib/integrations/mcp/tools";
+import { getMcpToolsForScopes, executeMcpTool } from "@/lib/integrations/mcp/tools";
 
 function jsonRpcError(id: any, code: number, message: string, data?: any, status = 200) {
   return NextResponse.json(
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
       case "tools/list": {
         // Return tools (approve_draft is strictly absent)
         return jsonRpcSuccess(id, {
-          tools: MCP_TOOLS,
+          tools: getMcpToolsForScopes(credential.scopes),
         });
       }
 
