@@ -1469,12 +1469,22 @@ export async function registerBotCommands(): Promise<{ ok: boolean; description?
     { command: "help", description: "Show help & commands" },
   ];
 
-  const res = await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ commands }),
-  });
-  return await res.json();
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ commands }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const result = await res.json();
+    if (!res.ok || !result?.ok) {
+      return { ok: false, description: result?.description || `Telegram API returned HTTP ${res.status}.` };
+    }
+    return { ok: true };
+  } catch (err: any) {
+    console.error("[telegram] setMyCommands request failed:", err?.name || "UnknownError");
+    return { ok: false, description: "Telegram API request failed." };
+  }
 }
 
 // ─── Webhook Management ───────────────────────────────────────────────────────
