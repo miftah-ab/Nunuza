@@ -57,6 +57,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
   const [data, setData] = useState<IntegrationStatusData>(initialData);
   const [copiedKey, setCopiedKey] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [copiedClaudeHeader, setCopiedClaudeHeader] = useState(false);
   const [newMcpToken, setNewMcpToken] = useState<string | null>(null);
   const [telegramPairing, setTelegramPairing] = useState<{
     token: string;
@@ -208,11 +209,16 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
     }
   };
 
-  const copyToClipboard = (text: string, type: "key" | "url") => {
-    navigator.clipboard.writeText(text);
+  const copyToClipboard = (text: string, type: "key" | "url" | "claudeHeader") => {
+    void navigator.clipboard.writeText(text).catch(() => {
+      setErrorMsg("Clipboard access failed. Select and copy the value manually.");
+    });
     if (type === "key") {
       setCopiedKey(true);
       setTimeout(() => setCopiedKey(false), 2000);
+    } else if (type === "claudeHeader") {
+      setCopiedClaudeHeader(true);
+      setTimeout(() => setCopiedClaudeHeader(false), 2000);
     } else {
       setCopiedUrl(true);
       setTimeout(() => setCopiedUrl(false), 2000);
@@ -517,6 +523,63 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
                 </button>
               </div>
             </div>
+
+            {/* Claude remote connector setup */}
+            {data.mcp.active && (
+              <div className="rounded-lg border border-border bg-surface p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-ink">Connect Nunuza to Claude</h3>
+                    <p className="text-xs text-ink-secondary mt-1">
+                      Add this remote MCP server to Claude using your workspace API key.
+                    </p>
+                  </div>
+                  <a
+                    href="https://claude.ai/settings/connectors"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-primary text-xs px-3 py-2 inline-flex items-center gap-2"
+                  >
+                    Open Claude Connectors
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+
+                <ol className="list-decimal pl-5 space-y-1.5 text-xs text-ink-secondary">
+                  <li>In Claude, choose <strong className="text-ink">Add custom connector</strong>.</li>
+                  <li>Name it <strong className="text-ink">Nunuza</strong> and paste the MCP endpoint above.</li>
+                  <li>Choose <strong className="text-ink">No sign in</strong>, then add this request header:</li>
+                </ol>
+
+                {newMcpToken ? (
+                  <div className="rounded-md border border-border bg-background p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold text-ink">Authorization header value</span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(`Bearer ${newMcpToken}`, "claudeHeader")}
+                        className="btn-secondary text-xs px-2.5 py-1.5 inline-flex items-center gap-1"
+                      >
+                        {copiedClaudeHeader ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+                        {copiedClaudeHeader ? "Copied" : "Copy value"}
+                      </button>
+                    </div>
+                    <p className="font-mono text-xs text-ink break-all">Header name: Authorization</p>
+                    <p className="font-mono text-xs text-ink-secondary break-all">{`Bearer ${newMcpToken}`}</p>
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-border bg-background p-3 text-xs text-ink-secondary">
+                    Header name: <code className="text-ink">Authorization</code>. Header value:
+                    <code className="text-ink"> Bearer YOUR_NUNUZA_MCP_KEY</code>. Use the key you saved when it was created.
+                    If you no longer have it, rotate the key above to generate a replacement. Rotation immediately revokes the previous key.
+                  </div>
+                )}
+
+                <p className="text-[11px] text-ink-secondary">
+                  Claude connects from Anthropic’s cloud, so this endpoint must be publicly reachable. The key grants access to this workspace; keep it private and revoke it here if exposed.
+                </p>
+              </div>
+            )}
 
             {/* Revealed Key Banner (Single Display) */}
             {newMcpToken && (
