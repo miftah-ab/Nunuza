@@ -3,8 +3,12 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import {
   ArrowRight, CalendarDays, Check, CheckCircle2, Clock3, Linkedin,
-  MessageCircle, Mic2, MoreHorizontal, Send, Sparkles, TrendingUp,
+  MessageCircle, MoreHorizontal, Send, Sparkles, TrendingUp,
 } from "lucide-react";
+import { PublishingCalendar } from "@/components/calendar/PublishingCalendar";
+import { ContentManager } from "@/components/content/ContentManager";
+import type { ContentPost, VoiceProfile, Workspace } from "@/types/database";
+import { VoiceEditor } from "@/components/voice/VoiceEditor";
 
 export const metadata: Metadata = {
   title: "Nunuza — Build your presence",
@@ -120,20 +124,51 @@ function PlatformThread() {
   </div>;
 }
 
-const calendar = [
-  { day: "MON", date: "12", time: "8:00 AM", title: "The lesson from our first five users", status: "Draft" },
-  { day: "TUE", date: "13", time: "12:00 PM", title: "What changed after listening", status: "Review" },
-  { day: "WED", date: "14", time: "6:00 PM", title: "A decision I would make differently", status: "Idea" },
-  { day: "THU", date: "15", time: "9:00 AM", title: "The small detail users noticed", status: "Draft" },
-  { day: "FRI", date: "16", time: "12:00 PM", title: "Building with real feedback", status: "Idea" },
-];
-
 function CalendarPreview() {
-  return <div className="overflow-hidden rounded-[23px] border border-[#E4E9E3] bg-white shadow-[0_28px_75px_-45px_rgba(23,76,60,.34)]">
-    <div className="flex items-center justify-between border-b border-[#EEF0EC] px-5 py-4"><div><p className="text-[12px] font-semibold text-[#303832]">Content calendar</p><p className="mt-1 text-[9px] text-[#929A93]">A sample week in your workspace</p></div><CalendarDays size={17} className="text-[#174C3C]" /></div>
-    <div className="divide-y divide-[#EEF0EC]">{calendar.map((item) => <div key={item.day} className="flex items-center gap-3 px-4 py-3.5 sm:gap-4 sm:px-5"><div className="w-9 shrink-0 text-center"><p className="text-[8px] font-semibold tracking-wider text-[#929A93]">{item.day}</p><p className="text-[17px] font-semibold text-[#303832]">{item.date}</p></div><div className="h-9 w-px bg-[#E9EDE8]" /><div className="min-w-0 flex-1"><p className="text-[9px] text-[#929A93]">{item.time}</p><p className="mt-0.5 truncate text-[10px] font-medium text-[#424A44]">{item.title}</p></div><span className="rounded-full bg-[#F4F5F1] px-2.5 py-1 text-[8px] font-medium text-[#68716C]">{item.status}</span></div>)}</div>
-    <div className="flex items-center gap-2 border-t border-[#EEF0EC] bg-[#FAFBF9] px-5 py-3 text-[9px] text-[#68716C]"><CheckCircle2 size={12} className="text-[#287A50]" /> Example plan · Edit every idea and draft</div>
-  </div>;
+  const today = new Date();
+  const scheduledAt = (daysFromToday: number, hour: number) =>
+    new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate() + daysFromToday,
+      hour,
+      0,
+      0,
+    ).toISOString();
+
+  const posts = [
+    {
+      id: "sample-scheduled-1",
+      text: "The lesson from our first five users changed how we build.",
+      internal_title: "The lesson from our first five users",
+      pillar: "Founder lessons",
+      scheduled_at: scheduledAt(1, 9),
+    },
+    {
+      id: "sample-scheduled-2",
+      text: "What changed after we started listening to customers.",
+      internal_title: "What changed after listening",
+      pillar: "Customer insight",
+      scheduled_at: scheduledAt(3, 12),
+    },
+    {
+      id: "sample-scheduled-3",
+      text: "A decision I would make differently if I started again.",
+      internal_title: "A decision I would make differently",
+      pillar: "Building in public",
+      scheduled_at: scheduledAt(5, 10),
+    },
+  ];
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[10px] font-medium text-[#68716C]">Same interactive calendar used in the workspace</p>
+        <span className="rounded-full bg-[#EAF2EE] px-2.5 py-1 text-[8px] font-semibold text-[#174C3C]">Sample data</span>
+      </div>
+      <PublishingCalendar posts={posts} initialMonth={today.toISOString()} />
+    </div>
+  );
 }
 
 function ExampleConversation({ label, prompt, response, time }: {
@@ -146,30 +181,70 @@ function ExampleConversation({ label, prompt, response, time }: {
   </article>;
 }
 
-function InboxPreview() {
-  return <div className="overflow-hidden rounded-[24px] border border-[#E4E9E3] bg-white shadow-[0_28px_75px_-45px_rgba(23,76,60,.34)]">
-    <div className="flex items-center justify-between border-b border-[#EEF0EC] px-5 py-4"><div><p className="text-[12px] font-semibold text-[#303832]">Your conversations</p><p className="mt-1 text-[9px] text-[#929A93]">Pick up where you left off</p></div><span className="rounded-full bg-[#EAF2EE] px-2.5 py-1 text-[8px] font-semibold text-[#174C3C]">Inbox</span></div>
-    <div className="grid min-h-[310px] sm:grid-cols-[.8fr_1.2fr]">
-      <div className="border-b border-[#EEF0EC] bg-[#FAFBF9] p-3 sm:border-b-0 sm:border-r">
-        {[["Content ideas","3 angles from your notes","8:02"],["Writing voice","Your draft is ready to review","Yesterday"],["Weekly plan","Updated your content outline","Mon"]].map(([title, preview, time], i) => <div key={title} className={`flex gap-2.5 rounded-xl p-3 ${i === 0 ? "bg-white shadow-sm" : ""}`}><Avatar size="sm" tone={i === 1 ? "cream" : "green"} /><div className="min-w-0 flex-1"><div className="flex justify-between gap-2"><p className="truncate text-[9px] font-semibold text-[#303832]">{title}</p><span className="text-[8px] text-[#A0A69F]">{time}</span></div><p className="mt-1 truncate text-[8px] text-[#929A93]">{preview}</p></div></div>)}
-      </div>
-      <div className="p-4 sm:p-5"><div className="mb-4 flex items-center gap-2.5 border-b border-[#EEF0EC] pb-3"><Avatar size="sm" /><div><p className="text-[10px] font-semibold text-[#303832]">Content ideas</p><p className="text-[8px] text-[#929A93]">Nunuza conversation</p></div></div>
-        <div className="space-y-3"><ChatMessage from="you">Use the second angle. Keep it practical and make the opening stronger.</ChatMessage><ChatMessage>Naturally. I’ve tightened the opening and kept your original point. The revised draft is ready in your workspace.</ChatMessage></div>
-        <div className="mt-5 flex items-center gap-2 rounded-full bg-[#F5F7F4] px-3 py-2.5 text-[9px] text-[#A0A69F]">Message Nunuza… <Send size={11} className="ml-auto text-[#174C3C]" /></div>
-      </div>
+function ContentPreview() {
+  const updatedAt = new Date().toISOString();
+  const initialPosts = [
+    {
+      id: "sample-draft-1",
+      internal_title: "The lesson from our first five users",
+      pillar: "Founder lessons",
+      status: "draft",
+      text: "I thought I knew what our users needed. Then we sat down, listened, and discovered the real friction was somewhere else entirely.",
+      version: 1,
+      updated_at: updatedAt,
+    },
+    {
+      id: "sample-review-1",
+      internal_title: "What changed after listening",
+      pillar: "Customer insight",
+      status: "needs_review",
+      text: "Five conversations changed how I think about building products. Not another feature request. A completely different way to understand the problem.",
+      version: 2,
+      updated_at: updatedAt,
+    },
+    {
+      id: "sample-approved-1",
+      internal_title: "Build around the real problem",
+      pillar: "Product thinking",
+      status: "approved",
+      text: "The fastest way to waste a week is to build around an assumption nobody has tested.",
+      version: 1,
+      updated_at: updatedAt,
+    },
+  ] as unknown as ContentPost[];
+  const workspace = { entitlement_type: "internal_beta" } as unknown as Workspace;
+
+  return (
+    <div className="rounded-[22px] border border-[#E4E9E3] bg-white p-3 shadow-[0_28px_75px_-45px_rgba(23,76,60,.34)] sm:p-5">
+      <ContentManager
+        initialPosts={initialPosts}
+        workspace={workspace}
+        usageCount={3}
+        usageLimit={100}
+        preview
+      />
     </div>
-  </div>;
+  );
 }
 
-function VoiceWorkflow() {
-  return <div className="mx-auto max-w-[620px] rounded-[24px] border border-[#E4E9E3] bg-white p-4 shadow-[0_28px_75px_-45px_rgba(23,76,60,.34)] sm:p-6">
-    <div className="flex items-center justify-between"><div className="flex items-center gap-2"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#EAF2EE] text-[#174C3C]"><Mic2 size={15} /></span><span className="text-[10px] font-semibold text-[#303832]">Voice note · 0:41</span></div><span className="text-[8px] text-[#929A93]">Example workflow</span></div>
-    <div className="my-5 flex h-9 items-center gap-[3px]">{Array.from({ length: 52 }, (_, i) => <span key={i} className="flex-1 rounded-full bg-[#C9DECE]" style={{ height: `${7 + ((i * 11) % 27)}px` }} />)}</div>
-    <div className="rounded-[16px] bg-[#F7F9F6] p-4"><p className="text-[10px] leading-[1.8] text-[#68716C]">“I want to talk about the moment we realized our users were struggling with something completely different from what we expected…”</p></div>
-    <div className="my-4 flex justify-center"><span className="rounded-full bg-[#EAF2EE] px-4 py-2 text-[8px] font-medium text-[#174C3C]">Nunuza shapes the thought into a draft</span></div>
-    <PostCard compact />
-    <div className="mt-4 grid grid-cols-3 gap-2">{[["01","Capture"],["02","Shape"],["03","Review"]].map(([n, label]) => <div key={n} className="rounded-xl bg-[#F5F7F4] px-2 py-3 text-center"><span className="mx-auto flex h-6 w-6 items-center justify-center rounded-full bg-[#EAF2EE] text-[9px] font-semibold text-[#174C3C]">{n}</span><p className="mt-2 text-[9px] font-semibold text-[#515A53]">{label}</p></div>)}</div>
-  </div>;
+function VoicePreview() {
+  const initialProfile = {
+    tone: "Direct, thoughtful, practical",
+    sentence_length: "Short and varied",
+    formality: "Conversational, professional",
+    phrases_use: ["Here’s what I learned", "The real problem was"],
+    phrases_avoid: ["Game changer", "Unlock your potential"],
+    exclusions: ["Unverified performance claims", "Generic motivational advice"],
+    sample_text: "I used to think shipping faster was the answer. Talking to customers changed that. The real work was understanding what they were struggling with.",
+    version: 3,
+    updated_at: new Date().toISOString(),
+  } as unknown as VoiceProfile;
+
+  return (
+    <div className="rounded-[22px] border border-[#E4E9E3] bg-white p-3 shadow-[0_28px_75px_-45px_rgba(23,76,60,.34)] sm:p-5">
+      <VoiceEditor initialProfile={initialProfile} preview />
+    </div>
+  );
 }
 
 function DifferencePreview() {
@@ -234,8 +309,8 @@ export default function HomePage() {
 
     <section className="border-y border-[#E7EBE6] bg-[#F8F8F5] py-20 md:py-28">
       <div className="container-page grid items-center gap-12 lg:grid-cols-[.78fr_1.22fr] lg:gap-20">
-        <SectionHeading eyebrow="Your inbox" description="Ideas, drafts, and decisions stay connected. Pick up where you left off without digging through scattered conversations.">Everything stays <span className="text-[#174C3C]">in one thread.</span></SectionHeading>
-        <InboxPreview />
+        <SectionHeading eyebrow="Content & drafts" description="Manage the real LinkedIn pipeline: create drafts, review them, approve them, and keep every version in one workspace.">Your content, <span className="text-[#174C3C]">under control.</span></SectionHeading>
+        <ContentPreview />
       </div>
     </section>
 
@@ -264,8 +339,8 @@ export default function HomePage() {
 
     <section className="border-y border-[#E7EBE6] bg-[#F8F8F5] py-20 md:py-28">
       <div className="container-page grid items-center gap-12 lg:grid-cols-[.8fr_1.2fr] lg:gap-20">
-        <SectionHeading eyebrow="The whole loop" description="Start with a rough thought or voice note. Nunuza helps shape it into a draft, you review it, and your next step stays clear.">You create. <span className="text-[#174C3C]">Nunuza keeps the work moving.</span></SectionHeading>
-        <VoiceWorkflow />
+        <SectionHeading eyebrow="Your voice profile" description="Set the tone, sentence length, phrases to use or avoid, and topics to exclude. Nunuza applies those preferences when shaping drafts.">Your voice, <span className="text-[#174C3C]">not a generic template.</span></SectionHeading>
+        <VoicePreview />
       </div>
     </section>
 

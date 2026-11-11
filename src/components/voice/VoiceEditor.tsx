@@ -30,7 +30,7 @@ function toLines(value: string): string[] {
   return [...new Set(value.split("\n").map((line) => line.trim()).filter(Boolean))];
 }
 
-export function VoiceEditor({ initialProfile }: { initialProfile: VoiceProfile | null }) {
+export function VoiceEditor({ initialProfile, preview = false }: { initialProfile: VoiceProfile | null; preview?: boolean }) {
   const [form, setForm] = useState<VoiceForm>(() => toForm(initialProfile));
   const [savedForm, setSavedForm] = useState<VoiceForm>(() => toForm(initialProfile));
   const [version, setVersion] = useState(initialProfile?.version ?? 0);
@@ -109,6 +109,36 @@ export function VoiceEditor({ initialProfile }: { initialProfile: VoiceProfile |
 
   const fieldClass = "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-forest";
   const labelClass = "mb-1.5 block text-xs font-semibold text-ink-secondary";
+
+  if (preview) {
+    return (
+      <div className="space-y-4">
+        <section className="card space-y-4 p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Mic2 size={17} className="text-forest" />
+              <h2 className="text-sm font-semibold text-ink">Writing style</h2>
+            </div>
+            <span className="rounded-md border border-border bg-surface px-2.5 py-1 text-[10px] font-medium text-ink-secondary">Sample profile</span>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label><span className={labelClass}>Primary tone</span><input disabled className={fieldClass + " disabled:opacity-100"} value={form.tone} /></label>
+            <label><span className={labelClass}>Sentence length</span><input disabled className={fieldClass + " disabled:opacity-100"} value={form.sentence_length} /></label>
+            <label><span className={labelClass}>Formality</span><input disabled className={fieldClass + " disabled:opacity-100"} value={form.formality} /></label>
+          </div>
+        </section>
+        <section className="grid gap-4 sm:grid-cols-2">
+          <label className="card p-5"><span className={labelClass}>Phrases and words to use</span><textarea disabled className={fieldClass + " min-h-24 disabled:opacity-100"} value={form.phrases_use} /></label>
+          <label className="card p-5"><span className={labelClass}>Phrases and words to avoid</span><textarea disabled className={fieldClass + " min-h-24 disabled:opacity-100"} value={form.phrases_avoid} /></label>
+        </section>
+        <section className="card space-y-2 p-5">
+          <label><span className={labelClass}>Topics and themes to exclude</span><textarea disabled className={fieldClass + " min-h-20 disabled:opacity-100"} value={form.exclusions} /></label>
+          <label className="mt-3 block"><span className={labelClass}>Your writing sample</span><textarea disabled className={fieldClass + " min-h-32 disabled:opacity-100"} value={form.sample_text} /></label>
+          <p className="text-[10px] text-ink-muted">Read-only example · Same voice profile editor used in your workspace</p>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
