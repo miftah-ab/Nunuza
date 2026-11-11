@@ -50,7 +50,7 @@ export function isRevisionRequest(text: string, hasActiveDraft: boolean): boolea
   // asks for a separate post/topic, treat follow-up language as a revision.
   // This avoids creating accidental extra drafts for requests like
   // "I don't like this opening" or "the example needs more detail".
-  if (/\b(new post|another post|different topic|write (?:me )?(?:a )?(?:new )?post|create (?:me )?(?:a )?(?:new )?post|draft a post|generate a post|post about|write about|start a new post|start over)\b/.test(value)) {
+  if (/\b(new post|another post|different topic|write (?:me )?(?:a )?(?:new )?(?:linkedin )?post|create (?:me )?(?:a )?(?:new )?(?:linkedin )?post|draft (?:a )?(?:new )?(?:linkedin )?post|generate (?:a )?(?:new )?(?:linkedin )?post|post about|write about|start a new post|start over)\b/.test(value)) {
     return false;
   }
   return true;
@@ -174,6 +174,15 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
         return { replyText: "Your previous draft is ready. Use /drafts to review it, or send a new post idea." };
       }
       state = stateWithoutPending(state);
+    }
+
+    if (/^(hi|hello|hey|thanks|thank you|ok|okay|great|nice|cool)[.! ]*$/i.test(text)) {
+      await releaseConversation(input, lockToken, stateWithoutPending(state));
+      return {
+        replyText: state.activePostId
+          ? "Your draft is still saved and unchanged. Ask me to revise it, or use /new to create another post. Use /drafts when you're ready to review or approve it."
+          : "Hi. Tell me a LinkedIn topic, rough idea, audience, or point of view, and I'll turn it into a draft.",
+      };
     }
 
     if (text === "/cancel") {
