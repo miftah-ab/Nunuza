@@ -109,7 +109,7 @@ describe("OverviewPage", () => {
     expect(html).toContain("Overview");
     expect(html).toContain("Needs Review");
     expect(html).toContain(">2<");
-    expect(html).toContain("2 approved");
+    expect(html).toContain("1 approved");
     expect(html).toContain("No upcoming publications");
     expect(html).toContain("No drafts awaiting review");
     expect(html).toContain("Test LinkedIn");
