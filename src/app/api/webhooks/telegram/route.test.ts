@@ -87,6 +87,7 @@ describe("Telegram webhook", () => {
       telegramUserId: 10,
       chatId: 10,
       chatType: "private",
+      updateId: 5,
       text: "/status",
     });
     expect(sendTelegramMessage).toHaveBeenCalledWith(10, "Hello", undefined);
