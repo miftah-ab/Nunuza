@@ -131,7 +131,7 @@ function mainMenuKeyboard() {
       ],
       [
         { text: "📅 Schedule", callback_data: "menu:schedule" },
-        { text: "📊 Performance", callback_data: "menu:performance" },
+        { text: "📊 Usage & Limits", callback_data: "menu:performance" },
       ],
       [
         { text: "🤖 Agent Status", callback_data: "menu:agent" },
