@@ -71,10 +71,18 @@ export default {
    * Fires every 5 minutes to reconcile stale jobs and process due scheduled posts.
    */
   async scheduled(
-    _controller: ScheduledController,
+    controller: ScheduledController,
     env: CloudflareBindings,
     ctx: ExecutionContext
   ): Promise<void> {
+    if (controller.cron === "* * * * *") {
+      ctx.waitUntil(
+        dispatchPendingNotifications(50).catch((error) => {
+          console.error("[worker-notifications] Delivery pass failed:", error);
+        })
+      );
+      return;
+    }
     ctx.waitUntil(
       (async () => {
         try {
