@@ -77,9 +77,11 @@ export async function POST(request: Request) {
   const uploadedPaths: string[] = [];
   let createdPostId: string | null = null;
   let activePostId: string | null = null;
+  let activeWorkspaceId: string | null = null;
   let service: ReturnType<typeof createServiceClient> | null = null;
   try {
     const workspace = await requireWorkspace();
+    activeWorkspaceId = workspace.id;
     const form = await request.formData();
     const formatValue = form.get("format");
     if (formatValue !== "text" && formatValue !== "image_carousel" && formatValue !== "document") {
@@ -253,7 +255,7 @@ export async function POST(request: Request) {
     }, { status: existingPost ? 200 : 201 });
   } catch (error) {
     if (service && uploadedPaths.length) {
-      if (activePostId) await service.from("content_post_media").delete().eq("workspace_id", (await requireWorkspace()).id).eq("post_id", activePostId).in("storage_path", uploadedPaths).catch(() => {});
+      if (activePostId && activeWorkspaceId) await service.from("content_post_media").delete().eq("workspace_id", activeWorkspaceId).eq("post_id", activePostId).in("storage_path", uploadedPaths).catch(() => {});
       await service.storage.from(BUCKET).remove(uploadedPaths).catch(() => {});
     }
     if (service && createdPostId) await service.from("content_posts").delete().eq("id", createdPostId).catch(() => {});
