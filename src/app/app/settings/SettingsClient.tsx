@@ -42,7 +42,7 @@ export function SettingsClient({
       });
 
       const json = (await res.json()) as any;
-      if (!res.ok) throw new Error(json.error || "Failed to update settings");
+      if (!res.ok) throw new Error(json.error || "We couldn’t save your settings. Please try again.");
 
       setWorkspace(json.data.workspace);
       setSuccess("Settings saved successfully.");
