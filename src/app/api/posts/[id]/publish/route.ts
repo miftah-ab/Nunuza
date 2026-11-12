@@ -9,7 +9,6 @@
  * - Returns execution outcome directly
  */
 
-import { NextResponse } from "next/server";
 import { requireWorkspace } from "@/lib/auth/workspace";
 import { ok, apiError } from "@/lib/api/respond";
 import { publishPostNow } from "@/lib/jobs/scheduling";
