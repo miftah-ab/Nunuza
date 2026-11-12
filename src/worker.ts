@@ -10,7 +10,7 @@
  */
 
 import { claimDueJobs, isClaimedAgentJobEnvelope, processJob, reconcileStaleJobs } from "@/lib/jobs/runner";
-import { enqueueAutonomousCycles } from "@/lib/jobs/intelligence";
+import { enqueueAutonomousCycles } from "@/lib/jobs/intelligence";\nimport { dispatchPendingNotifications } from "@/lib/notifications/dispatcher";
 import type { AgentJob } from "@/types/database";
 
 // Next.js request handler provided at runtime by OpenNext
@@ -102,10 +102,10 @@ export default {
             console.error("[worker-scheduled] Could not enqueue autonomous cycles:", cycleError);
           }
 
-          // 3. Claim due jobs from database
+          // 3. Deliver durable user notifications independently of agent-job processing.\n          try {\n            const notificationResult = await dispatchPendingNotifications(50);\n            if (notificationResult.processed > 0 || notificationResult.failed > 0) {\n              console.info(`[worker-scheduled] Notifications processed: ${notificationResult.processed}; retrying: ${notificationResult.failed}.`);\n            }\n          } catch (notificationError) {\n            console.error("[worker-scheduled] Notification delivery pass failed:", notificationError);\n          }\n\n          // 4. Claim due jobs from database
           const dueJobs = await claimDueJobs({ limit: 10, leaseMinutes: 5 });
 
-          // 4. Dispatch jobs to queue if bound, or process inline
+          // 5. Dispatch jobs to queue if bound, or process inline
           for (const job of dueJobs) {
             if (env?.AGENT_JOBS_QUEUE?.send) {
               await env.AGENT_JOBS_QUEUE.send(job);
