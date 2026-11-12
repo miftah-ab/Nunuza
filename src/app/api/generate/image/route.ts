@@ -105,13 +105,7 @@ export async function POST(request: Request) {
     if (!post.text?.trim()) {
       return NextResponse.json({ error: "Add post text before generating an image." }, { status: 422 });
     }
-
-    if (!process.env.CLOUDFLARE_ACCOUNT_ID?.trim() || !process.env.CLOUDFLARE_API_TOKEN?.trim()) {
-      return NextResponse.json(
-        { error: "Image generation is not configured. Add the Cloudflare Workers AI credentials." },
-        { status: 503 }
-      );
-    }
+ 
 
     // Reuse the existing atomic usage counter; no additional quota table or migration.
     const service = createServiceClient();
@@ -189,7 +183,7 @@ export async function POST(request: Request) {
     }, { status: 201 });
   } catch (error) {
     if (error instanceof CloudflareImageError) {
-      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+      return NextResponse.json({ error: error.message }, { status: error.status });
     }
     return apiError(error);
   }
