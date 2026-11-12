@@ -26,7 +26,7 @@ export async function POST(request: Request) {
   try {
     const workspace = await requireWorkspace();
     const body = await parseBody<GenerateSlidesBody>(request);
-    if (!isValidPromptList(body?.prompts)) {
+    if (!body || !isValidPromptList(body.prompts)) {
       return NextResponse.json({ error: "Provide 2–5 clear slide descriptions, each under 2,048 characters." }, { status: 422 });
     }
     if (!process.env.CLOUDFLARE_ACCOUNT_ID?.trim() || !process.env.CLOUDFLARE_API_TOKEN?.trim()) {
@@ -37,12 +37,25 @@ export async function POST(request: Request) {
     const now = new Date();
     const periodStart = now.toISOString().slice(0, 10);
     const hourKey = now.toISOString().slice(0, 13).replace(/[-T:]/g, "");
+    const metric = `image_generation:${hourKey}`;
+    const { data: currentUsage, error: usageReadError } = await service.from("usage_counters")
+      .select("count")
+      .eq("workspace_id", workspace.id)
+      .eq("metric", metric)
+      .eq("period_start", periodStart)
+      .maybeSingle();
+    if (usageReadError) throw new Error("AI slide availability could not be verified.");
+    if (Number(currentUsage?.count ?? 0) + body.prompts.length > HOURLY_IMAGE_LIMIT) {
+      return NextResponse.json({
+        error: "Nunuza image generation limit reached. You've used all 5 image generations available to your workspace this hour. Your limit will reset at the start of the next hour.",
+      }, { status: 429 });
+    }
 
     // Reserve every requested generation before spending provider credits.
     for (let index = 0; index < body.prompts.length; index += 1) {
       const { data: count, error } = await service.rpc("increment_usage_counter", {
         p_workspace_id: workspace.id,
-        p_metric: `image_generation:${hourKey}`,
+        p_metric: metric,
         p_period_start: periodStart,
         p_period_end: periodStart,
       });
