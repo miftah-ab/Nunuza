@@ -30,15 +30,29 @@ function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: n
   return lines;
 }
 
-async function renderTemplateSlide(title: string, body: string, index: number, themeId: string) {
+async function renderTemplateSlide(title: string, body: string, index: number, themeId: string, backgroundUrl?: string) {
   const theme = TEMPLATE_THEMES.find((item) => item.id === themeId) ?? TEMPLATE_THEMES[0];
   const canvas = document.createElement("canvas");
   canvas.width = 1080;
   canvas.height = 1350;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Your browser could not prepare the slide.");
-  ctx.fillStyle = theme.background;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (backgroundUrl) {
+    const background = new Image();
+    background.crossOrigin = "anonymous";
+    background.src = backgroundUrl;
+    try {
+      await background.decode();
+      ctx.drawImage(background, 0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "rgba(20, 38, 61, 0.76)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } catch {
+      throw new Error("The AI preview could not be combined with the slide design. Try the template without a background.");
+    }
+  } else {
+    ctx.fillStyle = theme.background;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
   ctx.fillStyle = theme.accent;
   ctx.fillRect(84, 100, 110, 12);
   ctx.fillStyle = theme.foreground;
@@ -188,10 +202,37 @@ export function MediaPostComposer({
       if (!response.ok || !json.data?.slides) throw new Error(json.error ?? "AI slides could not be generated.");
       await deleteStaged(stagedAi.map((item) => item.path));
       setStagedAi(json.data.slides);
+      setTemplateBodies((current) => Array.from({ length: json.data!.slides.length }, (_, index) => current[index] ?? "Explain one clear, useful point from this slide."));
     } catch (err) {
       setError(err instanceof Error ? err.message : "AI slides could not be generated.");
     } finally {
       setGeneratingAi(false);
+    }
+  };
+
+  const createAiDesignedSlides = async () => {
+    if (stagedAi.length < 2) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const generated = await Promise.all(stagedAi.map((slide, index) =>
+        renderTemplateSlide(
+          templateTitle.trim() || title.trim() || "A useful idea",
+          templateBodies[index] ?? "A practical takeaway your audience can use.",
+          index,
+          templateTheme,
+          slide.preview_url
+        )
+      ));
+      clearStaged();
+      setFiles(generated);
+      setExisting([]);
+      setSource("template");
+      setFormat("image_carousel");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The AI slides could not be designed.");
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -344,7 +385,23 @@ export function MediaPostComposer({
                         <button type="button" onClick={generateAiSlides} disabled={generatingAi || prompts.length < 2 || prompts.length > 5 || prompts.some((item) => !item.trim())} className="btn-secondary mt-3 text-xs disabled:opacity-50">
                           {generatingAi ? <><Loader2 size={13} className="mr-1 inline animate-spin" /> Generating previews...</> : <><Sparkles size={13} className="mr-1 inline" /> Generate preview slides</>}
                         </button>
-                        <p className="mt-2 text-xs text-ink-muted">Review, remove, and reorder the generated slides before saving. Maximum 5 images per hour.</p>
+                        {stagedAi.length > 0 && (
+                          <div className="mt-4 rounded-lg bg-surface-muted p-3">
+                            <p className="text-xs font-semibold text-ink">Add slide copy to your AI visuals</p>
+                            <label className="mt-2 block text-xs text-ink-secondary">Heading</label>
+                            <input value={templateTitle} onChange={(event) => setTemplateTitle(event.target.value)} maxLength={90} className="mt-1 w-full rounded border border-border bg-surface px-3 py-2 text-sm" />
+                            {stagedAi.map((slide, index) => (
+                              <div key={slide.path} className="mt-2">
+                                <label className="block text-xs text-ink-secondary">Slide {index + 1} copy</label>
+                                <textarea rows={2} maxLength={240} value={templateBodies[index] ?? ""} onChange={(event) => setTemplateBodies((current) => current.map((item, i) => i === index ? event.target.value : item))} className="mt-1 w-full rounded border border-border bg-surface px-3 py-2 text-sm" />
+                              </div>
+                            ))}
+                            <button type="button" onClick={createAiDesignedSlides} disabled={busy || templateBodies.slice(0, stagedAi.length).some((item) => !item.trim())} className="btn-secondary mt-3 text-xs disabled:opacity-50">
+                              <LayoutTemplate size={13} className="mr-1 inline" /> Combine AI visuals with slide design
+                            </button>
+                          </div>
+                        )}
+                        <p className="mt-2 text-xs text-ink-muted">Review, remove, and reorder the generated visuals before designing or saving. Maximum 5 images per hour.</p>
                       </div>
                     )}
                   </>
