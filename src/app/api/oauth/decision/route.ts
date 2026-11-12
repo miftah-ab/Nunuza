@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
 
   if (result.error || !result.data?.redirect_url) {
     return NextResponse.json(
-      { error: "We couldn't complete this authorization. Return to Claude and try again." },
+      { error: "We couldn’t complete this connection. Return to Claude and try again." },
       { status: 400 }
     );
   }
@@ -49,8 +49,9 @@ export async function POST(request: NextRequest) {
   let redirectUrl: URL;
   try {
     redirectUrl = new URL(result.data.redirect_url);
-  } catch {
-    return NextResponse.json({ error: "The authorization provider returned an invalid redirect." }, { status: 400 });
+  } catch (error) {
+    console.error("[oauth] Could not validate return address:", error);
+    return NextResponse.json({ error: "We couldn’t complete this connection. Return to Claude and try again." }, { status: 400 });
   }
 
   if (redirectUrl.protocol !== "https:" && redirectUrl.hostname !== "localhost" && redirectUrl.hostname !== "127.0.0.1") {
