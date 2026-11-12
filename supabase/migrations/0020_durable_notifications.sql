@@ -111,7 +111,7 @@ BEGIN
 END;
 $$;
 CREATE TRIGGER trg_notify_post_status
-AFTER INSERT OR UPDATE OF status ON public.content_posts
+AFTER INSERT OR UPDATE ON public.content_posts
 FOR EACH ROW EXECUTE FUNCTION public.notify_post_status_change();
 
 CREATE OR REPLACE FUNCTION public.notify_agent_job_status_change()
@@ -120,9 +120,9 @@ DECLARE v_title TEXT; v_body TEXT;
 BEGIN
   IF NEW.status IS NOT DISTINCT FROM OLD.status THEN RETURN NEW; END IF;
   IF NEW.status = 'failed_terminal' THEN
-    v_title := 'An agent task failed'; v_body := COALESCE(NEW.safe_error_message,'A background task could not be completed. Open Nunuza to review it.');
+    v_title := 'An agent task failed'; v_body := COALESCE(NULLIF(NEW.safe_error_message,''),'A background task could not be completed. Open Nunuza to review it.');
   ELSIF NEW.status = 'needs_reconciliation' THEN
-    v_title := 'An agent task needs your attention'; v_body := COALESCE(NEW.safe_error_message,'Nunuza needs you to review an unresolved task.');
+    v_title := 'An agent task needs your attention'; v_body := COALESCE(NULLIF(NEW.safe_error_message,''),'Nunuza needs you to review an unresolved task.');
   ELSIF NEW.status = 'waiting_for_approval' THEN
     v_title := 'Your approval is needed'; v_body := 'An agent task is waiting for your approval.';
   ELSE RETURN NEW;
@@ -166,7 +166,7 @@ BEGIN
       NEW.workspace_id,'integration:' || NEW.provider::text || ':' || NEW.status::text || ':' || COALESCE(NEW.updated_at::text,''),
       'integration','critical',
       CASE WHEN NEW.provider = 'linkedin' THEN 'Reconnect LinkedIn' ELSE 'Reconnect an integration' END,
-      'Your connection has expired. Reconnect it to keep Nunuza working.',
+      'Your connection needs attention. Reconnect it to keep Nunuza working.',
       '/app/integrations'
     );
   END IF;
