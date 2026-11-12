@@ -1,38 +1,35 @@
-# Cloudflare Worker production setup
+# Cloudflare production deployment
 
-Nunuza uses Vercel for the web dashboard and this Cloudflare Worker for scheduled/background execution. The Worker entry point is `src/worker.ts`; it wraps the OpenNext-generated Next.js handler and adds Cron + Queue handlers.
+Nunuza keeps its web dashboard on Vercel and runs scheduled/background work on the Cloudflare Worker named `nunuza`.
 
-## One-time Cloudflare resources
+## Automated setup
 
-Run from the repository root with Wrangler authenticated to the intended Cloudflare account:
+The repository now includes **Deploy Nunuza to Cloudflare** at `.github/workflows/cloudflare-production-deploy.yml`. Once the GitHub Actions values below are configured, run it from GitHub Actions → Deploy Nunuza to Cloudflare → Run workflow.
 
-```bash
-npx wrangler login
-npx wrangler queues create nunuza-agent-jobs-dlq
-npx wrangler queues create nunuza-agent-jobs
-```
+The workflow:
+1. Validates required credentials and encryption-key formats.
+2. Builds the OpenNext Cloudflare Worker.
+3. Creates the two Cloudflare Queues if they do not already exist.
+4. Uploads runtime secrets to the Worker.
+5. Deploys the Worker with the production variables and bindings in `wrangler.jsonc`.
 
-The queue names must exactly match `wrangler.jsonc`. Create each queue only once per account.
+It is intentionally manual at first. Do not enable unattended publishing until the live checks below pass.
 
-## Runtime variables and secrets
+## One-time GitHub configuration
 
-Set these on the `nunuza` Worker in the Cloudflare dashboard (Settings → Variables and Secrets), or use `npx wrangler secret put NAME` for secret values.
+In GitHub, open **Settings → Secrets and variables → Actions** for this repository.
 
-**Plain-text variables (not secrets):**
-- `NEXT_PUBLIC_APP_ENV=production`
-- `NEXT_PUBLIC_APP_URL` — the real production URL for the Nunuza web app.
-- `NEXT_PUBLIC_SUPABASE_URL` — Supabase project URL.
-- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` — Supabase publishable/anon key.
-- `LINKEDIN_REDIRECT_URI` — exact production OAuth callback URL registered in LinkedIn.
-- `LINKEDIN_API_VERSION` — use the version currently approved for the LinkedIn app.
+Add these **Repository secrets**:
 
-**Secrets:**
+- `CLOUDFLARE_API_TOKEN` — Cloudflare API token with account-level Workers Scripts:Edit and Queues:Edit permissions.
+- `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID.
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `GROQ_API_KEY`
 - `OPENROUTER_API_KEY`
 - `LINKEDIN_CLIENT_ID`
 - `LINKEDIN_CLIENT_SECRET`
-- `LINKEDIN_TOKEN_ENCRYPTION_KEY` — 32-byte key encoded as 64 hexadecimal characters.
+- `LINKEDIN_TOKEN_ENCRYPTION_KEY` — exactly 64 hexadecimal characters (32 bytes).
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_WEBHOOK_SECRET`
 - `POLAR_ACCESS_TOKEN`
@@ -41,38 +38,38 @@ Set these on the `nunuza` Worker in the Cloudflare dashboard (Settings → Varia
 - `POLAR_PRICE_ID`
 - `WEB_PUSH_VAPID_PUBLIC_KEY`
 - `WEB_PUSH_VAPID_PRIVATE_KEY`
-- `WEB_PUSH_VAPID_SUBJECT`
-- `WEB_PUSH_SUBSCRIPTION_ENCRYPTION_KEY` — 32-byte key encoded as 64 hexadecimal characters.
+- `WEB_PUSH_SUBSCRIPTION_ENCRYPTION_KEY` — exactly 64 hexadecimal characters (32 bytes).
 
-If Workers AI image generation is used, also configure `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` as secrets. These are runtime AI credentials; they are not the Wrangler deployment token.
+Add these **Repository variables**:
 
-Do not commit secrets or paste them into chat. The application currently validates several integrations centrally, so configure the values required by enabled production features before accepting production traffic. Do not use test/sandbox Polar credentials for live checkout.
+- `NUNUZA_APP_URL` — exact production Vercel URL.
+- `NEXT_PUBLIC_SUPABASE_URL` — Supabase project URL.
+- `LINKEDIN_REDIRECT_URI` — exact callback URL registered in the LinkedIn app.
+- `LINKEDIN_API_VERSION` — API version approved for the LinkedIn app.
+- `WEB_PUSH_VAPID_SUBJECT` — normally a `mailto:` contact URI.
 
-## Build and deploy
+Only add credentials for integrations enabled in production, but every value marked required by the workflow must be present for deployment. Never put secrets in repository files, commit history, or chat.
 
-Use a local production build with the correct public build-time values available in the shell or a local ignored env file:
+## Run deployment
 
-```bash
-npm ci
-npm run wrangler:build
-npx wrangler deploy
-```
+1. Open **Actions → Deploy Nunuza to Cloudflare**.
+2. Select **Run workflow** on the default branch.
+3. Wait for the workflow to finish successfully.
 
-The Worker deployment requires a Cloudflare API token with Workers Scripts edit and Queues edit permissions, plus account access. Keep that deployment token in your local Wrangler authentication or CI secret store; do not add it as an application runtime secret unless a separate automation needs it.
+It provisions queues named `nunuza-agent-jobs` and `nunuza-agent-jobs-dlq`, uploads the runtime secrets, and deploys the Worker. You do not need to create queues manually or run Wrangler locally.
 
-## Verify before enabling real publishing
+## Verify production before enabling autonomous publishing
 
-1. Confirm the deployed Worker is named `nunuza` and the latest version is active.
-2. Confirm both Cron Triggers are present: every minute and every five minutes.
-3. Confirm the `AGENT_JOBS_QUEUE` producer binding and queue consumer point to `nunuza-agent-jobs`, with `nunuza-agent-jobs-dlq` configured as its dead-letter queue.
-4. Confirm required runtime variables/secrets exist without exposing their values in logs.
-5. Check Worker observability/logs for successful one-minute notification ticks and five-minute autonomous-cycle ticks.
-6. Schedule a test post on a connected test LinkedIn account a few minutes in the future. Verify it publishes once, the job reaches its expected terminal state, and the notification is delivered.
-7. Test cancel-before-due, edit/reschedule, transient failure/retry, and duplicate queue delivery. Do not enable unattended production publishing until all pass.
+- Worker `nunuza` is active.
+- Both Cron Triggers are present: every minute and every five minutes.
+- Queue producer/consumer binding points to `nunuza-agent-jobs`; its dead-letter queue is `nunuza-agent-jobs-dlq`.
+- Logs show successful scheduled ticks without exposing credentials.
+- A scheduled test post on a test LinkedIn account publishes once, reaches its expected terminal job state, and sends its notification.
+- Cancel-before-due, edit/reschedule, transient retry, and duplicate queue delivery all behave correctly.
 
-## Operational notes
+## Architecture and safety
 
-- Supabase remains the source of truth for job state. Queue messages are delivery signals, not the authoritative job record.
-- Queue delivery is at-least-once. The database claim/lease logic must remain the idempotency boundary.
-- If queue dispatch fails after a job is claimed, the lease/reconciliation path recovers it; do not add an immediate unguarded inline fallback.
-- Vercel and Cloudflare must not both run the same scheduler. Keep scheduled execution on this Worker unless the architecture is deliberately migrated.
+- Vercel hosts the dashboard/API; Cloudflare Worker owns scheduled and queue execution. Do not run the same scheduler in both platforms.
+- Supabase is the source of truth for job state. Queue delivery is at-least-once; database claim/lease logic is the idempotency boundary.
+- R2 is not required by this Worker configuration. Do not create an R2 bucket or add R2 credentials unless a separate feature explicitly uses object storage.
+- The deployment token is used by GitHub Actions only. It is not an application runtime secret.
