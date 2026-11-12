@@ -23,6 +23,7 @@ class FakeQuery {
   eq(key: string, value: any) { this.filters[key] = value; return this; }
   is(key: string, value: any) { this.filters[key] = value; return this; }
   contains(key: string, value: any) { this.filters[key] = value; return this; }
+  in(key: string, values: any[]) { this.filters[key] = values; return this; }
   maybeSingle() {
     if (this.table === "telegram_links") {
       return Promise.resolve({ data: { conversation_state: this.db.conversationState }, error: null });
@@ -74,6 +75,12 @@ class FakeQuery {
   }
   update(payload: any) { this.operation = "update"; this.payload = payload; return this; }
   then(resolve: (value: any) => any) {
+    if (this.table === "agent_jobs" && this.operation === "update") {
+      const row = this.db.jobs.find((item) => item.id === this.filters.id);
+      if (row && (!this.filters.status || (Array.isArray(this.filters.status) ? this.filters.status.includes(row.status) : row.status === this.filters.status))) {
+        Object.assign(row, this.payload);
+      }
+    }
     return Promise.resolve({ data: null, error: null }).then(resolve);
   }
 }
@@ -144,6 +151,60 @@ describe("Telegram conversational content", () => {
     expect(prompt.userPrompt).toContain("REVISION MODE");
     expect(prompt.userPrompt).toContain("Old draft text");
     expect(prompt.userPrompt).toContain("Make the hook stronger");
+  });
+
+  it("allows a user to cancel a queued job that never started and clears the pending lock", async () => {
+    const db = new FakeDb();
+    db.conversationState = {
+      topic: "Create a LinkedIn post",
+      updatedAt: new Date().toISOString(),
+      pendingJobId: "job-stuck-123",
+      pendingSince: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    };
+    db.jobs.push({
+      id: "job-stuck-123",
+      workspace_id: "workspace-1",
+      status: "queued",
+      job_type: "telegram_content_generation",
+    });
+
+    const result = await handleTelegramConversation({
+      telegramUserId: 111,
+      chatId: 222,
+      workspaceId: "workspace-1",
+      ownerUserId: "user-1",
+      text: "/cancel",
+      supabase: db,
+    });
+
+    expect(result.replyText).toContain("Cancelled the request");
+    expect(db.jobs[0].status).toBe("canceled");
+    expect(db.conversationState.pendingJobId).toBeUndefined();
+    expect(db.rpcCalls).toContain("release_telegram_conversation");
+  });
+
+  it("does not cancel a content job that is already running", async () => {
+    const db = new FakeDb();
+    db.conversationState = { pendingJobId: "job-running-123" };
+    db.jobs.push({
+      id: "job-running-123",
+      workspace_id: "workspace-1",
+      status: "running",
+      job_type: "telegram_content_generation",
+    });
+
+    const result = await handleTelegramConversation({
+      telegramUserId: 111,
+      chatId: 222,
+      workspaceId: "workspace-1",
+      ownerUserId: "user-1",
+      text: "/cancel",
+      supabase: db,
+    });
+
+    expect(result.replyText).toContain("already started");
+    expect(db.jobs[0].status).toBe("running");
+    expect(db.conversationState.pendingJobId).toBe("job-running-123");
   });
 
   it("queues natural-language requests without blocking the Telegram webhook on AI", async () => {
