@@ -14,6 +14,7 @@ export async function DELETE(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (userError || !user) {
+    if (userError) console.error("[oauth-grants] Could not verify signed-in user:", userError);
     return NextResponse.json({ error: "Your session may have expired. Please sign in again." }, { status: 401 });
   }
 
@@ -43,6 +44,7 @@ export async function DELETE(request: NextRequest) {
 
   const { error: revokeError } = await supabase.auth.oauth.revokeGrant({ clientId });
   if (revokeError) {
+    console.error("[oauth-grants] Could not disconnect connected app:", revokeError);
     return NextResponse.json({ error: "We couldn’t disconnect this app. Please try again." }, { status: 502 });
   }
 
