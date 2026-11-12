@@ -5,6 +5,7 @@ import { aiService } from "@/lib/ai/service";
 import { assertVoiceConstraints, VoiceConstraintError } from "@/lib/ai/voice-constraints";
 import { assertNoExcludedPhrase, StrategyExclusionError } from "@/lib/ai/exclusions";
 import { LINKEDIN_API_VERSION } from "@/lib/integrations/linkedin/client";
+import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
 
 export const ENGAGEMENT_READ_SCOPE = "r_member_social_feed";
 export const ENGAGEMENT_WRITE_SCOPE = "w_member_social_feed";
@@ -220,6 +221,15 @@ export async function scanOwnPostComments(
         p_href: "/app/engagement",
       });
       if (notificationError) console.error("[engagement] Notification event could not be created:", notificationError.code);
+      await notifyWorkspaceTelegram(workspaceId, {
+        text: "A LinkedIn comment deserves a reply. Nunuza drafted a response. Nothing will be posted until you approve it.",
+        replyMarkup: {
+          inline_keyboard: [[
+            { text: "Approve reply", callback_data: "eng:approve:" + action.id },
+            { text: "Reject", callback_data: "eng:reject:" + action.id },
+          ]],
+        },
+      }, db);
     }
   }
   return { scannedPosts, newComments, draftsCreated, ignored };
