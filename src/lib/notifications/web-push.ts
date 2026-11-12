@@ -1,5 +1,11 @@
 const encoder = new TextEncoder();
 
+function bufferSource(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -11,11 +17,11 @@ function base64UrlToBytes(value: string): Uint8Array {
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
 async function hmac(key: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
-  const imported = await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  return new Uint8Array(await crypto.subtle.sign("HMAC", imported, data));
+  const imported = await crypto.subtle.importKey("raw", bufferSource(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return new Uint8Array(await crypto.subtle.sign("HMAC", imported, bufferSource(data)));
 }
 async function hkdfExpand(prk: Uint8Array, info: Uint8Array, length: number): Promise<Uint8Array> {
-  let previous = new Uint8Array(0);
+  let previous: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
   const blocks: Uint8Array[] = [];
   let total = 0;
   for (let i = 1; total < length; i++) {
@@ -67,8 +73,8 @@ async function createVapidToken(endpoint: string): Promise<{ token: string; publ
   const header = bytesToBase64Url(encoder.encode(JSON.stringify({ typ: "JWT", alg: "ES256" })));
   const payload = bytesToBase64Url(encoder.encode(JSON.stringify({ aud: audience, exp: now + 12 * 60 * 60, sub: subject })));
   const unsigned = header + "." + payload;
-  const key = await crypto.subtle.importKey("pkcs8", privateKeyBytes(privateKey), { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
-  const signature = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, encoder.encode(unsigned)));
+  const key = await crypto.subtle.importKey("pkcs8", bufferSource(privateKeyBytes(privateKey)), { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  const signature = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, bufferSource(encoder.encode(unsigned))));
   return { token: unsigned + "." + bytesToBase64Url(signature), publicKey };
 }
 
@@ -79,7 +85,7 @@ export async function sendWebPush(
   const vapid = await createVapidToken(subscription.endpoint);
   const userPublicRaw = base64UrlToBytes(subscription.p256dh);
   const authSecret = base64UrlToBytes(subscription.auth_secret);
-  const userPublic = await crypto.subtle.importKey("raw", userPublicRaw, { name: "ECDH", namedCurve: "P-256" }, false, []);
+  const userPublic = await crypto.subtle.importKey("raw", bufferSource(userPublicRaw), { name: "ECDH", namedCurve: "P-256" }, false, []);
   const ephemeral = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
   const serverPublic = new Uint8Array(await crypto.subtle.exportKey("raw", ephemeral.publicKey));
   const sharedSecret = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: userPublic }, ephemeral.privateKey, 256));
@@ -91,8 +97,8 @@ export async function sendWebPush(
   const cek = await hkdfExpand(prk, concat(encoder.encode("Content-Encoding: aes128gcm"), new Uint8Array([0])), 16);
   const nonce = await hkdfExpand(prk, concat(encoder.encode("Content-Encoding: nonce"), new Uint8Array([0])), 12);
   const plain = concat(encoder.encode(JSON.stringify(payload)), new Uint8Array([2]));
-  const aesKey = await crypto.subtle.importKey("raw", cek, "AES-GCM", false, ["encrypt"]);
-  const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce, tagLength: 128 }, aesKey, plain));
+  const aesKey = await crypto.subtle.importKey("raw", bufferSource(cek), "AES-GCM", false, ["encrypt"]);
+  const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: bufferSource(nonce), tagLength: 128 }, aesKey, bufferSource(plain)));
   const header = new Uint8Array(16 + 4 + 1 + serverPublic.length);
   header.set(salt, 0);
   new DataView(header.buffer).setUint32(16, 4096, false);
@@ -107,7 +113,7 @@ export async function sendWebPush(
       TTL: "86400",
       Urgency: "high",
     },
-    body: concat(header, encrypted),
+    body: bufferSource(concat(header, encrypted)),
     signal: AbortSignal.timeout(10_000),
   });
   return { ok: response.ok, expired: response.status === 404 || response.status === 410, status: response.status };
