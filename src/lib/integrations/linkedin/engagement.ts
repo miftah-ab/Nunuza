@@ -107,7 +107,7 @@ export async function scanOwnPostComments(
   const { count: draftsToday, error: usageError } = await db.from("engagement_actions")
     .select("id", { count: "exact", head: true })
     .eq("workspace_id", workspaceId)
-    .in("status", ["awaiting_approval", "approved", "publishing", "published", "needs_reconciliation"])
+    .in("status", ["awaiting_approval", "approved", "rejected", "expired", "publishing", "published", "failed", "needs_reconciliation"])
     .gte("created_at", startOfUtcDay.toISOString());
   if (usageError) throw new Error("Could not check the engagement daily limit.");
   const dailyLimit = Math.max(1, Math.min(30, Number(engagementSettings.daily_limit) || 5));
