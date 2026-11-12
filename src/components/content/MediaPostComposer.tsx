@@ -139,8 +139,8 @@ export function MediaPostComposer({
     void deleteStaged(paths);
   };
 
-  const close = () => {
-    if (busy || generatingAi) return;
+  const close = (force = false) => {
+    if ((busy && !force) || generatingAi) return;
     clearStaged();
     setOpen(false);
     setFiles([]);
@@ -232,7 +232,7 @@ export function MediaPostComposer({
       if (!response.ok || !json.data?.post) throw new Error(json.error ?? "Your post could not be saved.");
       setStagedAi([]);
       onCreated(json.data.post);
-      close();
+      close(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Your post could not be saved.");
     } finally {
