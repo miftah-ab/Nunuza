@@ -426,26 +426,23 @@ export async function executeMcpTool(
       // MCP-created drafts bypass the dashboard generation route, so send the
       // same proactive Telegram update here instead of silently leaving the
       // connected user unaware. Notification failure must not undo a saved draft.
-      let telegramNotification: "sent" | "not_sent" | "not_attempted" = "not_attempted";
-      if (!supabaseOverride) {
-        const escapeMarkdownV2 = (value: string) =>
-          value.replace(/([_\*\[\]()~`>#+\-=|{}.!\\])/g, "\\$1");
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://nunuza.com";
-        const snippet = (data.text || "").slice(0, 500).replace(/\s+/g, " ").trim();
-        const delivery = await notifyWorkspaceTelegram(workspaceId, {
-          text:
-            "🔔 *New draft saved in Nunuza*\n\n" +
-            "*" + escapeMarkdownV2(data.internal_title || "LinkedIn draft") + "*\n\n" +
-            escapeMarkdownV2(snippet) +
-            "\n\nOpen Nunuza to review and approve it.",
-          replyMarkup: {
-            inline_keyboard: [[{ text: "📝 Review draft", url: appUrl + "/app/content?post=" + data.id }]],
-          },
-        });
-        telegramNotification = delivery.ok ? "sent" : "not_sent";
-        if (!delivery.ok) {
-          console.warn("[mcp] Draft saved, but Telegram notification was not delivered.");
-        }
+      const escapeMarkdownV2 = (value: string) =>
+        value.replace(/([_\*\[\]()~`>#+\-=|{}.!\\])/g, "\\$1");
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://nunuza-xi.vercel.app";
+      const snippet = (data.text || "").slice(0, 500).replace(/\s+/g, " ").trim();
+      const delivery = await notifyWorkspaceTelegram(workspaceId, {
+        text:
+          "🔔 *New draft saved in Nunuza*\n\n" +
+          "*" + escapeMarkdownV2(data.internal_title || "LinkedIn draft") + "*\n\n" +
+          escapeMarkdownV2(snippet) +
+          "\n\nOpen Nunuza to review and approve it.",
+        replyMarkup: {
+          inline_keyboard: [[{ text: "📝 Review draft", url: appUrl + "/app/content?post=" + data.id }]],
+        },
+      }, supabase);
+      const telegramNotification = delivery.ok ? "sent" : "not_sent";
+      if (!delivery.ok) {
+        console.warn("[mcp] Draft saved, but Telegram notification was not delivered.");
       }
 
       return { success: true, draft: data, telegram_notification: telegramNotification };
