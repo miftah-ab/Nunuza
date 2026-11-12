@@ -633,7 +633,7 @@ export function ContentManager({
                   >
                     <Edit3 size={15} />
                   </button>
-                  {post.post_format && post.post_format !== "text" && (
+                  {post.post_format && post.post_format !== "text" && ["draft", "needs_review", "approved"].includes(post.status) && (
                     <button
                       onClick={() => setEditingMediaPost(post)}
                       className="p-1.5 text-ink-secondary hover:text-forest rounded hover:bg-forest-light"
