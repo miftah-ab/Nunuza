@@ -99,8 +99,8 @@ export async function POST(request: Request) {
       const { data, error } = await service.from("content_posts").select("*")
         .eq("id", postId).eq("workspace_id", workspace.id).maybeSingle();
       if (error || !data) return NextResponse.json({ error: "Post not found." }, { status: 404 });
-      if (data.status !== "draft") {
-        return NextResponse.json({ error: "Only drafts can be edited. Return the post to draft before changing its slides." }, { status: 409 });
+      if (!["draft", "needs_review", "approved"].includes(data.status)) {
+        return NextResponse.json({ error: "Only drafts and posts awaiting review or approval can be edited. Cancel scheduled posts before changing media." }, { status: 409 });
       }
       existingPost = data;
       activePostId = postId;
