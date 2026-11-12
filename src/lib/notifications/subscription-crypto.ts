@@ -37,7 +37,7 @@ export async function decryptSubscriptionValue(value: string): Promise<string> {
   const bytes = fromBase64Url(value);
   const iv = bytes.slice(0, 12);
   const ciphertext = bytes.slice(12);
-  const key = await crypto.subtle.importKey("raw", keyBytes(), "AES-GCM", false, ["decrypt"]);
+  const key = await crypto.subtle.importKey("raw", bufferSource(keyBytes()), "AES-GCM", false, ["decrypt"]);
   const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bufferSource(iv) }, key, bufferSource(ciphertext));
   return decoder.decode(plaintext);
 }
