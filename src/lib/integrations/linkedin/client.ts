@@ -437,3 +437,194 @@ export async function publishPostToLinkedIn(
     publishedAt: new Date().toISOString(),
   };
 }
+
+
+export interface PublishLinkedInMediaAsset {
+  storagePath: string;
+  mediaType: "image" | "document";
+  mimeType: string;
+  altText?: string | null;
+  fileName?: string | null;
+}
+
+export interface PublishLinkedInMediaOptions {
+  workspaceId: string;
+  text?: string;
+  format: "image_carousel" | "document";
+  media: PublishLinkedInMediaAsset[];
+  supabaseOverride?: any;
+}
+
+async function linkedinRequestHeaders(accessToken: string, json = false): Promise<Record<string, string>> {
+  return {
+    Authorization: `Bearer ${accessToken}`,
+    "LinkedIn-Version": LINKEDIN_API_VERSION,
+    "X-Restli-Protocol-Version": "2.0.0",
+    ...(json ? { "Content-Type": "application/json" } : {}),
+  };
+}
+
+function trustedLinkedInUploadUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && (url.hostname === "linkedin.com" || url.hostname.endsWith(".linkedin.com"));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Uploads private workspace media and creates an organic LinkedIn MultiImage
+ * or Document post. The caller's durable job owns idempotency/reconciliation.
+ */
+export async function publishMediaPostToLinkedIn(
+  options: PublishLinkedInMediaOptions
+): Promise<PublishLinkedInResult> {
+  const supabase = options.supabaseOverride || createServiceClient();
+  const { data: connection, error } = await supabase
+    .from("integration_connections")
+    .select("*")
+    .eq("workspace_id", options.workspaceId)
+    .eq("provider", "linkedin")
+    .maybeSingle();
+
+  if (error || !connection || connection.status !== "connected" || !connection.encrypted_token_ref) {
+    throw new LinkedInPublishError("not_connected", "LINKEDIN_NOT_CONNECTED: Connect your LinkedIn account before publishing.");
+  }
+  if (!Array.isArray(connection.granted_scopes) || !connection.granted_scopes.includes("w_member_social")) {
+    throw new LinkedInPublishError("auth", "LINKEDIN_SCOPE_MISSING: The connected account does not have publishing permission.");
+  }
+  if (connection.expires_at && Date.parse(connection.expires_at) <= Date.now()) {
+    await supabase.from("integration_connections").update({ status: "expired" }).eq("id", connection.id);
+    throw new LinkedInPublishError("auth", "LINKEDIN_AUTH_EXPIRED: Reconnect your LinkedIn account.");
+  }
+
+  const memberUrn = connection.external_account_id;
+  if (typeof memberUrn !== "string" || !memberUrn.startsWith("urn:li:person:")) {
+    throw new LinkedInPublishError("not_connected", "LINKEDIN_INVALID_MEMBER: Reconnect your LinkedIn account.");
+  }
+  const accessToken = decryptToken(connection.encrypted_token_ref);
+
+  if (options.format === "image_carousel" && (options.media.length < 2 || options.media.length > 20 || options.media.some((item) => item.mediaType !== "image"))) {
+    throw new LinkedInPublishError("rejected", "LINKEDIN_MEDIA_INVALID: An image carousel requires 2–20 image slides.");
+  }
+  if (options.format === "document" && (options.media.length !== 1 || options.media[0].mediaType !== "document" || options.media[0].mimeType !== "application/pdf")) {
+    throw new LinkedInPublishError("rejected", "LINKEDIN_DOCUMENT_INVALID: Upload one valid PDF document.");
+  }
+
+  const imageItems: Array<{ id: string; altText?: string }> = [];
+  let documentUrn: string | null = null;
+  let documentTitle = "Nunuza document.pdf";
+
+  for (const asset of options.media) {
+    if (!asset.storagePath.startsWith(`${options.workspaceId}/`)) {
+      throw new LinkedInPublishError("rejected", "LINKEDIN_MEDIA_OWNERSHIP_INVALID: Media does not belong to this workspace.");
+    }
+    const { data: file, error: downloadError } = await supabase.storage.from("nunuza-post-media").download(asset.storagePath);
+    if (downloadError || !file) {
+      throw new LinkedInPublishError("rejected", "LINKEDIN_MEDIA_MISSING: A media file could not be loaded.");
+    }
+    const bytes = await file.arrayBuffer();
+    const endpoint = asset.mediaType === "image"
+      ? "https://api.linkedin.com/rest/images?action=initializeUpload"
+      : "https://api.linkedin.com/rest/documents?action=initializeUpload";
+    let initResponse: Response;
+    try {
+      initResponse = await fetch(endpoint, {
+        method: "POST",
+        headers: await linkedinRequestHeaders(accessToken, true),
+        body: JSON.stringify({
+          initializeUploadRequest: { owner: memberUrn },
+        }),
+        signal: AbortSignal.timeout(LINKEDIN_PUBLISH_TIMEOUT_MS),
+      });
+    } catch {
+      throw new LinkedInPublishError("rejected", "LINKEDIN_MEDIA_INITIALIZATION_FAILED: LinkedIn could not prepare the media upload.");
+    }
+    if (!initResponse.ok) {
+      const status = initResponse.status;
+      if (status === 401 || status === 403) throw new LinkedInPublishError("auth", "LINKEDIN_AUTH_FAILED: Reconnect your LinkedIn account.");
+      if (status === 429) throw new LinkedInPublishError("rate_limited", "LINKEDIN_RATE_LIMITED: LinkedIn is temporarily limiting uploads.");
+      throw new LinkedInPublishError("rejected", `LINKEDIN_MEDIA_INITIALIZATION_FAILED (${status}): LinkedIn rejected the media upload.`);
+    }
+    const initJson = await initResponse.json() as { value?: { uploadUrl?: string; image?: string; document?: string } };
+    const uploadUrl = initJson.value?.uploadUrl;
+    const mediaUrn = asset.mediaType === "image" ? initJson.value?.image : initJson.value?.document;
+    if (!trustedLinkedInUploadUrl(uploadUrl) || typeof mediaUrn !== "string" || !mediaUrn.startsWith(asset.mediaType === "image" ? "urn:li:image:" : "urn:li:document:")) {
+      throw new LinkedInPublishError("rejected", "LINKEDIN_MEDIA_INITIALIZATION_INVALID: LinkedIn returned an invalid upload destination.");
+    }
+
+    let transfer: Response;
+    try {
+      transfer = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": asset.mimeType,
+        },
+        body: bytes,
+        signal: AbortSignal.timeout(LINKEDIN_PUBLISH_TIMEOUT_MS),
+      });
+    } catch {
+      throw new LinkedInPublishError("rejected", "LINKEDIN_MEDIA_UPLOAD_FAILED: A media file could not be transferred.");
+    }
+    if (!transfer.ok) {
+      throw new LinkedInPublishError("rejected", `LINKEDIN_MEDIA_UPLOAD_FAILED (${transfer.status}): LinkedIn did not accept a media file.`);
+    }
+
+    if (asset.mediaType === "image") {
+      imageItems.push({
+        id: mediaUrn,
+        ...(asset.altText?.trim() ? { altText: asset.altText.trim().slice(0, 120) } : {}),
+      });
+    } else {
+      documentUrn = mediaUrn;
+      documentTitle = (asset.fileName || "Nunuza document.pdf").slice(0, 200);
+    }
+  }
+
+  const content = options.format === "image_carousel"
+    ? { multiImage: { images: imageItems } }
+    : { media: { title: documentTitle, id: documentUrn } };
+  const payload: Record<string, unknown> = {
+    author: memberUrn,
+    visibility: "PUBLIC",
+    distribution: {
+      feedDistribution: "MAIN_FEED",
+      targetEntities: [],
+      thirdPartyDistributionChannels: [],
+    },
+    content,
+    lifecycleState: "PUBLISHED",
+    isReshareDisabledByAuthor: false,
+    ...(options.text?.trim() ? { commentary: options.text.trim() } : {}),
+  };
+
+  let response: Response;
+  try {
+    response = await fetch("https://api.linkedin.com/rest/posts", {
+      method: "POST",
+      headers: await linkedinRequestHeaders(accessToken, true),
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(LINKEDIN_PUBLISH_TIMEOUT_MS),
+    });
+  } catch {
+    throw new LinkedInPublishError("ambiguous", "LINKEDIN_AMBIGUOUS_PUBLICATION: LinkedIn did not confirm whether the media post was published.");
+  }
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      await supabase.from("integration_connections").update({ status: "expired" }).eq("id", connection.id);
+      throw new LinkedInPublishError("auth", "LINKEDIN_AUTH_FAILED: Reconnect your LinkedIn account.");
+    }
+    if (response.status === 429) throw new LinkedInPublishError("rate_limited", "LINKEDIN_RATE_LIMITED: LinkedIn is temporarily limiting publishing.");
+    if (response.status >= 500) throw new LinkedInPublishError("ambiguous", "LINKEDIN_AMBIGUOUS_PUBLICATION: LinkedIn did not confirm whether the media post was published.");
+    throw new LinkedInPublishError("rejected", `LINKEDIN_API_ERROR (${response.status}): LinkedIn rejected the media post.`);
+  }
+
+  const postUrn = response.headers.get("x-restli-id");
+  if (!postUrn || !postUrn.startsWith("urn:li:")) {
+    throw new LinkedInPublishError("ambiguous", "LINKEDIN_AMBIGUOUS_PUBLICATION: LinkedIn accepted the request but did not return a verifiable post ID.");
+  }
+  return { linkedinPostId: postUrn, publishedAt: new Date().toISOString() };
+}
