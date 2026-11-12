@@ -240,8 +240,7 @@ export async function POST(request: Request) {
       .eq("workspace_id", workspace.id).eq("post_id", post.id).order("sort_order", { ascending: true });
     if (mediaError) throw new Error("The saved slides could not be loaded.");
     if (source === "ai" && stagedPaths.length) {
-      const { error: stagedDeleteError } = await service.storage.from(BUCKET).remove(stagedPaths);
-      if (stagedDeleteError) throw new Error("The post was saved, but temporary AI slides could not be cleaned up.");
+      await service.storage.from(BUCKET).remove(stagedPaths).catch(() => {});
     }
     return NextResponse.json({
       data: { post: { ...updatedPost, media: await signedMedia(service, (media ?? []) as Array<Record<string, unknown>>) } },
