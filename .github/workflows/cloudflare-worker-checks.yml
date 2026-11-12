@@ -1,0 +1,57 @@
+name: Cloudflare Worker checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-worker-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_APP_ENV: production
+      NEXT_PUBLIC_APP_URL: https://nunuza.example
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder
+      GROQ_API_KEY: ci-placeholder
+      OPENROUTER_API_KEY: ci-placeholder
+      LINKEDIN_CLIENT_ID: ci-placeholder
+      LINKEDIN_CLIENT_SECRET: ci-placeholder
+      LINKEDIN_REDIRECT_URI: https://nunuza.example/app/integrations/linkedin/callback
+      LINKEDIN_TOKEN_ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+      TELEGRAM_BOT_TOKEN: ci-placeholder
+      TELEGRAM_WEBHOOK_SECRET: ci-placeholder
+      POLAR_ACCESS_TOKEN: ci-placeholder
+      POLAR_WEBHOOK_SECRET: ci-placeholder
+      POLAR_PRODUCT_ID: ci-placeholder
+      POLAR_PRICE_ID: ci-placeholder
+      WEB_PUSH_VAPID_PUBLIC_KEY: ci-placeholder
+      WEB_PUSH_VAPID_PRIVATE_KEY: ci-placeholder
+      WEB_PUSH_VAPID_SUBJECT: mailto:ci@example.invalid
+      WEB_PUSH_SUBSCRIPTION_ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+      - name: Lint
+        run: npm run lint
+      - name: Type check
+        run: npm run type-check
+      - name: Unit tests
+        run: npm test
+      - name: Build Cloudflare Worker
+        run: npm run wrangler:build
