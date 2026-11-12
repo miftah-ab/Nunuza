@@ -553,6 +553,10 @@ export async function executeMcpTool(
         .from("workspaces").select("entitlement_type").eq("id", workspaceId).single();
       if (workspaceError || !workspace) throw new Error("Workspace not found");
 
+      if (workspace.owner_user_id !== userId) {
+        throw new Error("Only the workspace owner can approve drafts through MCP.");
+      }
+
       const canApprove = ["internal_beta", "publishing_beta", "paid_trial", "paid_active"].includes(workspace.entitlement_type);
       if (!canApprove) throw new Error("ENTITLEMENT_RESTRICTED: This workspace does not have approval and publishing access.");
 
@@ -566,7 +570,10 @@ export async function executeMcpTool(
       const { data: approved, error: approveError } = await supabase
         .from("content_posts")
         .update({ status: "approved", updated_at: new Date().toISOString() })
-        .eq("id", draft_id).select().single();
+        .eq("id", draft_id)
+        .eq("workspace_id", workspaceId)
+        .in("status", ["draft", "needs_review"])
+        .select().single();
       if (approveError || !approved) throw new Error("Could not approve this draft. Refresh its status and try again.");
 
       const { error: signalError } = await supabase.from("approval_events").insert({
