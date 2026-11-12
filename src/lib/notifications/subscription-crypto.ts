@@ -1,4 +1,10 @@
 const encoder = new TextEncoder();
+
+function bufferSource(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
 const decoder = new TextDecoder();
 
 function keyBytes(): Uint8Array {
@@ -18,13 +24,13 @@ function fromBase64Url(value: string): Uint8Array {
 }
 
 export async function hashSubscriptionEndpoint(endpoint: string): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(endpoint)));
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bufferSource(encoder.encode(endpoint))));
   return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 export async function encryptSubscriptionValue(value: string): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await crypto.subtle.importKey("raw", keyBytes(), "AES-GCM", false, ["encrypt"]);
-  const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoder.encode(value)));
+  const key = await crypto.subtle.importKey("raw", bufferSource(keyBytes()), "AES-GCM", false, ["encrypt"]);
+  const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: bufferSource(iv) }, key, bufferSource(encoder.encode(value))));
   return toBase64Url(new Uint8Array([...iv, ...encrypted]));
 }
 export async function decryptSubscriptionValue(value: string): Promise<string> {
@@ -32,6 +38,6 @@ export async function decryptSubscriptionValue(value: string): Promise<string> {
   const iv = bytes.slice(0, 12);
   const ciphertext = bytes.slice(12);
   const key = await crypto.subtle.importKey("raw", keyBytes(), "AES-GCM", false, ["decrypt"]);
-  const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+  const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bufferSource(iv) }, key, bufferSource(ciphertext));
   return decoder.decode(plaintext);
 }
