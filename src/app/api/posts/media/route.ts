@@ -9,7 +9,7 @@ const BUCKET = "nunuza-post-media";
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_IMAGES = 20;
 
-type Format = "image_carousel" | "document";
+type Format = "text" | "image_carousel" | "document";
 
 function detectMime(bytes: Uint8Array): string | null {
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
@@ -30,11 +30,11 @@ export async function POST(request: Request) {
     const caption = String(form.get("caption") ?? "").trim();
     const files = form.getAll("files").filter((value): value is File => value instanceof File && value.size > 0);
 
-    if (format !== "image_carousel" && format !== "document") {
+    if (format !== "text" && format !== "image_carousel" && format !== "document") {
       return NextResponse.json({ error: "Choose an image carousel or PDF document." }, { status: 400 });
     }
     if (caption.length > 3000) return NextResponse.json({ error: "Caption must be 3,000 characters or fewer." }, { status: 400 });
-    if (format === "image_carousel" && (files.length < 2 || files.length > MAX_IMAGES)) {
+    if (format === "text" && (caption.length === 0 || files.length !== 0)) {\n      return NextResponse.json({ error: "Add post text. Text-only posts do not need media." }, { status: 422 });\n    }\n    if (format === "image_carousel" && (files.length < 2 || files.length > MAX_IMAGES)) {
       return NextResponse.json({ error: "Add between 2 and 20 images." }, { status: 422 });
     }
     if (format === "document" && files.length !== 1) {
