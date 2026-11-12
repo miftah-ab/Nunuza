@@ -7,14 +7,31 @@ type Action = {
   draft_text: string; draft_hash: string; status: string; expires_at: string;
   created_at: string; safe_failure_message: string | null; metadata: Record<string, unknown>;
 };
+type Settings = { enabled: boolean; daily_limit: number };
 type Capabilities = {
   linkedinConnected: boolean; canReadComments: boolean; canWriteComments: boolean; externalPostDiscovery: boolean;
 };
 
-export function EngagementInbox({ initialActions, capabilities }: { initialActions: Action[]; capabilities: Capabilities }) {
+export function EngagementInbox({ initialActions, initialSettings, capabilities }: { initialActions: Action[]; initialSettings: Settings; capabilities: Capabilities }) {
   const [actions, setActions] = useState(initialActions);
+  const [settings, setSettings] = useState(initialSettings);
+  const [settingsBusy, setSettingsBusy] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
+
+  async function saveSettings() {
+    setSettingsBusy(true); setError("");
+    try {
+      const response = await fetch("/api/engagement", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: settings.enabled, dailyLimit: settings.daily_limit }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not save settings.");
+      setSettings(result.settings);
+    } catch (err) { setError(err instanceof Error ? err.message : "Could not save settings."); }
+    finally { setSettingsBusy(false); }
+  }
 
   async function decide(action: Action, decision: "approve" | "reject") {
     setBusy(action.id); setError("");
@@ -35,6 +52,27 @@ export function EngagementInbox({ initialActions, capabilities }: { initialActio
     <div>
       <h1 className="text-2xl font-semibold text-[#202522]">Engagement</h1>
       <p className="mt-1 text-sm text-[#68716C]">Review suggested LinkedIn replies. Nunuza never publishes without your approval.</p>
+    </div>
+
+    <div className="rounded-xl border border-[#E4E8E3] bg-white p-4 space-y-3">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="font-medium text-[#202522]">Engagement agent</p>
+          <p className="text-sm text-[#68716C]">Monitor your own posts and prepare replies for approval.</p>
+        </div>
+        <label className="flex items-center gap-2 text-sm text-[#202522]">
+          <input type="checkbox" checked={settings.enabled} onChange={e => setSettings(current => ({ ...current, enabled: e.target.checked }))} />
+          Enabled
+        </label>
+      </div>
+      <div className="flex items-center justify-between gap-4">
+        <label htmlFor="engagement-daily-limit" className="text-sm text-[#68716C]">Maximum reply drafts per day</label>
+        <input id="engagement-daily-limit" type="number" min={1} max={30} value={settings.daily_limit} onChange={e => setSettings(current => ({ ...current, daily_limit: Math.max(1, Math.min(30, Number(e.target.value) || 1)) }))} className="w-20 rounded-lg border border-[#E4E8E3] px-3 py-2 text-sm text-[#202522]" />
+      </div>
+      <div className="flex justify-end">
+        <button disabled={settingsBusy} onClick={saveSettings} className="rounded-lg bg-[#174C3C] px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{settingsBusy ? "Saving…" : "Save settings"}</button>
+      </div>
+      <p className="text-xs text-[#68716C]">Approval is always required. The daily limit controls how many reply drafts Nunuza creates, not how many it publishes.</p>
     </div>
 
     <div className="rounded-xl border border-[#E4E8E3] bg-white p-4 space-y-2">
