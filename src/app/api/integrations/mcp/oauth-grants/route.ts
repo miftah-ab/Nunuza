@@ -32,6 +32,7 @@ export async function DELETE(request: NextRequest) {
 
   const { data: grants, error: grantsError } = await supabase.auth.oauth.listGrants();
   if (grantsError) {
+    console.error("[oauth-grants] Could not load connected apps:", grantsError);
     return NextResponse.json({ error: "We couldn’t load your connected apps. Please try again." }, { status: 502 });
   }
 
