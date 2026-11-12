@@ -57,13 +57,13 @@ Both encryption keys must be exactly 64 hexadecimal characters (32 bytes). Use t
 3. Click **Run workflow** on the default branch.
 4. Wait for a successful run.
 
-The workflow provisions `nunuza-agent-jobs-dlq` and `nunuza-agent-jobs`, uploads Worker secrets, and deploys the Worker using the queue bindings and Cron configuration in `wrangler.jsonc`.
+The workflow provisions `nunuza-agent-jobs-dlq` and `nunuza-agent-jobs`, uploads Worker secrets, and deploys the Worker using the queue bindings and single Cron configuration in `wrangler.jsonc`.
 
 ## Production verification
 
 After deployment, verify:
 - Worker `nunuza` is active.
-- Cron Triggers run every minute and every five minutes.
+- Exactly one Cron Trigger runs every minute. Notifications, stale-job recovery, and due-job dispatch run each minute; autonomous cycles are gated to every five-minute UTC boundary inside the Worker.
 - Queue producer/consumer uses `nunuza-agent-jobs`; dead-letter queue is `nunuza-agent-jobs-dlq`.
 - Worker logs show successful scheduled ticks without logging secrets.
 - A scheduled test post on a test LinkedIn account publishes exactly once and reaches its expected terminal job state.

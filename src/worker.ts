@@ -73,19 +73,21 @@ export default {
     }
   },
 
-  /** Cron consumer: notification delivery every minute; job dispatch every tick. */
+  /**
+   * One account-level Cron trigger runs every minute. The scheduled timestamp
+   * gates autonomous cycles to five-minute UTC boundaries without consuming a
+   * second Cloudflare Cron trigger.
+   */
   async scheduled(
     controller: ScheduledController,
     env: CloudflareBindings,
     ctx: ExecutionContext
   ): Promise<void> {
-    if (controller.cron === "* * * * *") {
-      ctx.waitUntil(
-        dispatchPendingNotifications(50).catch((error) => {
-          console.error("[worker-notifications] Delivery pass failed:", error);
-        })
-      );
-    }
+    ctx.waitUntil(
+      dispatchPendingNotifications(50).catch((error) => {
+        console.error("[worker-notifications] Delivery pass failed:", error);
+      })
+    );
 
     ctx.waitUntil(
       (async () => {
@@ -99,7 +101,8 @@ export default {
             console.error("[worker-scheduled] Stale-job reconciliation failed:", error);
           }
 
-          if (controller.cron === "*/5 * * * *") {
+          const scheduledMinute = new Date(controller.scheduledTime).getUTCMinutes();
+          if (scheduledMinute % 5 === 0) {
             try {
               const cycles = await enqueueAutonomousCycles();
               if (cycles.queued > 0) {

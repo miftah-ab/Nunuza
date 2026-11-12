@@ -30,7 +30,7 @@
     ]
   },
   "triggers": {
-    "crons": ["*/5 * * * *", "* * * * *"]
+    "crons": ["* * * * *"]
   },
   "vars": {
     "NEXT_PUBLIC_APP_ENV": "production"
