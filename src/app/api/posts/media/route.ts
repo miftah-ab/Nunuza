@@ -235,15 +235,14 @@ export async function POST(request: Request) {
       await service.storage.from(BUCKET).remove(removed.map((asset) => String(asset.storage_path)));
     }
 
-    if (source === "ai" && stagedPaths.length) {
-      const { error: stagedDeleteError } = await service.storage.from(BUCKET).remove(stagedPaths);
-      if (stagedDeleteError) throw new Error("The post was saved, but temporary AI slides could not be cleaned up.");
-    }
-
     const { data: media, error: mediaError } = await service.from("content_post_media")
       .select("id, media_type, storage_path, mime_type, byte_size, sort_order, alt_text, created_at")
       .eq("workspace_id", workspace.id).eq("post_id", post.id).order("sort_order", { ascending: true });
     if (mediaError) throw new Error("The saved slides could not be loaded.");
+    if (source === "ai" && stagedPaths.length) {
+      const { error: stagedDeleteError } = await service.storage.from(BUCKET).remove(stagedPaths);
+      if (stagedDeleteError) throw new Error("The post was saved, but temporary AI slides could not be cleaned up.");
+    }
     return NextResponse.json({
       data: { post: { ...updatedPost, media: await signedMedia(service, (media ?? []) as Array<Record<string, unknown>>) } },
     }, { status: existingPost ? 200 : 201 });
