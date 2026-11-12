@@ -25,6 +25,7 @@ import { transitionJob, markJobRetryable, markJobTerminal } from "./state";
 import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
 import type { AgentJob, ContentPost } from "@/types/database";
 import type { JobExecutionResult, PublishPostPayload } from "./types";
+import { safeJobErrorMessage } from "./error-message";
 
 export interface SchedulePostResult {
   job: AgentJob;
