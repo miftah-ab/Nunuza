@@ -475,9 +475,9 @@ export async function executePublishJob(
       finished_at: new Date().toISOString(),
       lease_until: null,
       last_error_code: "WORKSPACE_PAUSED",
-      safe_error_message: "Agent is paused. The post was not published. Resume and reschedule it.",
+      safe_error_message: "Nunuza is paused. This post was not published. Resume Nunuza and schedule it again.",
     });
-    return fail("canceled", false, "Agent is paused. The post was not published.");
+    return fail("canceled", false, "Nunuza is paused. This post was not published.");
   }
 
   // 5. Recover a publication already durably confirmed by a previous worker.
@@ -784,7 +784,7 @@ export async function publishPostNow(
 
   // 2. Pause check
   if (workspace.paused_at) {
-    throw new ForbiddenError("Agent is paused. Resume before publishing posts.");
+    throw new ForbiddenError("Nunuza is paused. Resume it before publishing posts.");
   }
 
   // 3. Post verification: MUST be approved
