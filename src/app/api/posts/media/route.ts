@@ -247,10 +247,22 @@ export async function POST(request: Request) {
     }, { status: existingPost ? 200 : 201 });
   } catch (error) {
     if (service && uploadedPaths.length) {
-      if (activePostId && activeWorkspaceId) await service.from("content_post_media").delete().eq("workspace_id", activeWorkspaceId).eq("post_id", activePostId).in("storage_path", uploadedPaths).catch(() => {});
+      if (activePostId && activeWorkspaceId) {
+        try {
+          await service.from("content_post_media").delete().eq("workspace_id", activeWorkspaceId).eq("post_id", activePostId).in("storage_path", uploadedPaths);
+        } catch {
+          // Preserve the original failure; orphan cleanup can be retried separately.
+        }
+      }
       await service.storage.from(BUCKET).remove(uploadedPaths).catch(() => {});
     }
-    if (service && createdPostId) await service.from("content_posts").delete().eq("id", createdPostId).catch(() => {});
+    if (service && createdPostId) {
+      try {
+        await service.from("content_posts").delete().eq("id", createdPostId);
+      } catch {
+        // Preserve the original failure; orphan cleanup can be retried separately.
+      }
+    }
     return apiError(error);
   }
 }
