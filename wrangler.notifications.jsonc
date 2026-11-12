@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/wrangler/main/packages/wrangler/config-schema.json",
+  "name": "nunuza-notification-dispatcher",
+  "main": "workers/notification-dispatcher.ts",
+  "compatibility_date": "2026-11-12",
+  "workers_dev": false,
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  "vars": {
+    "APP_URL": "https://nunuza-xi.vercel.app"
+  },
+  "secrets": {
+    "required": ["CRON_SECRET"]
+  },
+  "observability": {
+    "enabled": true
+  }
+}
