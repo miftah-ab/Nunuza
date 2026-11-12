@@ -1,10 +1,12 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
+import { decryptSubscriptionValue } from "./subscription-crypto";
 import { sendWebPush } from "./web-push";
 
 type Notification = {
   id: string; workspace_id: string; title: string; body: string; href: string;
-  push_status: string; telegram_status: string; push_attempts: number; telegram_attempts: number;
+  priority: "normal" | "high" | "critical"; push_status: string; telegram_status: string;
+  push_attempts: number; telegram_attempts: number;
 };
 
 function retryAt(attempt: number): string {
@@ -16,8 +18,36 @@ function escapeTelegramMarkdown(value: string): string {
   return Array.from(value, (character) => special.has(character) ? "\\" + character : character).join("");
 }
 
+async function createUpcomingScheduledNotifications(db: ReturnType<typeof createServiceClient>) {
+  const now = new Date();
+  const end = new Date(now.getTime() + 30 * 60_000);
+  const { data: posts, error } = await db.from("content_posts")
+    .select("id,workspace_id,internal_title,scheduled_at")
+    .eq("status", "scheduled")
+    .gte("scheduled_at", now.toISOString())
+    .lte("scheduled_at", end.toISOString())
+    .order("scheduled_at", { ascending: true })
+    .limit(100);
+  if (error) {
+    console.error("[notifications] Could not inspect upcoming scheduled posts.");
+    return;
+  }
+  for (const post of posts ?? []) {
+    await db.rpc("create_notification_event", {
+      p_workspace_id: post.workspace_id,
+      p_event_key: "post:" + post.id + ":upcoming:" + post.scheduled_at,
+      p_category: "publishing",
+      p_priority: "high",
+      p_title: "Your post is scheduled soon",
+      p_body: (post.internal_title || "A LinkedIn post") + " is scheduled to publish within 30 minutes.",
+      p_href: "/app/content?post=" + post.id,
+    });
+  }
+}
+
 export async function dispatchPendingNotifications(limit = 50): Promise<{ processed: number; failed: number }> {
   const db = createServiceClient();
+  await createUpcomingScheduledNotifications(db);
   const { data: events, error } = await db.rpc("claim_pending_notification_deliveries", { p_limit: limit });
   if (error) throw new Error("Could not claim pending notifications.");
   let processed = 0;
@@ -27,10 +57,17 @@ export async function dispatchPendingNotifications(limit = 50): Promise<{ proces
     const updates: Record<string, unknown> = {};
     const retryAttempts: number[] = [];
 
-    if (event.push_status === "pending") {
+    // Routine updates remain in the inbox. Push and Telegram are reserved for
+    // time-sensitive or critical events to avoid notification fatigue.
+    if (event.priority === "normal") {
+      updates.push_status = "skipped";
+      updates.telegram_status = "skipped";
+    }
+
+    if (event.priority !== "normal" && event.push_status === "pending") {
       const { data: subscriptions, error: subscriptionError } = await db
         .from("web_push_subscriptions")
-        .select("id,endpoint,p256dh,auth_secret")
+        .select("id,endpoint_encrypted,p256dh_encrypted,auth_secret_encrypted")
         .eq("workspace_id", event.workspace_id);
       if (subscriptionError) {
         updates.push_attempts = event.push_attempts + 1;
@@ -44,7 +81,12 @@ export async function dispatchPendingNotifications(limit = 50): Promise<{ proces
         let transientFailure = false;
         for (const subscription of subscriptions) {
           try {
-            const result = await sendWebPush(subscription, {
+            const decrypted = {
+              endpoint: await decryptSubscriptionValue(subscription.endpoint_encrypted),
+              p256dh: await decryptSubscriptionValue(subscription.p256dh_encrypted),
+              auth_secret: await decryptSubscriptionValue(subscription.auth_secret_encrypted),
+            };
+            const result = await sendWebPush(decrypted, {
               title: event.title, body: event.body, url: event.href,
               notificationId: event.id, tag: event.id,
             });
@@ -68,7 +110,7 @@ export async function dispatchPendingNotifications(limit = 50): Promise<{ proces
       }
     }
 
-    if (event.telegram_status === "pending") {
+    if (event.priority !== "normal" && event.telegram_status === "pending") {
       const { data: link, error: linkError } = await db.from("telegram_links")
         .select("chat_id").eq("workspace_id", event.workspace_id).is("revoked_at", null).maybeSingle();
       if (linkError) {
