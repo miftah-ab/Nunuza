@@ -12,6 +12,7 @@ import { encryptToken, decryptToken } from "./crypto";
 import { createServiceClient } from "@/lib/supabase/server";
 import { logAuditEvent } from "@/lib/db/workspace";
 import type { IntegrationConnection } from "@/types/database";
+import { validateLinkedInMedia } from "./media-validation";
 
 export const LINKEDIN_API_VERSION = "202610";
 export const LINKEDIN_SCOPES = ["w_member_social", "openid", "profile", "email"];
@@ -506,11 +507,9 @@ export async function publishMediaPostToLinkedIn(
   }
   const accessToken = decryptToken(connection.encrypted_token_ref);
 
-  if (options.format === "image_carousel" && (options.media.length < 2 || options.media.length > 20 || options.media.some((item) => item.mediaType !== "image"))) {
-    throw new LinkedInPublishError("rejected", "LINKEDIN_MEDIA_INVALID: An image carousel requires 2–20 image slides.");
-  }
-  if (options.format === "document" && (options.media.length !== 1 || options.media[0].mediaType !== "document" || options.media[0].mimeType !== "application/pdf")) {
-    throw new LinkedInPublishError("rejected", "LINKEDIN_DOCUMENT_INVALID: Upload one valid PDF document.");
+  const mediaValidationError = validateLinkedInMedia(options.format, options.media);
+  if (mediaValidationError) {
+    throw new LinkedInPublishError("rejected", `LINKEDIN_MEDIA_INVALID: ${mediaValidationError}`);
   }
 
   const imageItems: Array<{ id: string; altText?: string }> = [];
