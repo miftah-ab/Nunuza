@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { handleEngagementApprovalCallback } from "@/lib/integrations/telegram/engagement-approval";
 import {
   verifyTelegramSecret,
   claimTelegramWebhookUpdate,
@@ -51,14 +52,23 @@ export async function POST(req: NextRequest) {
     if (update.callback_query?.from && update.callback_query?.message) {
       const cq = update.callback_query;
       if (cq.message.chat?.type === "private") {
-        await handleCallbackQuery({
+        const handledEngagement = await handleEngagementApprovalCallback({
           callbackQueryId: cq.id,
           telegramUserId: cq.from.id,
           chatId: cq.message.chat.id,
           messageId: cq.message.message_id,
           data: cq.data || "",
-          chatType: cq.message.chat.type,
         });
+        if (!handledEngagement) {
+          await handleCallbackQuery({
+            callbackQueryId: cq.id,
+            telegramUserId: cq.from.id,
+            chatId: cq.message.chat.id,
+            messageId: cq.message.message_id,
+            data: cq.data || "",
+            chatType: cq.message.chat.type,
+          });
+        }
       }
     } else if (update.message?.from && update.message?.chat?.type === "private" && typeof update.message.text === "string") {
       const message = update.message;
