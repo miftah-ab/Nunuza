@@ -18,6 +18,7 @@ describe("Cloudflare Workers AI image generation", () => {
     await expect(generateCloudflareImage("A professional editorial image")).rejects.toMatchObject({
       code: "not_configured",
       status: 503,
+      message: "Image creation is temporarily unavailable. Please try again later.",
     });
   });
 
