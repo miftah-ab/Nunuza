@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { generateMcpToken, verifyMcpToken, revokeMcpToken, getMcpCredentialStatus } from "./tokens";
-import { MCP_TOOLS, executeMcpTool } from "./tools";
+import { MCP_TOOLS, executeMcpTool, getMcpToolsForScopes, validateMcpToolArguments } from "./tools";
 import crypto from "crypto";
 
 class MockMcpDb {
@@ -227,6 +227,30 @@ describe("Remote MCP Integration", () => {
     });
   });
 
+  describe("Credential scopes and argument validation", () => {
+    it("only advertises tools permitted by the credential scopes", () => {
+      const readTools = getMcpToolsForScopes(["read"]).map((tool) => tool.name);
+      const writeTools = getMcpToolsForScopes(["write"]).map((tool) => tool.name);
+      expect(readTools).toContain("list_drafts");
+      expect(readTools).not.toContain("create_draft");
+      expect(writeTools).toContain("create_draft");
+      expect(writeTools).not.toContain("list_drafts");
+    });
+
+    it("rejects calls outside the credential scope", async () => {
+      const client = mockDb.createClient();
+      await expect(executeMcpTool("create_draft", { text: "Blocked" }, { workspaceId: "ws-aaa", userId: "user-aaa", scopes: ["read"] }, client))
+        .rejects.toThrow("does not have the write scope");
+    });
+
+    it("rejects unknown and malformed tool arguments", () => {
+      expect(() => validateMcpToolArguments("create_draft", { text: "Valid", unexpected: true })).toThrow("Unexpected argument");
+      expect(() => validateMcpToolArguments("create_draft", { text: 123 })).toThrow("must be a string");
+      expect(() => validateMcpToolArguments("create_draft", {})).toThrow("Missing required argument");
+      expect(() => validateMcpToolArguments("not_a_tool", {})).toThrow("Unknown MCP tool");
+    });
+  });
+
   describe("Token Generation, Rotation, and Verification", () => {
     it("generates a high-entropy workspace-scoped token with nunuza_mcp_ prefix and SHA-256 hash", async () => {
       const client = mockDb.createClient();
@@ -392,6 +416,127 @@ describe("Remote MCP Integration", () => {
           client
         )
       ).rejects.toThrow("Draft not found or access denied");
+    });
+  });
+
+
+  describe("Supabase OAuth access tokens", () => {
+    const originalSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const originalAppUrl = process.env.NEXT_PUBLIC_APP_URL;
+    const originalResourceUrl = process.env.MCP_RESOURCE_URL;
+
+    beforeEach(() => {
+      process.env.NEXT_PUBLIC_SUPABASE_URL = "https://nunuza-test.supabase.co";
+      process.env.NEXT_PUBLIC_APP_URL = "https://nunuza-test.vercel.app";
+      delete process.env.MCP_RESOURCE_URL;
+    });
+
+    afterAll(() => {
+      if (originalSupabaseUrl === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+      else process.env.NEXT_PUBLIC_SUPABASE_URL = originalSupabaseUrl;
+      if (originalAppUrl === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
+      else process.env.NEXT_PUBLIC_APP_URL = originalAppUrl;
+      if (originalResourceUrl === undefined) delete process.env.MCP_RESOURCE_URL;
+      else process.env.MCP_RESOURCE_URL = originalResourceUrl;
+    });
+
+    it("derives the workspace from a verified OAuth subject and requires a client_id", async () => {
+      const { verifyMcpOAuthToken } = await import("./tokens");
+      const supabase = {
+        auth: {
+          getClaims: async () => ({
+            data: {
+              claims: {
+                sub: "user-aaa",
+                client_id: "claude-client",
+                iss: "https://nunuza-test.supabase.co/auth/v1",
+                aud: "https://nunuza-test.vercel.app/api/mcp",
+                exp: Math.floor(Date.now() / 1000) + 300,
+                iat: Math.floor(Date.now() / 1000),
+                mcp_scopes: ["read", "write"],
+              },
+            },
+            error: null,
+          }),
+          getUser: async () => ({ data: { user: { id: "user-aaa" } }, error: null }),
+        },
+        from: () => ({
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "ws-aaa" }, error: null }),
+            }),
+          }),
+        }),
+      };
+
+      const credential = await verifyMcpOAuthToken("header.payload.signature", supabase);
+      expect(credential?.workspaceId).toBe("ws-aaa");
+      expect(credential?.userId).toBe("user-aaa");
+      expect(credential?.scopes).toEqual(["read", "write"]);
+    });
+
+    it("rejects OAuth tokens with a missing or incorrect MCP audience", async () => {
+      const { verifyMcpOAuthToken } = await import("./tokens");
+      const makeClient = (aud: string | undefined) => ({
+        auth: {
+          getClaims: async () => ({
+            data: {
+              claims: {
+                sub: "user-aaa",
+                client_id: "claude-client",
+                iss: "https://nunuza-test.supabase.co/auth/v1",
+                ...(aud ? { aud } : {}),
+                exp: Math.floor(Date.now() / 1000) + 300,
+              },
+            },
+            error: null,
+          }),
+        },
+      });
+
+      await expect(verifyMcpOAuthToken("header.payload.signature", makeClient(undefined))).resolves.toBeNull();
+      await expect(verifyMcpOAuthToken("header.payload.signature", makeClient("https://attacker.example/mcp"))).resolves.toBeNull();
+    });
+
+    it("rejects tokens without an OAuth client identity", async () => {
+      const { verifyMcpOAuthToken } = await import("./tokens");
+      const supabase = {
+        auth: {
+          getClaims: async () => ({
+            data: {
+              claims: {
+                sub: "user-aaa",
+                iss: "https://nunuza-test.supabase.co/auth/v1",
+                exp: Math.floor(Date.now() / 1000) + 300,
+              },
+            },
+            error: null,
+          }),
+        },
+      };
+
+      await expect(verifyMcpOAuthToken("header.payload.signature", supabase)).resolves.toBeNull();
+    });
+
+    it("rejects OAuth tokens from an unexpected issuer", async () => {
+      const { verifyMcpOAuthToken } = await import("./tokens");
+      const supabase = {
+        auth: {
+          getClaims: async () => ({
+            data: {
+              claims: {
+                sub: "user-aaa",
+                client_id: "claude-client",
+                iss: "https://attacker.example/auth/v1",
+                exp: Math.floor(Date.now() / 1000) + 300,
+              },
+            },
+            error: null,
+          }),
+        },
+      };
+
+      await expect(verifyMcpOAuthToken("header.payload.signature", supabase)).resolves.toBeNull();
     });
   });
 });

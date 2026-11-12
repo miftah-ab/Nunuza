@@ -19,6 +19,7 @@ export interface McpToolDefinition {
     type: "object";
     properties: Record<string, any>;
     required?: string[];
+    additionalProperties?: boolean;
   };
 }
 
@@ -193,6 +194,37 @@ if (MCP_TOOLS.some((t) => t.name === "approve_draft")) {
   throw new Error("CRITICAL SECURITY VIOLATION: approve_draft tool is prohibited in MCP (BED-11).");
 }
 
+const READ_MCP_TOOL_NAMES = new Set([
+  "get_agent_status", "get_content_plan", "list_drafts",
+  "get_publishing_schedule", "get_performance_summary", "list_recent_activity",
+]);
+
+/** Return only the tools allowed by a credential’s explicit scopes. */
+export function getMcpToolsForScopes(scopes: string[] = []): McpToolDefinition[] {
+  const allowed = new Set(scopes);
+  return MCP_TOOLS.filter((tool) => READ_MCP_TOOL_NAMES.has(tool.name) ? allowed.has("read") : allowed.has("write"));
+}
+
+/** Reject malformed arguments instead of silently ignoring unknown or mistyped fields. */
+export function validateMcpToolArguments(name: string, args: unknown): asserts args is Record<string, any> {
+  const tool = MCP_TOOLS.find((candidate) => candidate.name === name);
+  if (!tool) throw new Error(`Unknown MCP tool: ${name}`);
+  if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("Tool arguments must be a JSON object.");
+  const values = args as Record<string, unknown>;
+  const properties = tool.inputSchema.properties;
+  for (const key of Object.keys(values)) {
+    if (!(key in properties)) throw new Error(`Unexpected argument: ${key}`);
+    const definition = properties[key];
+    const value = values[key];
+    if (definition.type === "string" && typeof value !== "string") throw new Error(`Argument "${key}" must be a string.`);
+    if (definition.type === "number" && (typeof value !== "number" || !Number.isFinite(value))) throw new Error(`Argument "${key}" must be a finite number.`);
+    if (definition.enum && !definition.enum.includes(value)) throw new Error(`Argument "${key}" has an unsupported value.`);
+  }
+  for (const key of tool.inputSchema.required || []) {
+    if (values[key] === undefined || values[key] === null || values[key] === "") throw new Error(`Missing required argument: ${key}`);
+  }
+}
+
 // ─── Tool Execution Engine ────────────────────────────────────────────────────
 
 export async function executeMcpTool(
@@ -201,6 +233,14 @@ export async function executeMcpTool(
   ctx: McpToolContext,
   supabaseOverride?: any
 ): Promise<any> {
+  const allowedScopes = new Set(ctx.scopes ?? ["read", "write"]);
+  const isReadTool = READ_MCP_TOOL_NAMES.has(name);
+  const knownTool = MCP_TOOLS.some((tool) => tool.name === name);
+  if (!knownTool) throw new Error(`Unknown MCP tool: ${name}`);
+  if (isReadTool && !allowedScopes.has("read")) throw new Error("This MCP credential does not have the read scope.");
+  if (!isReadTool && !allowedScopes.has("write")) throw new Error("This MCP credential does not have the write scope.");
+  validateMcpToolArguments(name, args);
+
   const supabase = supabaseOverride || createServiceClient();
   const { workspaceId, userId } = ctx;
 

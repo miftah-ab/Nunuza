@@ -37,10 +37,17 @@ export default async function IntegrationsPage() {
 
   // 3. Check MCP credential status
   const mcpStatus = await getMcpCredentialStatus(workspace.id, supabase);
+  const { data: oauthGrantData, error: oauthGrantError } = await supabase.auth.oauth.listGrants();
+  const oauthGrants = oauthGrantError ? [] : (oauthGrantData || []).map((grant) => ({
+    clientId: grant.client.id,
+    clientName: grant.client.name || "Authorized MCP client",
+    scopes: grant.scopes,
+    createdAt: grant.granted_at,
+  }));
 
   // Determine enabled gates (BED-07, BED-09, BED-11)
   const telegramEnabled = process.env.TELEGRAM_ENABLED !== "false";
-  const mcpEnabled = process.env.MCP_ENABLED !== "false";
+  const mcpEnabled = process.env.MCP_ENABLED === "true";
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://127.0.0.1:3000";
   const endpointUrl = `${appUrl.replace(/\/$/, "")}/api/mcp`;
@@ -66,6 +73,7 @@ export default async function IntegrationsPage() {
       createdAt: mcpStatus.createdAt,
       lastUsedAt: mcpStatus.lastUsedAt,
       endpointUrl,
+      oauthGrants,
     },
     workspaceEntitlement: workspace.entitlement_type,
   };

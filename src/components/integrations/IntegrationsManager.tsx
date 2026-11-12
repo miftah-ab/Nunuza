@@ -49,6 +49,12 @@ export interface IntegrationStatusData {
     createdAt?: string;
     lastUsedAt?: string | null;
     endpointUrl: string;
+    oauthGrants: Array<{
+      clientId: string;
+      clientName: string;
+      scopes: string[];
+      createdAt: string;
+    }>;
   };
   workspaceEntitlement: string;
 }
@@ -178,6 +184,32 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
     }
   };
 
+  const handleRevokeOAuthGrant = async (clientId: string, clientName: string) => {
+    setLoadingAction(`oauth_revoke:${clientId}`);
+    setErrorMsg(null);
+    try {
+      const res = await fetch("/api/integrations/mcp/oauth-grants", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId }),
+      });
+      const json = (await res.json()) as any;
+      if (!res.ok) throw new Error(json.error || "Failed to revoke Claude access");
+      setData((prev) => ({
+        ...prev,
+        mcp: {
+          ...prev.mcp,
+          oauthGrants: prev.mcp.oauthGrants.filter((grant) => grant.clientId !== clientId),
+        },
+      }));
+      setSuccessMsg(`${clientName} access revoked.`);
+    } catch (err: any) {
+      setErrorMsg(err.message);
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
   const handleRevokeMcpKey = async () => {
     if (!confirm("Are you sure you want to revoke your MCP key? External agents will lose access immediately.")) {
       return;
@@ -209,7 +241,9 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
   };
 
   const copyToClipboard = (text: string, type: "key" | "url") => {
-    navigator.clipboard.writeText(text);
+    void navigator.clipboard.writeText(text).catch(() => {
+      setErrorMsg("Clipboard access failed. Select and copy the value manually.");
+    });
     if (type === "key") {
       setCopiedKey(true);
       setTimeout(() => setCopiedKey(false), 2000);
@@ -443,64 +477,46 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
 
       {/* ─── 3. Remote MCP Server Integration ─── */}
       <div className="card p-6 border border-border">
-        <div className="flex items-start justify-between">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-3 rounded-lg bg-purple-500/10 text-purple-400">
+            <div className="p-3 rounded-lg bg-[#DDEFE5] text-[#267253]">
               <Cpu className="w-6 h-6" />
             </div>
             <div>
               <h2 className="text-lg font-semibold text-ink flex items-center gap-2">
-                Remote MCP Server
+                Claude & Remote MCP
                 {!data.mcp.enabled ? (
                   <span className="badge-draft-only text-xs px-2 py-0.5 rounded-full">Integration not enabled</span>
-                ) : data.mcp.active ? (
-                  <span className="badge-active text-xs px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3 text-success" /> Active Key
-                  </span>
                 ) : (
-                  <span className="badge-draft-only text-xs px-2 py-0.5 rounded-full">No active key</span>
+                  <span className="badge-active text-xs px-2 py-0.5 rounded-full">OAuth setup</span>
                 )}
               </h2>
               <p className="text-xs text-ink-secondary mt-0.5">
-                Model Context Protocol endpoint for external agents (Cursor, Claude Desktop, Antigravity).
+                Connect Claude to your Nunuza workspace using secure OAuth authorization.
               </p>
             </div>
           </div>
-
           {data.mcp.enabled && (
-            <div className="flex items-center gap-2">
-              {data.mcp.active && (
-                <button
-                  onClick={handleRevokeMcpKey}
-                  disabled={loadingAction === "mcp_revoke"}
-                  className="btn-secondary text-xs px-3 py-1.5 text-red-400 hover:text-red-300 border-red-500/20"
-                >
-                  {loadingAction === "mcp_revoke" ? "Revoking..." : "Revoke Key"}
-                </button>
-              )}
-              <button
-                onClick={handleGenerateMcpKey}
-                disabled={loadingAction === "mcp_key"}
-                className="btn-primary text-xs px-4 py-2 flex items-center gap-2"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${loadingAction === "mcp_key" ? "animate-spin" : ""}`} />
-                {data.mcp.active ? "Rotate Key" : "Generate Key"}
-              </button>
-            </div>
+            <a
+              href="https://claude.ai/settings/connectors"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-primary text-xs px-4 py-2 inline-flex items-center gap-2"
+            >
+              Connect Claude
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
           )}
         </div>
 
         {!data.mcp.enabled ? (
           <div className="mt-4 p-3 rounded-lg bg-surface border border-border text-xs text-ink-secondary">
-            Integration not enabled. Remote MCP server tools will be activated once the platform gate passes.
+            Integration not enabled. The MCP production gate must pass before customers can connect external agents.
           </div>
         ) : (
           <div className="mt-4 space-y-4">
-            {/* Endpoint URL Display */}
             <div>
-              <label className="text-xs text-ink-secondary font-medium block mb-1">
-                MCP HTTP Endpoint (JSON-RPC 2.0)
-              </label>
+              <label className="text-xs text-ink-secondary font-medium block mb-1">Nunuza MCP server URL</label>
               <div className="flex items-center gap-2">
                 <input
                   type="text"
@@ -513,57 +529,107 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
                   className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1"
                 >
                   {copiedUrl ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
-                  {copiedUrl ? "Copied" : "Copy"}
+                  {copiedUrl ? "Copied" : "Copy URL"}
                 </button>
               </div>
             </div>
 
-            {/* Revealed Key Banner (Single Display) */}
-            {newMcpToken && (
-              <div className="notice-warning p-4 rounded-lg space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-ink flex items-center gap-1.5">
-                    <ShieldAlert className="w-4 h-4 text-warning" /> Save your MCP API Key now
-                  </span>
-                  <span className="text-[10px] text-ink-secondary font-bold uppercase tracking-wider">Shown only once</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    readOnly
-                    value={newMcpToken}
-                    className="input-field text-xs font-mono py-1.5 px-2.5 flex-1 bg-surface text-ink select-all"
-                  />
-                  <button
-                    onClick={() => copyToClipboard(newMcpToken, "key")}
-                    className="btn-primary text-xs px-3 py-1.5 flex items-center gap-1 bg-amber-500 hover:bg-amber-600 text-black font-semibold"
-                  >
-                    {copiedKey ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    {copiedKey ? "Copied" : "Copy"}
-                  </button>
-                </div>
-                <p className="text-[11px] text-ink-secondary">
-                  This key will not be shown again. It is stored as a cryptographic hash on our servers.
+            <div className="rounded-lg border border-[#D7E6DC] bg-[#F4F8F5] p-4 space-y-3">
+              <div>
+                <h3 className="text-sm font-semibold text-ink">Authorize Nunuza in Claude</h3>
+                <p className="mt-1 text-xs leading-5 text-ink-secondary">
+                  Add the connector once. Claude will then use OAuth to sign you in and request permission—no Nunuza API key or manual Authorization header.
                 </p>
               </div>
-            )}
+              <ol className="list-decimal pl-5 space-y-1.5 text-xs leading-5 text-ink-secondary">
+                <li>Open Claude Connectors using the button above.</li>
+                <li>Choose <strong className="text-ink">Add custom connector</strong>, name it <strong className="text-ink">Nunuza</strong>, and paste the server URL shown above.</li>
+                <li>Choose <strong className="text-ink">Sign in now</strong> or <strong className="text-ink">Sign in when needed</strong>. Choose OAuth authentication (not No sign in). Allow Claude to register as a client if prompted.</li>
+                <li>When Claude starts the connection, sign in to Nunuza and review the permissions before approving.</li>
+              </ol>
+              <p className="text-[11px] leading-5 text-ink-secondary">
+                Anthropic currently requires custom connectors to be added in Claude settings. After this one-time setup, reconnecting uses the OAuth consent flow.
+              </p>
+            </div>
 
-            {/* Active Key Status */}
-            {data.mcp.active && (
-              <div className="p-3 rounded-lg bg-surface border border-border text-xs text-ink-secondary space-y-1">
-                <p>• <span className="text-ink font-medium">Key ID:</span> <code className="text-ink font-mono">{data.mcp.keyId}</code></p>
-                <p>• <span className="text-ink font-medium">Created:</span> {data.mcp.createdAt ? new Date(data.mcp.createdAt).toLocaleString() : "Active"}</p>
-                <p>• <span className="text-ink font-medium">Last Used:</span> {data.mcp.lastUsedAt ? new Date(data.mcp.lastUsedAt).toLocaleString() : "Never"}</p>
+            {data.mcp.oauthGrants.length > 0 && (
+              <div className="rounded-lg border border-border p-4 space-y-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-ink">Authorized Claude connections</h3>
+                  <p className="mt-1 text-xs text-ink-secondary">Revoke a client to invalidate its OAuth grant and refresh tokens.</p>
+                </div>
+                {data.mcp.oauthGrants.map((grant) => (
+                  <div key={grant.clientId} className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-ink">{grant.clientName}</p>
+                      <p className="text-[11px] text-ink-secondary">
+                        Authorized {new Date(grant.createdAt).toLocaleDateString()} · {grant.scopes.join(", ") || "No OIDC scopes"}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleRevokeOAuthGrant(grant.clientId, grant.clientName)}
+                      disabled={loadingAction === `oauth_revoke:${grant.clientId}`}
+                      className="btn-secondary text-xs px-3 py-1.5 text-red-400 hover:text-red-300"
+                    >
+                      {loadingAction === `oauth_revoke:${grant.clientId}` ? "Revoking..." : "Revoke access"}
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
 
-            {/* Security Guardrail Reminder */}
-            <div className="p-3 rounded-lg bg-surface/50 border border-border text-xs text-ink-secondary flex items-start gap-2">
+            <div className="p-3 rounded-lg bg-surface border border-border text-xs text-ink-secondary flex items-start gap-2">
               <ShieldAlert className="w-4 h-4 shrink-0 text-ink-secondary mt-0.5" />
               <div>
-                <span className="font-semibold text-ink">Human-Approval Requirement:</span> Under BED-11 and Section 11 of the Nunuza specification, the <code className="font-mono text-ink">approve_draft</code> tool is strictly omitted from the MCP tool registry. AI agents cannot self-approve drafts. Approvals require explicit action by the founder in the web dashboard or verified Telegram.
+                <span className="font-semibold text-ink">Human approval stays mandatory:</span> Claude can read workspace data and manage drafts, but it cannot approve drafts or bypass Nunuza&apos;s approval rules. Scheduling is limited to drafts already approved by you.
               </div>
             </div>
+
+            <details className="rounded-lg border border-border p-3">
+              <summary className="cursor-pointer text-xs font-semibold text-ink">
+                Advanced: API key for other MCP clients
+              </summary>
+              <div className="mt-3 space-y-3">
+                <p className="text-xs text-ink-secondary">
+                  Claude uses OAuth above. Generate a legacy workspace key only for another MCP client that does not support OAuth.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={handleGenerateMcpKey}
+                    disabled={loadingAction === "mcp_key"}
+                    className="btn-secondary text-xs px-3 py-1.5"
+                  >
+                    {loadingAction === "mcp_key" ? "Generating..." : data.mcp.active ? "Rotate legacy key" : "Generate legacy key"}
+                  </button>
+                  {data.mcp.active && (
+                    <button
+                      onClick={handleRevokeMcpKey}
+                      disabled={loadingAction === "mcp_revoke"}
+                      className="btn-secondary text-xs px-3 py-1.5 text-red-400 hover:text-red-300"
+                    >
+                      {loadingAction === "mcp_revoke" ? "Revoking..." : "Revoke legacy key"}
+                    </button>
+                  )}
+                </div>
+                {newMcpToken && (
+                  <div className="notice-warning p-3 rounded-lg space-y-2">
+                    <div className="text-xs font-semibold text-ink">Save this key now. It is shown only once.</div>
+                    <div className="flex items-center gap-2">
+                      <input readOnly value={newMcpToken} className="input-field text-xs font-mono py-1.5 px-2.5 flex-1 bg-surface text-ink select-all" />
+                      <button onClick={() => copyToClipboard(newMcpToken, "key")} className="btn-primary text-xs px-3 py-1.5">
+                        {copiedKey ? "Copied" : "Copy"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {data.mcp.active && (
+                  <p className="text-[11px] text-ink-secondary">
+                    Legacy key created {data.mcp.createdAt ? new Date(data.mcp.createdAt).toLocaleString() : "previously"}.
+                    Rotating it immediately revokes the previous key.
+                  </p>
+                )}
+              </div>
+            </details>
           </div>
         )}
       </div>
