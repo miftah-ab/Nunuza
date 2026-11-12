@@ -41,6 +41,9 @@ function isLowValue(text: string): boolean {
   if (/\b(crypto giveaway|whatsapp me|telegram me|investment opportunity|earn money fast|click my link)\b/i.test(value)) return true;
   return false;
 }
+function needsManualReview(text: string): boolean {
+  return /\\b(lawsuit|legal advice|medical|diagnosis|medication|mental health|harass|threat|discrimination|termination|political campaign|confidential|private information)\\b/i.test(text);
+}
 function isWorthReplying(text: string): boolean {
   return text.includes("?") ||
     /\b(how|why|what|when|where|which|could you|can you|disagree|however|i think|in my experience|not sure|but)\b/i.test(text);
@@ -223,7 +226,7 @@ export async function scanOwnPostComments(
         parent_post_urn: post.linkedin_post_id, parent_comment_urn: urn,
         source_comment_urn: urn, source_author_urn: actor, source_text: text,
         draft_text: draft, draft_hash: draftHash, status: "awaiting_approval",
-        metadata: { aiProvider: generated.providerUsed, aiModel: generated.modelUsed, postId: post.id },
+        metadata: { aiProvider: generated.providerUsed, aiModel: generated.modelUsed, postId: post.id, manualReviewRequired: needsManualReview(text) },
       }).select("id").single();
 
       if (insertError) {
