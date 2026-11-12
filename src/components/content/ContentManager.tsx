@@ -1,4 +1,5 @@
 "use client";
+import { userFacingError } from "@/lib/ui/error-message";
 
 /**
  * Interactive Content Manager Component.
@@ -124,7 +125,7 @@ export function ContentManager({
       setAiNotes("");
       setAiPillar("");
     } catch (err: unknown) {
-      setGenerationError(err instanceof Error ? err.message : "Generation failed.");
+      setGenerationError(userFacingError(err, "We couldn’t create your draft. Please try again."));
     } finally {
       setIsGenerating(false);
     }
@@ -156,7 +157,7 @@ export function ContentManager({
       setManualText("");
       setManualPillar("");
     } catch (err: unknown) {
-      setPublishFeedback({ type: "error", message: err instanceof Error ? err.message : "Save failed." });
+      setPublishFeedback({ type: "error", message: userFacingError(err, "We couldn’t save your post. Please try again.") });
     } finally {
       setIsSavingManual(false);
     }
@@ -184,7 +185,7 @@ export function ContentManager({
         setEditingPost(null);
       }
     } catch (err: unknown) {
-      setPublishFeedback({ type: "error", message: err instanceof Error ? err.message : "Update failed." });
+      setPublishFeedback({ type: "error", message: userFacingError(err, "We couldn’t update your post. Please try again.") });
     }
   };
 
@@ -220,7 +221,7 @@ export function ContentManager({
       }
       setConfirmation(null);
     } catch (err) {
-      setPublishFeedback({ type: "error", message: err instanceof Error ? err.message : "The action could not be completed." });
+      setPublishFeedback({ type: "error", message: userFacingError(err, "We couldn’t complete that action. Please try again.") });
     } finally {
       setIsConfirmingAction(false);
     }
@@ -262,7 +263,7 @@ export function ContentManager({
       );
       setSchedulingPost(null);
     } catch (err: unknown) {
-      setScheduleError(err instanceof Error ? err.message : "Scheduling failed.");
+      setScheduleError(userFacingError(err, "We couldn’t schedule your post. Please try again."));
     } finally {
       setIsScheduling(false);
     }
@@ -308,7 +309,7 @@ export function ContentManager({
       setPublishFeedback({
         type: "error",
         postId: post.id,
-        message: err instanceof Error ? err.message : "Could not record your answer.",
+        message: userFacingError(err, "We couldn’t save your publishing confirmation. Please try again."),
       });
     } finally {
       setReconcilingPostId(null);
@@ -354,7 +355,7 @@ export function ContentManager({
       setPublishFeedback({
         type: "error",
         postId: post.id,
-        message: err instanceof Error ? err.message : "Publishing failed.",
+        message: userFacingError(err, "We couldn’t publish your post. Please try again."),
       });
     } finally {
       setPublishingPostId(null);
