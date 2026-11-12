@@ -9,7 +9,7 @@ import type { JobStatus } from "@/types/database";
 // Job types executed by the v1 durable worker. Planning remains user-invoked,
 // reconciliation is user-confirmed, and LinkedIn metrics remain unavailable
 // until the required official LinkedIn analytics permission is granted.
-export type AgentJobType = "publish_post" | "agent_cycle" | "telegram_content_generation";
+export type AgentJobType = "publish_post" | "agent_cycle" | "telegram_content_generation" | "engagement_scan" | "publish_engagement_action";
 
 export interface PublishPostPayload {
   postId: string;
