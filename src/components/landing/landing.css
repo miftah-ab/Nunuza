@@ -1237,3 +1237,45 @@
     padding-bottom: 96px;
   }
 }
+
+/* ── Heartbeat on the bottom calls to action ─────────────────────────────── */
+/* A lub-dub beat, then a rest, with a soft ring that spreads out and fades. */
+.nz-sticky-cta .nz-btn,
+.nz-final .nz-btn {
+  position: relative;
+  animation: nz-beat 2.2s ease-in-out infinite;
+}
+.nz-sticky-cta .nz-btn::after,
+.nz-final .nz-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  border: 2px solid var(--nz-forest);
+  pointer-events: none;
+  animation: nz-ring 2.2s ease-out infinite;
+}
+.nz-sticky-cta .nz-btn:hover,
+.nz-sticky-cta .nz-btn:active,
+.nz-final .nz-btn:hover,
+.nz-final .nz-btn:active {
+  animation: none;
+}
+.nz-sticky-cta .nz-btn:hover::after,
+.nz-sticky-cta .nz-btn:active::after,
+.nz-final .nz-btn:hover::after,
+.nz-final .nz-btn:active::after {
+  animation: none;
+  opacity: 0;
+}
+@keyframes nz-beat {
+  0%, 36%, 100% { transform: scale(1); }
+  10% { transform: scale(1.09); }
+  20% { transform: scale(1); }
+  28% { transform: scale(1.07); }
+}
+@keyframes nz-ring {
+  0%, 4% { opacity: 0; transform: scale(1); }
+  10% { opacity: 0.55; transform: scale(1); }
+  55%, 100% { opacity: 0; transform: scale(1.28, 1.7); }
+}
