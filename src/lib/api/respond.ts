@@ -35,24 +35,12 @@ export function created<T>(data: T): NextResponse<ApiSuccess<T>> {
 
 /** Convert a known domain error → safe HTTP response. */
 export function apiError(err: unknown): NextResponse<ApiError> {
-  if (err instanceof AuthError) {
-    return NextResponse.json({ error: err.message }, { status: 401 });
-  }
-  if (err instanceof EntitlementError) {
-    return NextResponse.json({ error: err.message }, { status: 403 });
-  }
-  if (err instanceof ForbiddenError) {
-    return NextResponse.json({ error: err.message }, { status: 403 });
-  }
-  if (err instanceof StrategyExclusionError) {
-    return NextResponse.json({ error: err.message }, { status: 422 });
-  }
-  // Unexpected error — log server-side, return generic message
-  console.error("[api] Unexpected error:", err);
-  return NextResponse.json(
-    { error: "An unexpected error occurred. Please try again." },
-    { status: 500 }
-  );
+  console.error("[api] Request failed:", err);
+  if (err instanceof AuthError) return NextResponse.json({ error: "Your session may have expired. Please sign in again." }, { status: 401 });
+  if (err instanceof EntitlementError) return NextResponse.json({ error: "This feature isn't included in your current plan. Review your plan to see available options." }, { status: 403 });
+  if (err instanceof ForbiddenError) return NextResponse.json({ error: "You don't have permission to do that. Check your access and try again." }, { status: 403 });
+  if (err instanceof StrategyExclusionError) return NextResponse.json({ error: err.message }, { status: 422 });
+  return NextResponse.json({ error: "We couldn't complete that action. Please try again. If the problem continues, contact support." }, { status: 500 });
 }
 
 /** Parse JSON body safely. Returns null if body is missing or invalid. */
@@ -72,7 +60,7 @@ export function requireFields(
   for (const field of fields) {
     const val = body[field];
     if (val === undefined || val === null || val === "") {
-      return `Missing required field: ${field}`;
+      return "Please complete all required fields.";
     }
   }
   return null;
