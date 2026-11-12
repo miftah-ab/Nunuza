@@ -161,9 +161,9 @@ FOR EACH ROW EXECUTE FUNCTION public.notify_approval_event();
 CREATE OR REPLACE FUNCTION public.notify_integration_status_change()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  IF NEW.status = 'expired' AND OLD.status IS DISTINCT FROM NEW.status THEN
+  IF NEW.status IN ('expired','error') AND OLD.status IS DISTINCT FROM NEW.status THEN
     PERFORM public.create_notification_event(
-      NEW.workspace_id,'integration:' || NEW.provider::text || ':expired:' || COALESCE(NEW.updated_at::text,''),
+      NEW.workspace_id,'integration:' || NEW.provider::text || ':' || NEW.status::text || ':' || COALESCE(NEW.updated_at::text,''),
       'integration','critical',
       CASE WHEN NEW.provider = 'linkedin' THEN 'Reconnect LinkedIn' ELSE 'Reconnect an integration' END,
       'Your connection has expired. Reconnect it to keep Nunuza working.',
@@ -229,3 +229,26 @@ $$;
 CREATE TRIGGER trg_notify_workspace_state
 AFTER UPDATE OF state ON public.workspaces
 FOR EACH ROW EXECUTE FUNCTION public.notify_workspace_state_change();
+
+
+CREATE OR REPLACE FUNCTION public.notify_subscription_status_change()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF NEW.status IS NOT DISTINCT FROM OLD.status THEN RETURN NEW; END IF;
+  IF NEW.status IN ('past_due','unpaid') THEN
+    PERFORM public.create_notification_event(
+      NEW.workspace_id,
+      'billing:subscription:' || NEW.id::text || ':status:' || NEW.status,
+      'billing',
+      'high',
+      'Your subscription needs attention',
+      'There is a problem with your subscription. Review billing to avoid interruption.',
+      '/app/billing'
+    );
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER trg_notify_subscription_status
+AFTER UPDATE OF status ON public.subscriptions
+FOR EACH ROW EXECUTE FUNCTION public.notify_subscription_status_change();
