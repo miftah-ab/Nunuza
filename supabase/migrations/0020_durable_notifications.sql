@@ -45,7 +45,8 @@ REVOKE ALL ON public.notification_events, public.web_push_subscriptions FROM PUB
 GRANT ALL ON public.notification_events, public.web_push_subscriptions TO service_role;
 
 -- Only authenticated workspace owners can read/update their inbox through RLS.
-GRANT SELECT, UPDATE ON public.notification_events TO authenticated;
+GRANT SELECT ON public.notification_events TO authenticated;
+GRANT UPDATE (read_at) ON public.notification_events TO authenticated;
 CREATE POLICY notification_events_owner_read ON public.notification_events
   FOR SELECT TO authenticated
   USING (user_id = (SELECT auth.uid()));
