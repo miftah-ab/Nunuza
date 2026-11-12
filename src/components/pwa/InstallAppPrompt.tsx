@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Download, Share, X } from "lucide-react";
 
 interface InstallPromptEvent extends Event {
@@ -8,20 +8,25 @@ interface InstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
 }
 
+const subscribeToNothing = () => () => {};
+const getIsIosDevice = () => {
+  if (typeof window === "undefined") return false;
+  const ua = window.navigator.userAgent;
+  const isIosDevice = /iPad|iPhone|iPod/.test(ua) ||
+    (window.navigator.platform === "MacIntel" && window.navigator.maxTouchPoints > 1);
+  const isStandalone = window.matchMedia("(display-mode: standalone)").matches ||
+    ("standalone" in window.navigator && Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone));
+  return isIosDevice && !isStandalone;
+};
+const getServerIosSnapshot = () => false;
+
 export function InstallAppPrompt() {
   const [installEvent, setInstallEvent] = useState<InstallPromptEvent | null>(null);
-  const [ios, setIos] = useState(false);
+  const ios = useSyncExternalStore(subscribeToNothing, getIsIosDevice, getServerIosSnapshot);
   const [showIosHelp, setShowIosHelp] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    const ua = window.navigator.userAgent;
-    const isIosDevice = /iPad|iPhone|iPod/.test(ua) ||
-      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-    const isStandalone = window.matchMedia("(display-mode: standalone)").matches ||
-      ("standalone" in window.navigator && Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone));
-    setIos(isIosDevice && !isStandalone);
-
     const onBeforeInstall = (event: Event) => {
       event.preventDefault();
       setInstallEvent(event as InstallPromptEvent);
