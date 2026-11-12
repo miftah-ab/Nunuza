@@ -207,3 +207,16 @@ A PDF is a document post, not the dedicated sponsored Carousel API. Initialize a
 - Images API: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api?view=li-lms-2026-06
 - MultiImage API: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/multiimage-post-api?view=li-lms-2026-06
 - Documents API: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/documents-api?view=li-lms-2026-06
+
+
+### Slide creation and editing UX
+
+The media composer supports three image-slide sources:
+
+- **AI visuals:** generate 2–5 private staged image previews. The user reviews, removes, and reorders the previews before saving them to a draft. Staged assets are workspace-scoped and are deleted on cancel or after attachment.
+- **Ready-made templates:** choose from the built-in Midnight, Editorial, and Bold styles, edit the heading and slide copy, and render 4:5 PNG slides in the browser before upload.
+- **Uploads:** upload JPG/PNG slides, preview them, remove them, and reorder them before saving.
+
+Saved media drafts can be reopened to change the caption, replace or remove media, reorder existing slides, add new slides, or change the post format. Editing a post in draft, needs-review, or approved state resets it to draft; scheduled, publishing, and published posts cannot be edited through this flow.
+
+The AI preview endpoint reserves the workspace image allowance before generating images. Temporary previews are private, use short-lived signed URLs, and are validated again by the save endpoint before attachment. The save endpoint never trusts client-provided storage paths outside the authenticated workspace's staging prefix.
