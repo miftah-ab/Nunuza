@@ -14,7 +14,8 @@
     "wrangler:deploy": "opennextjs-cloudflare build && wrangler deploy",
     "test": "vitest run",
     "test:watch": "vitest",
-    "telegram:poll": "node scripts/telegram-poller.mjs"
+    "telegram:poll": "node scripts/telegram-poller.mjs",
+    "type-check:worker": "tsc --noEmit -p tsconfig.worker.json"
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.0.0",
