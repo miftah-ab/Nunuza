@@ -83,7 +83,7 @@ export function MediaPostComposer({ onCreated }: { onCreated: (post: ContentPost
             <input
               key={format}
               type="file"
-              accept={format === "image_carousel" ? "image/jpeg,image/png,image/webp" : "application/pdf,.pdf"}
+              accept={format === "image_carousel" ? "image/jpeg,image/png" : "application/pdf,.pdf"}
               multiple={format === "image_carousel"}
               onChange={(event) => {
                 const selected = Array.from(event.target.files ?? []);
