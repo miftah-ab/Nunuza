@@ -28,9 +28,9 @@ type StateInfo = {
 const STATE_CONFIG: Record<AgentState, StateInfo> = {
   setup_required: { label: "Setup required", icon: AlertCircle, dotClass: "bg-warning", badgeClass: "bg-warning-light text-warning border-warning/20", description: "Complete workspace setup before activating the agent." },
   active_approval_required: { label: "Approval required", icon: CheckCircle2, dotClass: "bg-success", badgeClass: "bg-success-light text-success border-success/20", description: "The agent can prepare drafts. Your approval is required before publishing." },
-  active_autopilot: { label: "Autopilot enabled", icon: Zap, dotClass: "bg-success", badgeClass: "bg-success-light text-success border-success/20", description: "Autopilot is enabled within the worker's enforced safety policies." },
+  active_autopilot: { label: "Autopilot enabled", icon: Zap, dotClass: "bg-success", badgeClass: "bg-success-light text-success border-success/20", description: "Nunuza is running automatically within the safety settings you’ve chosen." },
   paused: { label: "Paused", icon: PauseCircle, dotClass: "bg-ink-muted", badgeClass: "bg-surface text-ink-secondary border-border", description: "The workspace is paused. Background work should not proceed." },
-  blocked_integration: { label: "Integration blocked", icon: WifiOff, dotClass: "bg-error", badgeClass: "bg-error-light text-error border-error/20", description: "An integration problem is blocking agent operations." },
+  blocked_integration: { label: "Integration blocked", icon: WifiOff, dotClass: "bg-error", badgeClass: "bg-error-light text-error border-error/20", description: "Nunuza can’t continue until a connected account is fixed." },
   attention_required: { label: "Attention required", icon: AlertTriangle, dotClass: "bg-warning", badgeClass: "bg-warning-light text-warning border-warning/20", description: "Workspace configuration or the content pipeline needs attention." },
 };
 
@@ -112,7 +112,7 @@ function workerJobLabel(job: { status: string; lease_until: string | null } | nu
     needs_reconciliation: { label: "Confirm publishing status", detail: "Check your LinkedIn profile before trying to publish again.", tone: "text-error" },
     canceled: { label: "Last job canceled", detail: "The latest recorded job was canceled.", tone: "text-ink-muted" },
   };
-  return labels[job.status] ?? { label: humanize(job.status), detail: "Latest recorded worker job status.", tone: "text-ink-muted" };
+  return labels[job.status] ?? { label: humanize(job.status), detail: "Latest task status.", tone: "text-ink-muted" };
 }
 
 export default async function OverviewPage() {
@@ -275,13 +275,13 @@ export default async function OverviewPage() {
 
         <div className="lg:col-span-2 space-y-4">
           <section className="card p-5">
-            <div className="flex items-center justify-between mb-4"><h2 className="text-sm font-semibold text-ink">Agent & Worker</h2><Link href="/app/permissions" className="text-xs font-medium text-forest flex items-center gap-1">Configure <ArrowRight size={12} /></Link></div>
+            <div className="flex items-center justify-between mb-4"><h2 className="text-sm font-semibold text-ink">Nunuza status</h2><Link href="/app/permissions" className="text-xs font-medium text-forest flex items-center gap-1">Configure <ArrowRight size={12} /></Link></div>
             <div className="flex items-start gap-3 p-3 rounded-xl bg-surface border border-border mb-3"><div className={`w-2 h-2 rounded-full shrink-0 mt-1 ${stateInfo.dotClass}`} /><div className="flex-1 min-w-0"><p className="text-sm font-semibold text-ink">{stateInfo.label}</p><p className="text-xs text-ink-muted mt-0.5 leading-relaxed">{stateInfo.description}</p></div></div>
             <div className="space-y-3 text-xs">
               <div className="flex items-center justify-between"><span className="text-ink-secondary">Operating mode</span><span className="font-medium text-ink">{workspace.operating_mode === "approval_required" ? "Approval required" : "Autopilot"}</span></div>
               <div className="flex items-center justify-between"><span className="text-ink-secondary">Weekly strategy target</span><span className="font-medium text-ink">{weeklyTarget === null ? "Not set yet" : `${weeklyTarget} posts`}</span></div>
               <div className="border-t border-border pt-3"><div className="flex items-center justify-between gap-2"><span className="text-ink-secondary">Latest task</span><span className={`font-semibold text-right ${workerStatus.tone}`}>{workerJobError ? "Status unavailable" : workerStatus.label}</span></div><p className="text-xs text-ink-muted mt-1">{workerJobError ? "Recent task status is temporarily unavailable." : workerStatus.detail}</p>{latestJob?.created_at && <p className="text-xs text-ink-muted mt-1">Created {formatDate(latestJob.created_at, timezone)}</p>}</div>
-              <p className="text-xs text-ink-muted border-t border-border pt-3">Publishing limits are enforced by the worker. This page does not display a fixed cap that may differ from the active policy.</p>
+              <p className="text-xs text-ink-muted border-t border-border pt-3">Publishing limits depend on your current plan and account activity. Nunuza will let you know if you reach a limit.</p>
             </div>
           </section>
 
