@@ -54,6 +54,8 @@ export default async function AppLayout({
       <AppSidebar workspace={workspace as Workspace | null} />
       <div className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
         <main id="main-content" className="flex-1 p-5 sm:p-6 lg:p-8 max-w-[1400px]">
+          <div className="mb-5 flex justify-end"><NotificationBell /></div>
+          <NotificationPrompt />
           {children}
         </main>
       </div>
