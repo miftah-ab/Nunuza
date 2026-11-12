@@ -224,3 +224,35 @@ export async function scanOwnPostComments(
   }
   return { scannedPosts, newComments, draftsCreated, ignored };
 }
+
+
+/** Queue periodic scans only for connected workspaces with the restricted read scope. */
+export async function enqueueEngagementScans(dbOverride?: any): Promise<number> {
+  const db = dbOverride || createServiceClient();
+  const { data: connections, error } = await db.from("integration_connections")
+    .select("workspace_id,granted_scopes,status,expires_at")
+    .eq("provider", "linkedin").eq("status", "connected");
+  if (error) throw new Error("Could not inspect LinkedIn connections for engagement scans.");
+  const eligible = (connections ?? []).filter((c: any) =>
+    Array.isArray(c.granted_scopes) && c.granted_scopes.includes(ENGAGEMENT_READ_SCOPE) &&
+    (!c.expires_at || Date.parse(c.expires_at) > Date.now())
+  );
+  if (!eligible.length) return 0;
+  const { data: workspaces, error: workspaceError } = await db.from("workspaces")
+    .select("id,state,paused_at").in("id", eligible.map((c: any) => c.workspace_id));
+  if (workspaceError) throw new Error("Could not load engagement scan workspaces.");
+  const active = (workspaces ?? []).filter((w: any) => !w.paused_at && w.state !== "paused");
+  const bucket = Math.floor(Date.now() / (15 * 60 * 1000));
+  let queued = 0;
+  for (const workspace of active) {
+    const key = "engagement-scan-" + workspace.id + "-" + bucket;
+    const { error: insertError } = await db.from("agent_jobs").insert({
+      workspace_id: workspace.id, job_type: "engagement_scan", status: "queued",
+      idempotency_key: key, payload: { workspaceId: workspace.id },
+      scheduled_for: new Date().toISOString(), attempt_count: 0, max_attempts: 3,
+    });
+    if (!insertError) queued++;
+    else if (insertError.code !== "23505") throw new Error("Could not queue an engagement scan.");
+  }
+  return queued;
+}
