@@ -48,7 +48,7 @@ async function renderTemplateSlide(title: string, body: string, index: number, t
       ctx.fillStyle = theme.id === "paper" ? "rgba(245, 241, 232, 0.84)" : "rgba(20, 38, 61, 0.76)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
     } catch {
-      throw new Error("The AI preview could not be combined with the slide design. Try the template without a background.");
+      throw new Error("We couldn’t combine the image with this design. Try again without a background.");
     }
   } else {
     ctx.fillStyle = theme.background;
@@ -72,7 +72,7 @@ async function renderTemplateSlide(title: string, body: string, index: number, t
   ctx.font = "24px Arial, sans-serif";
   ctx.fillText("Swipe to continue  →", 84, 1240);
   ctx.globalAlpha = 1;
-  const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Slide export failed.")), "image/png"));
+  const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("We couldn’t export this slide. Please try again.")), "image/png"));
   return new File([blob], `nunuza-slide-${index + 1}.png`, { type: "image/png" });
 }
 
@@ -120,7 +120,7 @@ export function MediaPostComposer({
     fetch(`/api/posts/media?postId=${encodeURIComponent(editPost.id)}`)
       .then(async (response) => {
         const json = await response.json() as { error?: string; data?: { post: ContentPost; media: ExistingMedia[] } };
-        if (!response.ok || !json.data) throw new Error(json.error ?? "Saved slides could not be loaded.");
+        if (!response.ok || !json.data) throw new Error(json.error ?? "We couldn’t load your saved slides. Please try again.");
         if (!active) return;
         setFormat((json.data.post.post_format ?? "text") as PostFormat);
         setTitle(json.data.post.internal_title ?? "");
@@ -196,7 +196,7 @@ export function MediaPostComposer({
         body: JSON.stringify({ prompts: prompts.map((prompt, index) => ("Create a relevant visual for a LinkedIn carousel about: " + (caption.trim() || title.trim() || "the professional topic").slice(0, 420) + ". Slide " + (index + 1) + ": " + prompt + ". Use a professional editorial style, a clear focal point, vertical 4:5 composition, generous negative space for readable text overlay, and no words, letters, logos, or watermarks.").slice(0, 2048)) }),
       });
       const json = await response.json() as { error?: string; data?: { slides: StagedAiMedia[] } };
-      if (!response.ok || !json.data?.slides) throw new Error(json.error ?? "AI slides could not be generated.");
+      if (!response.ok || !json.data?.slides) throw new Error(json.error ?? "We couldn’t create your images. Please try again.");
       await deleteStaged(stagedAi.map((item) => item.path));
       setStagedAi(json.data.slides);
       setTemplateBodies((current) => Array.from({ length: json.data!.slides.length }, (_, index) => current[index] ?? "Explain one clear, useful point from this slide."));
