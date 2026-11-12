@@ -302,7 +302,7 @@ export async function enqueueEngagementScans(dbOverride?: any): Promise<number> 
   const { data: workspaces, error: workspaceError } = await db.from("workspaces")
     .select("id,state,paused_at").in("id", eligible.map((c: any) => c.workspace_id));
   if (workspaceError) throw new Error("Could not load engagement scan workspaces.");
-  const active = (workspaces ?? []).filter((w: any) => !w.paused_at && w.state !== "paused");
+  const active = (workspaces ?? []).filter((w: any) => !w.paused_at && ["active_approval_required", "active_autopilot"].includes(w.state));
   const bucket = Math.floor(Date.now() / (15 * 60 * 1000));
   let queued = 0;
   for (const workspace of active) {
