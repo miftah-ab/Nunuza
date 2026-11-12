@@ -59,6 +59,7 @@ export function EngagementInbox({ initialActions, capabilities }: { initialActio
             <span className="text-sm font-medium text-[#202522]">Reply to a comment on your post</span>
             <span className="rounded-full bg-[#F8F8F5] px-2.5 py-1 text-xs text-[#68716C]">{action.status.replaceAll("_", " ")}</span>
           </div>
+          {action.metadata?.manualReviewRequired === true ? <p className="rounded-lg border border-[#E4E8E3] bg-[#F8F8F5] p-3 text-sm text-[#A86412]">Sensitive topic: review this reply carefully before approving.</p> : null}
           {action.source_text ? <div className="rounded-lg bg-[#F8F8F5] p-3"><p className="text-xs font-medium text-[#68716C] mb-1">Original comment</p><p className="whitespace-pre-wrap text-sm text-[#202522]">{action.source_text}</p></div> : null}
           <div><p className="text-xs font-medium text-[#68716C] mb-1">Suggested reply</p><p className="whitespace-pre-wrap text-sm text-[#202522]">{action.draft_text}</p></div>
           {action.safe_failure_message ? <p className="text-sm text-[#A86412]">{action.safe_failure_message}</p> : null}
