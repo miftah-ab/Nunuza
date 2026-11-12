@@ -36,11 +36,11 @@ export function PostImageGenerator({
     fetch(`/api/generate/image?postId=${encodeURIComponent(postId)}`)
       .then(async (response) => {
         const payload = (await response.json()) as ImageApiResponse;
-        if (!response.ok) throw new Error(payload.error || "Could not load image preview.");
+        if (!response.ok) throw new Error(payload.error || "We couldn’t load your image preview. Please try again.");
         if (active) setPreviewUrl(payload.data?.previewUrl ?? null);
       })
       .catch((cause: unknown) => {
-        if (active) setError(cause instanceof Error ? cause.message : "Could not load image preview.");
+        if (active) setError(cause instanceof Error ? cause.message : "We couldn’t load your image preview. Please try again.");
       });
 
     return () => { active = false; };
@@ -56,14 +56,14 @@ export function PostImageGenerator({
         body: JSON.stringify({ postId, prompt: prompt.trim() || undefined }),
       });
       const payload = (await response.json()) as ImageApiResponse;
-      if (!response.ok) throw new Error(payload.error || "Image generation failed.");
+      if (!response.ok) throw new Error(payload.error || "We couldn’t create your image. Please try again.");
       if (!payload.data?.previewUrl || !payload.data.imagePath || !payload.data.status) {
-        throw new Error("Image generation returned an incomplete response.");
+        throw new Error("Your image wasn’t ready to use. Please try again.");
       }
       setPreviewUrl(payload.data.previewUrl);
       onImageUpdated(payload.data.imagePath, payload.data.status);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Image generation failed.");
+      setError(cause instanceof Error ? cause.message : "We couldn’t create your image. Please try again.");
     } finally {
       setIsGenerating(false);
     }
@@ -74,7 +74,7 @@ export function PostImageGenerator({
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold text-ink">Post image</h3>
-          <p className="text-xs text-ink-secondary">Generate an optional visual with Cloudflare AI.</p>
+          <p className="text-xs text-ink-secondary">Create an optional image for your post.</p>
         </div>
         {imagePath && <span className="text-[11px] text-forest font-medium">Image attached</span>}
       </div>
