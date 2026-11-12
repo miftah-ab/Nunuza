@@ -472,7 +472,7 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
 
       await expect(
         publishPostNow(pausedWorkspace.id, sampleApprovedPost.id)
-      ).rejects.toThrow("Agent is paused. Resume before publishing posts.");
+      ).rejects.toThrow("Nunuza is paused. Resume it before publishing posts.");
     });
 
     it("rejects unapproved posts (draft)", async () => {
