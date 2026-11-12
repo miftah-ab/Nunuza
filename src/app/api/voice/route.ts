@@ -23,7 +23,7 @@ type VoiceBody = {
 function cleanText(value: unknown, max: number): string | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "string" || value.length > max) {
-    throw new VoiceValidationError("One or more Voice fields are invalid or too long.");
+    throw new VoiceValidationError("Some writing style details are invalid or too long. Please review them and try again.");
   }
   return value.trim();
 }
@@ -31,11 +31,11 @@ function cleanText(value: unknown, max: number): string | undefined {
 function cleanList(value: unknown): string[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value) || value.length > 30) {
-    throw new VoiceValidationError("Voice phrase and exclusion lists must contain no more than 30 entries.");
+    throw new VoiceValidationError("You can add up to 30 phrases or topics to each list.");
   }
   const items = value.map((item) => {
     if (typeof item !== "string" || item.trim().length > 120) {
-      throw new VoiceValidationError("Each Voice phrase or exclusion must be text under 120 characters.");
+      throw new VoiceValidationError("Each phrase or topic must be 120 characters or fewer.");
     }
     return item.trim();
   }).filter(Boolean);
