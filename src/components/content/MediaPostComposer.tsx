@@ -1,4 +1,5 @@
 "use client";
+import { userFacingError } from "@/lib/ui/error-message";
 
 import { useEffect, useMemo, useState } from "react";
 import type { ContentPost, ContentPostMedia } from "@/types/database";
@@ -129,7 +130,7 @@ export function MediaPostComposer({
         setSource("upload");
         setError(null);
       })
-      .catch((err) => { if (active) setError(err instanceof Error ? err.message : "Saved slides could not be loaded."); })
+      .catch((err) => { if (active) setError(userFacingError(err, "We couldn’t load your saved slides. Please try again.")); })
       .finally(() => { if (active) setLoadedPostId(editPost.id); });
     return () => { active = false; };
   }, [editPost]);
@@ -200,7 +201,7 @@ export function MediaPostComposer({
       setStagedAi(json.data.slides);
       setTemplateBodies((current) => Array.from({ length: json.data!.slides.length }, (_, index) => current[index] ?? "Explain one clear, useful point from this slide."));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "AI slides could not be generated.");
+      setError(userFacingError(err, "We couldn’t create your images. Please try again."));
     } finally {
       setGeneratingAi(false);
     }
@@ -226,7 +227,7 @@ export function MediaPostComposer({
       setSource("template");
       setFormat("image_carousel");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "The AI slides could not be designed.");
+      setError(userFacingError(err, "We couldn’t finish designing your slides. Please try again."));
     } finally {
       setBusy(false);
     }
@@ -245,7 +246,7 @@ export function MediaPostComposer({
       setSource("template");
       setFormat("image_carousel");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Template slides could not be created.");
+      setError(userFacingError(err, "We couldn’t create your slides. Please try again."));
     } finally {
       setBusy(false);
     }
@@ -271,7 +272,7 @@ export function MediaPostComposer({
       onCreated(json.data.post);
       close(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Your post could not be saved.");
+      setError(userFacingError(err, "We couldn’t save your post. Please try again."));
     } finally {
       setBusy(false);
     }
