@@ -98,18 +98,18 @@ function isLinkedInConnectionExpired(status: string | null | undefined, expiresA
 }
 
 function workerJobLabel(job: { status: string; lease_until: string | null } | null): { label: string; detail: string; tone: string } {
-  if (!job) return { label: "No worker jobs yet", detail: "No job has been recorded for this workspace.", tone: "text-ink-muted" };
+  if (!job) return { label: "No recent tasks", detail: "Your recent Nunuza activity will appear here.", tone: "text-ink-muted" };
   if (job.status === "running" && (!job.lease_until || !Number.isFinite(new Date(job.lease_until).getTime()) || new Date(job.lease_until).getTime() < Date.now())) {
-    return { label: "Running job has an expired lease", detail: "Inspect the worker and reconciliation queue.", tone: "text-error" };
+    return { label: "A task needs attention", detail: "A task is taking longer than expected. Check Activity for the latest update.", tone: "text-error" };
   }
   const labels: Record<string, { label: string; detail: string; tone: string }> = {
-    running: { label: "Job running", detail: "A worker job is currently marked as running.", tone: "text-success" },
-    queued: { label: "Job queued", detail: "A job is waiting for a worker to claim it.", tone: "text-warning" },
+    running: { label: "In progress", detail: "Nunuza is working on a task.", tone: "text-success" },
+    queued: { label: "Waiting to start", detail: "Your task is in line and will start shortly.", tone: "text-warning" },
     waiting_for_approval: { label: "Waiting for approval", detail: "The job is paused for a user decision.", tone: "text-warning" },
-    succeeded: { label: "Last job succeeded", detail: "The latest recorded job completed successfully.", tone: "text-success" },
-    failed_retryable: { label: "Retryable failure", detail: "The latest job failed and may be retried.", tone: "text-warning" },
-    failed_terminal: { label: "Terminal failure", detail: "The latest job needs investigation.", tone: "text-error" },
-    needs_reconciliation: { label: "Reconciliation required", detail: "Verify the external publishing outcome before retrying.", tone: "text-error" },
+    succeeded: { label: "Completed", detail: "Your latest task finished successfully.", tone: "text-success" },
+    failed_retryable: { label: "Trying again", detail: "Something interrupted the last task. Nunuza will try again when possible.", tone: "text-warning" },
+    failed_terminal: { label: "Couldn’t complete", detail: "Nunuza couldn’t finish the last task. Review Activity or contact support.", tone: "text-error" },
+    needs_reconciliation: { label: "Confirm publishing status", detail: "Check your LinkedIn profile before trying to publish again.", tone: "text-error" },
     canceled: { label: "Last job canceled", detail: "The latest recorded job was canceled.", tone: "text-ink-muted" },
   };
   return labels[job.status] ?? { label: humanize(job.status), detail: "Latest recorded worker job status.", tone: "text-ink-muted" };
@@ -214,7 +214,7 @@ export default async function OverviewPage() {
   const integrations = [
     { icon: Linkedin, iconClass: "text-[#0A66C2]", label: "LinkedIn", detail: integrationError ? "Status unavailable" : linkedinExpired ? "Connection expired" : linkedinConnected ? (typeof linkedinProfileName === "string" ? linkedinProfileName : "Personal profile connected") : "Not connected", connected: linkedinConnected, warning: linkedinExpired || Boolean(linkedinRes.error) },
     { icon: Send, iconClass: "text-[#229ED9]", label: "Telegram", detail: telegramStatus === null ? "Status unavailable" : telegramStatus?.linked ? "Bot paired" : "Not paired", connected: telegramStatus?.linked ?? false, warning: telegramStatus === null },
-    { icon: Cpu, iconClass: "text-forest", label: "MCP Server", detail: mcpStatus === null ? "Status unavailable" : mcpStatus?.active ? "Credential active" : "Inactive", connected: mcpStatus?.active ?? false, warning: mcpStatus === null },
+    { icon: Cpu, iconClass: "text-forest", label: "AI tools", detail: mcpStatus === null ? "Status unavailable" : mcpStatus?.active ? "Connected" : "Not connected", connected: mcpStatus?.active ?? false, warning: mcpStatus === null },
   ];
 
   return (
@@ -244,7 +244,7 @@ export default async function OverviewPage() {
         <div className="notice-info flex items-center gap-3"><Sparkles size={15} className="shrink-0 text-forest" /><p className="text-sm text-ink-secondary"><span className="font-semibold text-ink">Private Beta.</span> Your workspace has private-beta access.</p></div>
       )}
 
-      {metricErrors && <div role="alert" className="notice-warning text-sm">Some metrics could not be loaded. Counts are hidden where the database query failed; check the relevant page before acting on these numbers.</div>}
+      {metricErrors && <div role="alert" className="notice-warning text-sm">Some numbers are temporarily unavailable. Open the relevant page to refresh them before making decisions.</div>}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {metrics.map(({ href, label, value, sub, icon: Icon }) => (
@@ -279,8 +279,8 @@ export default async function OverviewPage() {
             <div className="flex items-start gap-3 p-3 rounded-xl bg-surface border border-border mb-3"><div className={`w-2 h-2 rounded-full shrink-0 mt-1 ${stateInfo.dotClass}`} /><div className="flex-1 min-w-0"><p className="text-sm font-semibold text-ink">{stateInfo.label}</p><p className="text-xs text-ink-muted mt-0.5 leading-relaxed">{stateInfo.description}</p></div></div>
             <div className="space-y-3 text-xs">
               <div className="flex items-center justify-between"><span className="text-ink-secondary">Operating mode</span><span className="font-medium text-ink">{workspace.operating_mode === "approval_required" ? "Approval required" : "Autopilot"}</span></div>
-              <div className="flex items-center justify-between"><span className="text-ink-secondary">Weekly strategy target</span><span className="font-medium text-ink">{weeklyTarget === null ? "Not configured" : `${weeklyTarget} posts`}</span></div>
-              <div className="border-t border-border pt-3"><div className="flex items-center justify-between gap-2"><span className="text-ink-secondary">Latest worker job</span><span className={`font-semibold text-right ${workerStatus.tone}`}>{workerJobError ? "Status unavailable" : workerStatus.label}</span></div><p className="text-xs text-ink-muted mt-1">{workerJobError ? "Worker job history could not be queried." : workerStatus.detail}</p>{latestJob?.created_at && <p className="text-xs text-ink-muted mt-1">Created {formatDate(latestJob.created_at, timezone)}</p>}</div>
+              <div className="flex items-center justify-between"><span className="text-ink-secondary">Weekly strategy target</span><span className="font-medium text-ink">{weeklyTarget === null ? "Not set yet" : `${weeklyTarget} posts`}</span></div>
+              <div className="border-t border-border pt-3"><div className="flex items-center justify-between gap-2"><span className="text-ink-secondary">Latest task</span><span className={`font-semibold text-right ${workerStatus.tone}`}>{workerJobError ? "Status unavailable" : workerStatus.label}</span></div><p className="text-xs text-ink-muted mt-1">{workerJobError ? "Recent task status is temporarily unavailable." : workerStatus.detail}</p>{latestJob?.created_at && <p className="text-xs text-ink-muted mt-1">Created {formatDate(latestJob.created_at, timezone)}</p>}</div>
               <p className="text-xs text-ink-muted border-t border-border pt-3">Publishing limits are enforced by the worker. This page does not display a fixed cap that may differ from the active policy.</p>
             </div>
           </section>
