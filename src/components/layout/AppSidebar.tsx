@@ -46,7 +46,7 @@ const navSections: NavSection[] = [
       { href: "/app/overview", label: "Overview", icon: LayoutDashboard },
       { href: "/app/content", label: "Content", icon: FileText },
       { href: "/app/calendar", label: "Calendar", icon: Calendar },
-      { href: "/app/activity", label: "Activity", icon: Activity },
+      { href: "/app/activity", label: "Activity", icon: Activity },\n      { href: "/app/notifications", label: "Notifications", icon: Bell },
     ],
   },
   {
