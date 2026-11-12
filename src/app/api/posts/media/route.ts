@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { requireWorkspace } from "@/lib/auth/workspace";
 import { apiError } from "@/lib/api/respond";
 import { createServiceClient } from "@/lib/supabase/server";
-import { generateCloudflareImage } from "@/lib/ai/cloudflare-image";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -10,8 +9,6 @@ export const maxDuration = 60;
 const BUCKET = "nunuza-post-media";
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_IMAGES = 20;
-const MAX_AI_SLIDES = 5;
-const HOURLY_IMAGE_LIMIT = 5;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type Format = "text" | "image_carousel" | "document";
@@ -124,37 +121,29 @@ export async function POST(request: Request) {
     const source = String(form.get("source") ?? "upload");
     const assets: ValidatedAsset[] = [];
 
+    const stagedPaths: string[] = [];
     if (source === "ai") {
       if (format !== "image_carousel" || files.length > 0) {
         return NextResponse.json({ error: "AI slide creation is available for image carousels." }, { status: 400 });
       }
-      let prompts: unknown;
-      try { prompts = JSON.parse(String(form.get("prompts") ?? "[]")); } catch { prompts = null; }
-      if (!Array.isArray(prompts) || prompts.length < 2 || prompts.length > MAX_AI_SLIDES ||
-          prompts.some((prompt) => typeof prompt !== "string" || !prompt.trim() || prompt.length > 2048)) {
-        return NextResponse.json({ error: "Provide 2–5 clear slide descriptions, each under 2,048 characters." }, { status: 422 });
+      let stagedValue: unknown;
+      try { stagedValue = JSON.parse(String(form.get("stagedMedia") ?? "[]")); } catch { stagedValue = null; }
+      if (!Array.isArray(stagedValue) || stagedValue.length < 2 || stagedValue.length > 5 ||
+          stagedValue.some((path) => typeof path !== "string" || !path.startsWith(`${workspace.id}/staged/`) || path.includes(".."))) {
+        return NextResponse.json({ error: "Generate and review 2–5 AI slides before saving the post." }, { status: 422 });
       }
-      if (!process.env.CLOUDFLARE_ACCOUNT_ID?.trim() || !process.env.CLOUDFLARE_API_TOKEN?.trim()) {
-        return NextResponse.json({ error: "AI slide creation is temporarily unavailable." }, { status: 503 });
-      }
-      for (let index = 0; index < prompts.length; index += 1) {
-        const now = new Date();
-        const periodStart = now.toISOString().slice(0, 10);
-        const hourKey = now.toISOString().slice(0, 13).replace(/[-T:]/g, "");
-        const { data: count, error: quotaError } = await service.rpc("increment_usage_counter", {
-          p_workspace_id: workspace.id,
-          p_metric: `image_generation:${hourKey}`,
-          p_period_start: periodStart,
-          p_period_end: periodStart,
-        });
-        if (quotaError) throw new Error("AI slide availability could not be verified.");
-        if (Number(count) > HOURLY_IMAGE_LIMIT) {
-          return NextResponse.json({
-            error: "Nunuza image generation limit reached. You've used all 5 image generations available to your workspace this hour. Your limit will reset at the start of the next hour.",
-          }, { status: 429 });
+      for (let index = 0; index < stagedValue.length; index += 1) {
+        const stagedPath = String(stagedValue[index]);
+        if (stagedPaths.includes(stagedPath)) return NextResponse.json({ error: "Duplicate AI slide selected." }, { status: 422 });
+        const { data: file, error } = await service.storage.from(BUCKET).download(stagedPath);
+        if (error || !file) return NextResponse.json({ error: "An AI slide preview expired. Generate it again." }, { status: 404 });
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const mime = detectMime(bytes);
+        if (mime !== "image/jpeg" || bytes.byteLength > 5 * 1024 * 1024) {
+          return NextResponse.json({ error: "An AI slide is invalid. Generate it again." }, { status: 415 });
         }
-        const generated = await generateCloudflareImage(String(prompts[index]));
-        assets.push({ bytes: generated.bytes, mime: generated.contentType, ext: "jpg", fileName: `AI slide ${index + 1}.jpg` });
+        stagedPaths.push(stagedPath);
+        assets.push({ bytes, mime, ext: "jpg", fileName: `AI slide ${index + 1}.jpg` });
       }
     } else {
       if (source !== "upload" && source !== "template") return NextResponse.json({ error: "Unsupported slide source." }, { status: 400 });
@@ -244,6 +233,11 @@ export async function POST(request: Request) {
         .in("id", removed.map((asset) => String(asset.id)));
       if (error) throw new Error("Removed slides could not be updated.");
       await service.storage.from(BUCKET).remove(removed.map((asset) => String(asset.storage_path)));
+    }
+
+    if (source === "ai" && stagedPaths.length) {
+      const { error: stagedDeleteError } = await service.storage.from(BUCKET).remove(stagedPaths);
+      if (stagedDeleteError) throw new Error("The post was saved, but temporary AI slides could not be cleaned up.");
     }
 
     const { data: media, error: mediaError } = await service.from("content_post_media")
