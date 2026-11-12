@@ -46,11 +46,6 @@ class MockMcpDb {
       status: "approved",
       created_at: new Date().toISOString(),
     },
-    {
-      id: "post-3", workspace_id: "ws-bbb", text: "Draft B awaiting review",
-      internal_title: "Hook B review", version: 1, status: "needs_review",
-      created_at: new Date().toISOString(),
-    },
   ];
   contentPostVersions: any[] = [];
   agentJobs: any[] = [];
@@ -235,6 +230,11 @@ describe("Remote MCP Integration", () => {
 
   describe("Explicit MCP draft approval", () => {
     it("approves a workspace-owned review draft when entitlement permits it", async () => {
+      mockDb.contentPosts.push({
+        id: "post-3", workspace_id: "ws-bbb", text: "Draft B awaiting review",
+        internal_title: "Hook B review", version: 1, status: "needs_review",
+        created_at: new Date().toISOString(),
+      });
       const result = await executeMcpTool("approve_draft", { draft_id: "post-3" },
         { workspaceId: "ws-bbb", userId: "user-bbb", scopes: ["write"] }, mockDb.createClient());
       expect(result.success).toBe(true);
