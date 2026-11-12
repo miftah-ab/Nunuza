@@ -73,10 +73,14 @@ export async function POST(request: Request) {
     if (body.timezone) profileUpdates.timezone = body.timezone.trim();
 
     if (Object.keys(profileUpdates).length > 0) {
-      await supabase
+      const { error: profileError } = await supabase
         .from("profiles")
         .update(profileUpdates)
         .eq("id", workspace.owner_user_id);
+      if (profileError) {
+        console.error("[onboarding] Profile update failed:", profileError);
+        return NextResponse.json({ error: "We couldn’t save your profile details. Please try again." }, { status: 500 });
+      }
     }
 
     // 2. Upsert Voice Profile if voice parameters provided
