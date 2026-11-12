@@ -9,6 +9,8 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppSidebar } from "@/components/layout/AppSidebar";
+import { NotificationPrompt } from "@/components/notifications/NotificationPrompt";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import type { Workspace } from "@/types/database";
 
 export default async function AppLayout({
