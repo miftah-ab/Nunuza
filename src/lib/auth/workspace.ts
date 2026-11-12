@@ -36,7 +36,7 @@ export class ForbiddenError extends Error {
 
 export class EntitlementError extends Error {
   readonly code: string;
-  constructor(required: string, actual: string) {
+  constructor(_required: string, _actual: string) {
     super("This feature isn’t included in your current plan. Review your plan to see available options.");
     this.name = "EntitlementError";
     this.code = "SUBSCRIPTION_INACTIVE";
