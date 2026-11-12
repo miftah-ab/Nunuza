@@ -7,6 +7,7 @@ import {
   BarChart2,
   Activity,
   Bell,
+  MessageCircle,
   Plug,
   Shield,
   Settings,
@@ -34,6 +35,7 @@ export const navSections: NavSection[] = [
       { href: "/app/calendar", label: "Calendar", icon: Calendar },
       { href: "/app/activity", label: "Activity", icon: Activity },
       { href: "/app/notifications", label: "Notifications", icon: Bell },
+      { href: "/app/engagement", label: "Engagement", icon: MessageCircle },
     ],
   },
   {
