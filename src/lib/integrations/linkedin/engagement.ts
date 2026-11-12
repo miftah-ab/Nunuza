@@ -1,0 +1,226 @@
+import crypto from "node:crypto";
+import { createServiceClient } from "@/lib/supabase/server";
+import { decryptToken } from "@/lib/integrations/linkedin/crypto";
+import { aiService } from "@/lib/ai/service";
+import { assertVoiceConstraints, VoiceConstraintError } from "@/lib/ai/voice-constraints";
+import { assertNoExcludedPhrase, StrategyExclusionError } from "@/lib/ai/exclusions";
+import { LINKEDIN_API_VERSION } from "@/lib/integrations/linkedin/client";
+
+export const ENGAGEMENT_READ_SCOPE = "r_member_social_feed";
+export const ENGAGEMENT_WRITE_SCOPE = "w_member_social_feed";
+
+export type EngagementScanResult = {
+  scannedPosts: number;
+  newComments: number;
+  draftsCreated: number;
+  ignored: number;
+  unavailableReason?: string;
+};
+
+function sha256(value: string): string {
+  return crypto.createHash("sha256").update(value, "utf8").digest("hex");
+}
+function safeUrn(value: unknown): value is string {
+  return typeof value === "string" && /^urn:li:(activity|share|ugcPost):[A-Za-z0-9:(),_-]+$/.test(value);
+}
+function textFromComment(comment: any): string {
+  const value = comment?.message?.text ?? comment?.commentary ?? "";
+  return typeof value === "string" ? value.trim().slice(0, 3000) : "";
+}
+function commentUrn(comment: any, postUrn: string): string | null {
+  if (typeof comment?.commentUrn === "string" && comment.commentUrn.startsWith("urn:li:comment:")) return comment.commentUrn;
+  const id = comment?.id;
+  if (typeof id === "string" && /^[0-9]+$/.test(id)) return `urn:li:comment:(${postUrn},${id})`;
+  return null;
+}
+function isLowValue(text: string): boolean {
+  const value = text.toLocaleLowerCase().trim();
+  if (value.length < 8) return true;
+  if (/^(great|nice|thanks|congrats|well said|agree|following|dm me|check my profile)[!.\s]*$/i.test(value)) return true;
+  if (/\b(crypto giveaway|whatsapp me|telegram me|investment opportunity|earn money fast|click my link)\b/i.test(value)) return true;
+  return false;
+}
+function isWorthReplying(text: string): boolean {
+  return text.includes("?") ||
+    /\b(how|why|what|when|where|which|could you|can you|disagree|however|i think|in my experience|not sure|but)\b/i.test(text);
+}
+
+async function linkedinRequest(token: string, path: string): Promise<any> {
+  const response = await fetch(`https://api.linkedin.com/rest/${path}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "LinkedIn-Version": LINKEDIN_API_VERSION,
+      "X-Restli-Protocol-Version": "2.0.0",
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (response.status === 401 || response.status === 403) {
+    throw new Error("LINKEDIN_ENGAGEMENT_ACCESS_DENIED");
+  }
+  if (response.status === 429) throw new Error("LINKEDIN_ENGAGEMENT_RATE_LIMITED");
+  if (!response.ok) throw new Error(`LINKEDIN_ENGAGEMENT_HTTP_${response.status}`);
+  return response.json();
+}
+
+/**
+ * Monitor comments on posts Nunuza itself published. This uses only the official
+ * Comments API and only when LinkedIn actually granted the restricted read scope.
+ * External-post discovery is deliberately not fabricated here: LinkedIn does not
+ * expose a general member-feed search endpoint to this app's current product grant.
+ */
+export async function scanOwnPostComments(
+  workspaceId: string,
+  options: { supabaseOverride?: any; maxPosts?: number } = {}
+): Promise<EngagementScanResult> {
+  const db = options.supabaseOverride || createServiceClient();
+  const { data: connection, error: connectionError } = await db
+    .from("integration_connections")
+    .select("status,expires_at,granted_scopes,encrypted_token_ref,external_account_id")
+    .eq("workspace_id", workspaceId)
+    .eq("provider", "linkedin")
+    .maybeSingle();
+
+  if (connectionError || !connection || connection.status !== "connected" || !connection.encrypted_token_ref) {
+    return { scannedPosts: 0, newComments: 0, draftsCreated: 0, ignored: 0, unavailableReason: "linkedin_not_connected" };
+  }
+  const scopes = Array.isArray(connection.granted_scopes) ? connection.granted_scopes : [];
+  if (!scopes.includes(ENGAGEMENT_READ_SCOPE)) {
+    return { scannedPosts: 0, newComments: 0, draftsCreated: 0, ignored: 0, unavailableReason: "linkedin_comment_read_permission_not_granted" };
+  }
+  if (connection.expires_at && Date.parse(connection.expires_at) <= Date.now()) {
+    return { scannedPosts: 0, newComments: 0, draftsCreated: 0, ignored: 0, unavailableReason: "linkedin_connection_expired" };
+  }
+
+  const token = decryptToken(connection.encrypted_token_ref);
+  const memberUrn = connection.external_account_id;
+  const { data: posts, error: postsError } = await db.from("content_posts")
+    .select("id,linkedin_post_id,text,internal_title")
+    .eq("workspace_id", workspaceId)
+    .eq("status", "published")
+    .not("linkedin_post_id", "is", null)
+    .order("published_at", { ascending: false })
+    .limit(Math.min(Math.max(options.maxPosts ?? 20, 1), 50));
+  if (postsError) throw new Error("Could not load published LinkedIn posts for engagement monitoring.");
+
+  const [{ data: strategy }, { data: voice }] = await Promise.all([
+    db.from("content_strategies").select("*").eq("workspace_id", workspaceId).maybeSingle(),
+    db.from("voice_profiles").select("*").eq("workspace_id", workspaceId).maybeSingle(),
+  ]);
+
+  let newComments = 0, draftsCreated = 0, ignored = 0, scannedPosts = 0;
+  for (const post of posts ?? []) {
+    if (!safeUrn(post.linkedin_post_id)) continue;
+    const encodedUrn = encodeURIComponent(post.linkedin_post_id);
+    const result = await linkedinRequest(token, `socialActions/${encodedUrn}/comments?count=50&start=0&sortOrder=LAST_MODIFIED`);
+    const comments = Array.isArray(result?.elements) ? result.elements : [];
+    scannedPosts++;
+
+    for (const comment of comments) {
+      const text = textFromComment(comment);
+      const urn = commentUrn(comment, post.linkedin_post_id);
+      const actor = typeof comment?.actor === "string" ? comment.actor : null;
+      if (!text || !urn || (actor && actor === memberUrn)) continue;
+
+      const { data: existing } = await db.from("engagement_actions")
+        .select("id")
+        .eq("workspace_id", workspaceId)
+        .eq("provider", "linkedin")
+        .eq("source_comment_urn", urn)
+        .maybeSingle();
+      if (existing) continue;
+      newComments++;
+
+      if (isLowValue(text) || !isWorthReplying(text)) {
+        await db.from("engagement_actions").insert({
+          workspace_id: workspaceId, action_type: "reply", target_kind: "own_post_comment",
+          provider: "linkedin", target_post_urn: post.linkedin_post_id,
+          parent_post_urn: post.linkedin_post_id, parent_comment_urn: urn,
+          source_comment_urn: urn, source_author_urn: actor, source_text: text,
+          draft_text: "Ignored by relevance triage.", draft_hash: sha256("ignored:" + urn),
+          status: "ignored", metadata: { reason: isLowValue(text) ? "low_value_or_spam" : "no_reply_needed" },
+        });
+        ignored++;
+        continue;
+      }
+
+      const generated = await aiService.generateDraft({
+        topic: "Write a concise LinkedIn reply to a comment on the user's own post.",
+        targetLength: "short",
+        notes: [
+          "You are replying as the LinkedIn post author. This is a comment reply, not a new post.",
+          "Original post title: " + String(post.internal_title ?? ""),
+          "Original post text: " + String(post.text ?? "").slice(0, 1800),
+          "Comment to reply to: " + text,
+          "Use the saved audience, goals, content pillars and voice below.",
+          "Audience: " + JSON.stringify(strategy?.audience ?? {}),
+          "Goals: " + JSON.stringify(strategy?.goals ?? []),
+          "Pillars: " + JSON.stringify(strategy?.pillars ?? []),
+          "Voice: " + JSON.stringify(voice ?? {}),
+          "Do not invent facts. Answer genuine questions directly. For disagreement, be respectful and substantive. If the comment is hostile, sensitive, legal, medical, or asks for private information, return a short neutral acknowledgement and flag for manual handling.",
+          "Return only the reply text. Maximum 700 characters. No hashtags. No generic praise.",
+        ].join("\n"),
+        strategy: {
+          audience: strategy?.audience ?? {},
+          goals: strategy?.goals ?? [],
+          pillars: strategy?.pillars ?? [],
+          exclusions: strategy?.exclusions ?? [],
+        },
+        voiceProfile: voice ? {
+          tone: voice.tone, sentenceLength: voice.sentence_length, formality: voice.formality,
+          phrasesUse: voice.phrases_use, phrasesAvoid: voice.phrases_avoid,
+          sampleText: voice.sample_text, exclusions: voice.exclusions,
+        } : undefined,
+        companyName: undefined,
+      });
+      const draft = generated.text.trim().slice(0, 700);
+      if (!draft || generated.providerUsed === "mock_deterministic") {
+        ignored++;
+        continue;
+      }
+      try {
+        assertVoiceConstraints(draft, voice ?? undefined);
+        assertNoExcludedPhrase(draft, [
+          ...(Array.isArray(strategy?.exclusions) ? strategy.exclusions : []),
+          ...(Array.isArray(voice?.exclusions) ? voice.exclusions : []),
+          ...(Array.isArray(voice?.phrases_avoid) ? voice.phrases_avoid : []),
+        ]);
+      } catch (err) {
+        if (err instanceof VoiceConstraintError || err instanceof StrategyExclusionError) {
+          ignored++;
+          continue;
+        }
+        throw err;
+      }
+
+      const draftHash = sha256(draft);
+      const { data: action, error: insertError } = await db.from("engagement_actions").insert({
+        workspace_id: workspaceId, action_type: "reply", target_kind: "own_post_comment",
+        provider: "linkedin", target_post_urn: post.linkedin_post_id,
+        parent_post_urn: post.linkedin_post_id, parent_comment_urn: urn,
+        source_comment_urn: urn, source_author_urn: actor, source_text: text,
+        draft_text: draft, draft_hash: draftHash, status: "awaiting_approval",
+        metadata: { aiProvider: generated.providerUsed, aiModel: generated.modelUsed, postId: post.id },
+      }).select("id").single();
+
+      if (insertError) {
+        if (insertError.code === "23505") continue;
+        throw new Error("Could not persist engagement reply draft.");
+      }
+      draftsCreated++;
+      const title = "A LinkedIn comment deserves a reply";
+      const body = "Nunuza drafted a response to a comment on your post. Review it before anything is published.";
+      const { error: notificationError } = await db.rpc("create_notification_event", {
+        p_workspace_id: workspaceId,
+        p_event_key: "engagement:" + action.id,
+        p_category: "approval",
+        p_priority: "high",
+        p_title: title,
+        p_body: body,
+        p_href: "/app/engagement",
+      });
+      if (notificationError) console.error("[engagement] Notification event could not be created:", notificationError.code);
+    }
+  }
+  return { scannedPosts, newComments, draftsCreated, ignored };
+}
