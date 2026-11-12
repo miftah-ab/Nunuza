@@ -62,7 +62,7 @@ export async function schedulePost(
 
   // 2. Pause check
   if (workspace.paused_at) {
-    throw new ForbiddenError("Agent is paused. Resume before scheduling posts.");
+    throw new ForbiddenError("Nunuza is paused. Resume it before scheduling posts.");
   }
 
   // 3. Post verification
