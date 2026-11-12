@@ -25,7 +25,7 @@ export function NotificationPrompt() {
         ? await Notification.requestPermission()
         : Notification.permission;
       if (permission !== "granted") {
-        setError("Notifications are blocked in your browser. Allow them in browser settings and try again.");
+        setError("Allow notifications in your browser to receive updates from Nunuza.");
         return false;
       }
 
