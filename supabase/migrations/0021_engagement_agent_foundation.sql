@@ -60,6 +60,52 @@ ALTER TABLE public.engagement_actions ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.engagement_actions FROM PUBLIC, anon, authenticated;
 GRANT ALL ON public.engagement_actions TO service_role;
 
+
+-- Engagement runs only after the workspace owner explicitly enables it.
+CREATE TABLE public.engagement_settings (
+  workspace_id UUID PRIMARY KEY REFERENCES public.workspaces(id) ON DELETE CASCADE,
+  enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  daily_limit SMALLINT NOT NULL DEFAULT 5 CHECK (daily_limit BETWEEN 1 AND 30),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE public.engagement_settings ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.engagement_settings FROM PUBLIC, anon, authenticated;
+GRANT ALL ON public.engagement_settings TO service_role;
+
+CREATE OR REPLACE FUNCTION public.update_engagement_settings(
+  p_enabled BOOLEAN,
+  p_daily_limit INTEGER
+) RETURNS public.engagement_settings
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, auth
+AS $
+DECLARE
+  v_user_id UUID := auth.uid();
+  v_settings public.engagement_settings;
+BEGIN
+  IF v_user_id IS NULL OR p_enabled IS NULL OR p_daily_limit < 1 OR p_daily_limit > 30 THEN
+    RAISE EXCEPTION 'Invalid engagement settings.';
+  END IF;
+  INSERT INTO public.engagement_settings(workspace_id, enabled, daily_limit)
+  SELECT id, p_enabled, p_daily_limit
+    FROM public.workspaces
+   WHERE owner_user_id = v_user_id
+  ON CONFLICT (workspace_id) DO UPDATE
+    SET enabled = EXCLUDED.enabled,
+        daily_limit = EXCLUDED.daily_limit,
+        updated_at = NOW()
+  RETURNING * INTO v_settings;
+  IF v_settings.workspace_id IS NULL THEN
+    RAISE EXCEPTION 'Workspace not found.';
+  END IF;
+  RETURN v_settings;
+END;
+$;
+REVOKE ALL ON FUNCTION public.update_engagement_settings(BOOLEAN, INTEGER) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.update_engagement_settings(BOOLEAN, INTEGER) TO authenticated;
+
 -- Approval is bound to the exact draft hash. Editing a draft requires a new approval.
 -- Only the workspace owner may approve/reject, and notifications never confer authority.
 CREATE OR REPLACE FUNCTION public.approve_engagement_action(
