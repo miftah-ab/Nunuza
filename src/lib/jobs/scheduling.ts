@@ -384,7 +384,7 @@ export async function executePublishJob(
     await markJobRetryable(
       supabase,
       { id: job.id, attempt_count: attemptCount },
-      message,
+      safeJobErrorMessage(message),
       errorCode,
       "running",
       jobGuard()
@@ -392,7 +392,7 @@ export async function executePublishJob(
   };
   const terminalOutcome = async (message: string, errorCode: string) => {
     if (options.deferJobFinalization) return;
-    await markJobTerminal(supabase, job.id, message, errorCode, "running", jobGuard());
+    await markJobTerminal(supabase, job.id, safeJobErrorMessage(message), errorCode, "running", jobGuard());
   };
   const persistJobPayloadPatch = async (patch: Record<string, unknown>) => {
     let query = supabase
@@ -498,7 +498,7 @@ export async function executePublishJob(
   }
 
   if (post.status === "published") {
-    const message = "The post is marked published but has no trustworthy LinkedIn post ID. Reconciliation is required; Nunuza will not retry it.";
+    const message = "We couldn’t confirm the published post. Check your LinkedIn profile and confirm its status in Nunuza before trying again.";
     await transitionOutcome("needs_reconciliation", {
       lease_until: null,
       last_error_code: "PUBLISHED_POST_ID_MISSING",
@@ -531,7 +531,7 @@ export async function executePublishJob(
     const message =
       post.status === "published"
         ? "This post has already been published."
-        : `Post is '${post.status}' and is not eligible for publishing.`;
+        : "This post isn’t ready to publish. Review and approve it first.";
     await transitionOutcome("canceled", {
       finished_at: new Date().toISOString(),
       lease_until: null,
@@ -621,9 +621,17 @@ export async function executePublishJob(
       });
     }
   } catch (publishErr: any) {
+    console.error("[publisher] LinkedIn publishing request failed:", { jobId: job.id, postId: post.id, error: publishErr });
     const kind: string | undefined =
       publishErr instanceof LinkedInPublishError ? publishErr.kind : undefined;
-    const errorMsg: string = publishErr?.message || "Failed to publish post to LinkedIn.";
+    const errorMsg: string = publishErr?.message || "LinkedIn couldn’t publish this post.";
+    const userErrorMsg = kind === "auth" || kind === "not_connected"
+      ? "Your LinkedIn connection needs attention. Reconnect LinkedIn, then try again."
+      : kind === "rate_limited"
+        ? "LinkedIn is limiting publishing right now. Nunuza will try again when possible."
+        : kind === "rejected"
+          ? "LinkedIn couldn’t publish this post. Review your post details and try again."
+          : safeJobErrorMessage(errorMsg);
 
     // Ambiguous (or unknown error type): the post may be live. Never retry, never fail the post.
     if (kind === "ambiguous" || kind === undefined) {
@@ -657,23 +665,23 @@ export async function executePublishJob(
     // Definitively NOT published: put the post back, then retry or fail.
     if (kind === "rate_limited" && attemptCount < maxAttempts) {
       await casPostStatus(supabase, job.workspace_id, post.id, ["publishing"], { status: priorStatus });
-      await retryOutcome(errorMsg, "LINKEDIN_RATE_LIMITED");
-      return fail("failed_retryable", true, errorMsg);
+      await retryOutcome(userErrorMsg, "LINKEDIN_RATE_LIMITED");
+      return fail("failed_retryable", true, userErrorMsg);
     }
 
     await casPostStatus(supabase, job.workspace_id, post.id, ["publishing"], { status: "failed" });
     await terminalOutcome(
-      errorMsg,
+      userErrorMsg,
       kind === "auth" || kind === "not_connected" ? "LINKEDIN_INTEGRATION_ERROR" : "PUBLISH_FAILED"
     );
     notifyWorkspaceTelegram(job.workspace_id, {
       text:
         `⚠️ **Publishing Failed**\n\n` +
         `Post: **${post.internal_title || "LinkedIn Post"}**\n` +
-        `Error: ${errorMsg}\n\n` +
+        `${userErrorMsg}\n\n` +
         `Visit your Nunuza dashboard to review and reschedule.`,
     }, supabase).catch(() => {});
-    return fail("failed_terminal", false, errorMsg);
+    return fail("failed_terminal", false, userErrorMsg);
   }
 
   // 8. LinkedIn confirmed a post ID. Save it durably BEFORE calling the job a success.
