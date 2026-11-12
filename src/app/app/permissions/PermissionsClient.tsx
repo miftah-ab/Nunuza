@@ -1,4 +1,5 @@
 "use client";
+import { userFacingError } from "@/lib/ui/error-message";
 
 import { useState } from "react";
 import type { Workspace, OperatingMode } from "@/types/database";
@@ -43,16 +44,16 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
         body: JSON.stringify({ paused: !isPaused }),
       });
       const json = await res.json() as any;
-      if (!res.ok) throw new Error(json.error || "Failed to update pause state");
+      if (!res.ok) throw new Error(json.error || "We couldn’t update Nunuza’s status. Please try again.");
 
       setWorkspace(json.data.workspace);
       setSuccess(
         !isPaused
-          ? "Agent paused. Background jobs and publishing are halted safely."
-          : "Agent resumed. Operating according to your configured mode."
+          ? "Nunuza is paused. Automatic work and scheduled publishing have stopped."
+          : "Nunuza is active again and will follow your current settings."
       );
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Error updating pause state");
+      setError(userFacingError(err, "We couldn’t update Nunuza’s status. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -64,7 +65,7 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
     if (mode === "autopilot") {
       if (!isAutopilotEligible) {
         setError(
-          "Autopilot requires an active 14-day free trial ($29/mo) or subscription."
+          "Automatic publishing is available with an active free trial or subscription."
         );
         return;
       }
@@ -87,17 +88,17 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
         body: JSON.stringify({ operating_mode: mode }),
       });
       const json = await res.json() as any;
-      if (!res.ok) throw new Error(json.error || "Failed to update operating mode");
+      if (!res.ok) throw new Error(json.error || "We couldn’t update your publishing settings. Please try again.");
 
       setWorkspace(json.data.workspace);
       setShowAutopilotConfirm(false);
       setSuccess(
         mode === "autopilot"
-          ? "Bounded Autopilot enabled. Posts will be scheduled automatically within safety caps."
-          : "Mode set to Approval Required. Every post needs your explicit confirmation."
+          ? "Automatic mode enabled. Nunuza will schedule posts within your safety limits."
+          : "Approval mode enabled. Every post will wait for your approval before publishing."
       );
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Error updating mode");
+      setError(userFacingError(err, "We couldn’t update your publishing settings. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -276,9 +277,9 @@ export function PermissionsClient({ initialWorkspace }: PermissionsClientProps) 
               desc: "Max 7 posts across any rolling 7-day window.",
             },
             {
-              label: "Fail-Closed Safety",
+              label: "Safety checks",
               value: "Auto halt",
-              desc: "Publishing stops immediately if OAuth tokens expire or API errors occur.",
+              desc: "Nunuza pauses publishing if your LinkedIn connection expires or a problem prevents a safe post.",
             },
           ].map(({ label, value, desc }) => (
             <div key={label} className="p-4 rounded-xl bg-surface border border-border">
