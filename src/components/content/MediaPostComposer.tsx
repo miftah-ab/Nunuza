@@ -196,7 +196,7 @@ export function MediaPostComposer({
       const response = await fetch("/api/posts/media/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompts }),
+        body: JSON.stringify({ prompts: prompts.map((prompt, index) => ("Create a relevant visual for a LinkedIn carousel about: " + (caption.trim() || title.trim() || "the professional topic").slice(0, 420) + ". Slide " + (index + 1) + ": " + prompt + ". Use a professional editorial style, a clear focal point, vertical 4:5 composition, generous negative space for readable text overlay, and no words, letters, logos, or watermarks.").slice(0, 2048)) }),
       });
       const json = await response.json() as { error?: string; data?: { slides: StagedAiMedia[] } };
       if (!response.ok || !json.data?.slides) throw new Error(json.error ?? "AI slides could not be generated.");
