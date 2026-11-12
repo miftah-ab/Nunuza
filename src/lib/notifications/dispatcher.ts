@@ -14,7 +14,7 @@ function retryAt(attempt: number): string {
   return new Date(Date.now() + delay).toISOString();
 }
 function escapeTelegramMarkdown(value: string): string {
-  const special = new Set(["_", "*", "[", "]", "(", ")", "~", String.fromCharCode(96), ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"]);
+  const special = new Set(["_", "*", "[", "]", "(", ")", "~", String.fromCharCode(96), String.fromCharCode(92), ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"]);
   return Array.from(value, (character) => special.has(character) ? "\\" + character : character).join("");
 }
 
@@ -101,7 +101,13 @@ export async function dispatchPendingNotifications(limit = 50): Promise<{ proces
             transientFailure = true;
           }
         }
-        if (delivered) updates.push_status = "sent";
+        if (delivered && transientFailure && event.push_attempts < 5) {
+          // Retry failed devices. Repeated pushes use the same notification tag,
+          // so successful devices replace rather than stack duplicate alerts.
+          updates.push_attempts = event.push_attempts + 1;
+          retryAttempts.push(event.push_attempts + 1);
+          updates.last_delivery_error = "push_delivery_partial";
+        } else if (delivered) updates.push_status = "sent";
         else if (transientFailure && event.push_attempts < 5) {
           updates.push_attempts = event.push_attempts + 1;
           retryAttempts.push(event.push_attempts + 1);
