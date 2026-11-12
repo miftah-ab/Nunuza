@@ -59,6 +59,12 @@ export interface IntegrationStatusData {
   workspaceEntitlement: string;
 }
 
+function friendlyActionError(error: unknown, fallback: string): string {
+  if (error instanceof TypeError) return fallback;
+  if (error instanceof Error && /failed to fetch|networkerror|load failed|unexpected token/i.test(error.message)) return fallback;
+  return error instanceof Error ? error.message : fallback;
+}
+
 export function IntegrationsManager({ initialData }: { initialData: IntegrationStatusData }) {
   const [data, setData] = useState<IntegrationStatusData>(initialData);
   const [copiedKey, setCopiedKey] = useState(false);
@@ -94,7 +100,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
       }));
       setSuccessMsg("LinkedIn disconnected successfully.");
     } catch (err: any) {
-      setErrorMsg(err.message);
+      setErrorMsg(friendlyActionError(err, "We couldn’t disconnect LinkedIn. Please try again."));
     } finally {
       setLoadingAction(null);
     }
@@ -124,7 +130,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
 
       setSuccessMsg("Opening Telegram. Tap Start in the bot to connect.");
     } catch (err: any) {
-      setErrorMsg(err.message);
+      setErrorMsg(friendlyActionError(err, "We couldn’t create a Telegram connection link. Please try again."));
     } finally {
       setLoadingAction(null);
     }
@@ -145,7 +151,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
       setTelegramPairing(null);
       setSuccessMsg("Telegram unlinked successfully.");
     } catch (err: any) {
-      setErrorMsg(err.message);
+      setErrorMsg(friendlyActionError(err, "We couldn’t disconnect Telegram. Please try again."));
     } finally {
       setLoadingAction(null);
     }
@@ -154,7 +160,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
   // ─── MCP Handlers ───
   const handleGenerateMcpKey = async () => {
     const isRotating = data.mcp.active;
-    if (isRotating && !confirm("Generating a new MCP key will immediately revoke your active key. Continue?")) {
+    if (isRotating && !confirm("Creating a new connection key will immediately replace your current key. Continue?")) {
       return;
     }
 
@@ -176,9 +182,9 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
           lastUsedAt: null,
         },
       }));
-      setSuccessMsg("New MCP API key created. Copy it now, as it will not be displayed again.");
+      setSuccessMsg("Your new connection key is ready. Copy it now; it won’t be shown again.");
     } catch (err: any) {
-      setErrorMsg(err.message);
+      setErrorMsg(friendlyActionError(err, "We couldn’t create the AI tool connection. Please try again."));
     } finally {
       setLoadingAction(null);
     }
@@ -204,7 +210,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
       }));
       setSuccessMsg(`${clientName} access revoked.`);
     } catch (err: any) {
-      setErrorMsg(err.message);
+      setErrorMsg(friendlyActionError(err, "We couldn’t remove this AI tool’s access. Please try again."));
     } finally {
       setLoadingAction(null);
     }
@@ -232,9 +238,9 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
         },
       }));
       setNewMcpToken(null);
-      setSuccessMsg("MCP key revoked.");
+      setSuccessMsg("Connection key removed.");
     } catch (err: any) {
-      setErrorMsg(err.message);
+      setErrorMsg(friendlyActionError(err, "We couldn’t remove the AI tool connection. Please try again."));
     } finally {
       setLoadingAction(null);
     }
@@ -242,7 +248,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
 
   const copyToClipboard = (text: string, type: "key" | "url") => {
     void navigator.clipboard.writeText(text).catch(() => {
-      setErrorMsg("Clipboard access failed. Select and copy the value manually.");
+      setErrorMsg("We couldn’t copy that value. Please select it and copy it manually.");
     });
     if (type === "key") {
       setCopiedKey(true);
@@ -475,7 +481,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
         )}
       </div>
 
-      {/* ─── 3. Remote MCP Server Integration ─── */}
+      {/* ─── 3. AI tool connections ─── */}
       <div className="card p-6 border border-border">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -484,7 +490,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
             </div>
             <div>
               <h2 className="text-lg font-semibold text-ink flex items-center gap-2">
-                Claude & Remote MCP
+                Claude & other AI tools
                 {!data.mcp.enabled ? (
                   <span className="badge-draft-only text-xs px-2 py-0.5 rounded-full">Integration not enabled</span>
                 ) : (
@@ -492,7 +498,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
                 )}
               </h2>
               <p className="text-xs text-ink-secondary mt-0.5">
-                Connect Claude to your Nunuza workspace using secure OAuth authorization.
+                Connect Claude to your Nunuza workspace. You’ll be asked to sign in and approve access.
               </p>
             </div>
           </div>
@@ -511,12 +517,12 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
 
         {!data.mcp.enabled ? (
           <div className="mt-4 p-3 rounded-lg bg-surface border border-border text-xs text-ink-secondary">
-            Integration not enabled. The MCP production gate must pass before customers can connect external agents.
+            This connection option isn’t available yet. Please check back later.
           </div>
         ) : (
           <div className="mt-4 space-y-4">
             <div>
-              <label className="text-xs text-ink-secondary font-medium block mb-1">Nunuza MCP server URL</label>
+              <label className="text-xs text-ink-secondary font-medium block mb-1">Nunuza connection address</label>
               <div className="flex items-center gap-2">
                 <input
                   type="text"
@@ -538,17 +544,17 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
               <div>
                 <h3 className="text-sm font-semibold text-ink">Authorize Nunuza in Claude</h3>
                 <p className="mt-1 text-xs leading-5 text-ink-secondary">
-                  Add the connector once. Claude will then use OAuth to sign you in and request permission—no Nunuza API key or manual Authorization header.
+                  Add this connection once. Claude will guide you through signing in and approving access. You won’t need to create or paste a key.
                 </p>
               </div>
               <ol className="list-decimal pl-5 space-y-1.5 text-xs leading-5 text-ink-secondary">
                 <li>Open Claude Connectors using the button above.</li>
                 <li>Choose <strong className="text-ink">Add custom connector</strong>, name it <strong className="text-ink">Nunuza</strong>, and paste the server URL shown above.</li>
-                <li>Choose <strong className="text-ink">Sign in now</strong> or <strong className="text-ink">Sign in when needed</strong>. Choose OAuth authentication (not No sign in). Allow Claude to register as a client if prompted.</li>
+                <li>Choose <strong className="text-ink">Sign in now</strong> or <strong className="text-ink">Sign in when needed</strong>. Choose the sign-in option when Claude asks, then approve the access request.</li>
                 <li>When Claude starts the connection, sign in to Nunuza and review the permissions before approving.</li>
               </ol>
               <p className="text-[11px] leading-5 text-ink-secondary">
-                Anthropic currently requires custom connectors to be added in Claude settings. After this one-time setup, reconnecting uses the OAuth consent flow.
+                Add the connection in Claude settings once. After that, Claude will guide you through reconnecting whenever needed.
               </p>
             </div>
 
@@ -556,14 +562,14 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
               <div className="rounded-lg border border-border p-4 space-y-3">
                 <div>
                   <h3 className="text-sm font-semibold text-ink">Authorized Claude connections</h3>
-                  <p className="mt-1 text-xs text-ink-secondary">Revoke a client to invalidate its OAuth grant and refresh tokens.</p>
+                  <p className="mt-1 text-xs text-ink-secondary">Remove access for any AI tool you no longer want connected.</p>
                 </div>
                 {data.mcp.oauthGrants.map((grant) => (
                   <div key={grant.clientId} className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
                     <div className="min-w-0">
                       <p className="text-xs font-medium text-ink">{grant.clientName}</p>
                       <p className="text-[11px] text-ink-secondary">
-                        Authorized {new Date(grant.createdAt).toLocaleDateString()} · {grant.scopes.join(", ") || "No OIDC scopes"}
+                        Connected {new Date(grant.createdAt).toLocaleDateString()}
                       </p>
                     </div>
                     <button
@@ -587,11 +593,11 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
 
             <details className="rounded-lg border border-border p-3">
               <summary className="cursor-pointer text-xs font-semibold text-ink">
-                Advanced: API key for other MCP clients
+                Advanced: connection key for other AI tools
               </summary>
               <div className="mt-3 space-y-3">
                 <p className="text-xs text-ink-secondary">
-                  Claude uses OAuth above. Generate a legacy workspace key only for another MCP client that does not support OAuth.
+                  Claude uses the secure sign-in option above. Create a connection key only if another AI tool asks you for one.
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <button
@@ -599,7 +605,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
                     disabled={loadingAction === "mcp_key"}
                     className="btn-secondary text-xs px-3 py-1.5"
                   >
-                    {loadingAction === "mcp_key" ? "Generating..." : data.mcp.active ? "Rotate legacy key" : "Generate legacy key"}
+                    {loadingAction === "mcp_key" ? "Generating..." : data.mcp.active ? "Replace connection key" : "Create connection key"}
                   </button>
                   {data.mcp.active && (
                     <button
@@ -607,7 +613,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
                       disabled={loadingAction === "mcp_revoke"}
                       className="btn-secondary text-xs px-3 py-1.5 text-red-400 hover:text-red-300"
                     >
-                      {loadingAction === "mcp_revoke" ? "Revoking..." : "Revoke legacy key"}
+                      {loadingAction === "mcp_revoke" ? "Revoking..." : "Remove connection key"}
                     </button>
                   )}
                 </div>
@@ -624,7 +630,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
                 )}
                 {data.mcp.active && (
                   <p className="text-[11px] text-ink-secondary">
-                    Legacy key created {data.mcp.createdAt ? new Date(data.mcp.createdAt).toLocaleString() : "previously"}.
+                    Connection key created {data.mcp.createdAt ? new Date(data.mcp.createdAt).toLocaleString() : "previously"}.
                     Rotating it immediately revokes the previous key.
                   </p>
                 )}
