@@ -108,7 +108,7 @@ BEGIN
 END;
 $$;
 CREATE TRIGGER trg_notify_post_status
-AFTER UPDATE OF status ON public.content_posts
+AFTER INSERT OR UPDATE OF status ON public.content_posts
 FOR EACH ROW EXECUTE FUNCTION public.notify_post_status_change();
 
 CREATE OR REPLACE FUNCTION public.notify_agent_job_status_change()
@@ -195,3 +195,34 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.claim_pending_notification_deliveries(INTEGER) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.claim_pending_notification_deliveries(INTEGER) TO service_role;
+
+
+CREATE OR REPLACE FUNCTION public.notify_workspace_state_change()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF NEW.state IS NOT DISTINCT FROM OLD.state THEN RETURN NEW; END IF;
+  IF NEW.state IN ('paused','blocked_integration','attention_required') THEN
+    PERFORM public.create_notification_event(
+      NEW.id,
+      'workspace:state:' || NEW.state::text || ':' || NEW.updated_at::text,
+      'agent',
+      'critical',
+      CASE NEW.state
+        WHEN 'paused' THEN 'Your agent has been paused'
+        WHEN 'blocked_integration' THEN 'Your agent needs a connection'
+        ELSE 'Your agent needs your attention'
+      END,
+      CASE NEW.state
+        WHEN 'paused' THEN 'Nunuza has paused activity. Open your workspace to review the status.'
+        WHEN 'blocked_integration' THEN 'An integration needs attention before Nunuza can continue.'
+        ELSE 'Nunuza needs you to review an important workspace issue.'
+      END,
+      '/app/overview'
+    );
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER trg_notify_workspace_state
+AFTER UPDATE OF state ON public.workspaces
+FOR EACH ROW EXECUTE FUNCTION public.notify_workspace_state_change();
