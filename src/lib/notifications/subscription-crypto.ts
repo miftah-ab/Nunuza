@@ -10,10 +10,11 @@ const decoder = new TextDecoder();
 function keyBytes(): Uint8Array {
   const value = process.env.WEB_PUSH_SUBSCRIPTION_ENCRYPTION_KEY || "";
   if (!/^[0-9a-fA-F]{64}$/.test(value)) throw new Error("Notification encryption key is not configured.");
-  return Uint8Array.from(
-    { length: value.length / 2 },
-    (_, index) => Number.parseInt(value.slice(index * 2, index * 2 + 2), 16),
-  );
+  const bytes = new Uint8Array(32);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
 }
 function toBase64Url(bytes: Uint8Array): string {
   let binary = "";
