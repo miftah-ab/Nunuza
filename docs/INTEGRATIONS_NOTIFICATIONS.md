@@ -54,7 +54,7 @@ Use the same VAPID pair in all environments for which you want subscriptions to 
 
 1. Apply supabase/migrations/0020_durable_notifications.sql after the prior migration sequence is present.
 2. Set the environment secrets above in the deployed Next.js environment and Cloudflare Worker.
-3. Deploy the updated Worker so its existing five-minute cron trigger dispatches pending notifications.
+3. Deploy the updated Worker so its dedicated one-minute cron trigger dispatches pending notifications.
 4. Confirm the public site serves /sw.js over HTTPS.
 5. Test permission grant, subscription persistence, push while the app is closed, inbox read/unread state, Telegram delivery, retry behavior, and expired-subscription cleanup.
 
