@@ -1,4 +1,5 @@
 "use client";
+import { userFacingError } from "@/lib/ui/error-message";
 
 import { useState } from "react";
 import type { ContentStrategy } from "@/types/database";
@@ -88,7 +89,7 @@ export function StrategyEditor({ strategy, workspaceName }: StrategyEditorProps)
       setUpdatedAt(saved.updated_at);
       setSavedMessage("Strategy saved. Future AI drafts and plans will use these settings.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save your content strategy.");
+      setError(userFacingError(err, "We couldn’t save your content strategy. Please try again."));
     } finally {
       setIsSaving(false);
     }
