@@ -17,7 +17,7 @@ import {
 
 function mcpDisabledResponse() {
   return NextResponse.json(
-    { error: "The Nunuza MCP integration is not enabled." },
+    { error: "This connection option isn’t available yet. Please check back later." },
     { status: 503, headers: { "Cache-Control": "no-store" } }
   );
 }
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       && new Set(scopes).size === scopes.length;
 
     if (!validScopes) {
-      return NextResponse.json({ error: "Scopes must be a non-empty list containing only unique read/write values." }, { status: 400 });
+      return NextResponse.json({ error: "Choose at least one permission for this connection." }, { status: 400 });
     }
 
     const result = await generateMcpToken(workspace.id, userId, scopes as string[]);

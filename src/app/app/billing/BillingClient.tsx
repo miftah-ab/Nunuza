@@ -1,4 +1,5 @@
 "use client";
+import { userFacingError } from "@/lib/ui/error-message";
 
 import { useState } from "react";
 import type { BillingDetails } from "@/lib/integrations/polar/types";
@@ -21,13 +22,13 @@ export function BillingClient({ details }: BillingClientProps) {
       });
       const data = (await res.json()) as { message?: string; error?: string; checkoutUrl?: string };
       if (!res.ok) {
-        throw new Error(data.message || data.error || "Checkout unavailable");
+        throw new Error(data.message || data.error || "We couldn’t start checkout. Please try again.");
       }
       if (data.checkoutUrl) {
         window.location.href = data.checkoutUrl;
       }
     } catch (err: any) {
-      setError(err.message);
+      setError(userFacingError(err, "We couldn’t start checkout. Please try again."));
     } finally {
       setLoading(false);
     }

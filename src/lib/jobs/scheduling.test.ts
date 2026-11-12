@@ -230,7 +230,7 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
 
       expect(outcome.success).toBe(false);
       expect(outcome.status).toBe("failed_terminal");
-      expect(outcome.error).toContain("LinkedIn is not connected");
+      expect(outcome.error).toContain("Your LinkedIn connection needs attention");
       expect(outcome.postUrn).toBeUndefined();
       expect(db.jobs[0].status).toBe("failed_terminal");
       expect(db.posts[0].status).toBe("failed");
@@ -472,7 +472,7 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
 
       await expect(
         publishPostNow(pausedWorkspace.id, sampleApprovedPost.id)
-      ).rejects.toThrow("Agent is paused. Resume before publishing posts.");
+      ).rejects.toThrow("Nunuza is paused. Resume it before publishing posts.");
     });
 
     it("rejects unapproved posts (draft)", async () => {

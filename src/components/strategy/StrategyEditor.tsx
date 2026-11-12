@@ -1,4 +1,5 @@
 "use client";
+import { userFacingError } from "@/lib/ui/error-message";
 
 import { useState } from "react";
 import type { ContentStrategy } from "@/types/database";
@@ -78,17 +79,17 @@ export function StrategyEditor({ strategy, workspaceName }: StrategyEditorProps)
       });
       const json = await response.json() as { error?: string; data?: { strategy?: ContentStrategy } };
       if (!response.ok || json.error) {
-        throw new Error(json.error || "Could not save your content strategy.");
+        throw new Error(json.error || "We couldn’t save your content strategy. Please try again.");
       }
 
       const saved = json.data?.strategy as ContentStrategy | undefined;
-      if (!saved) throw new Error("The server did not return the saved strategy.");
+      if (!saved) throw new Error("We couldn’t confirm your content strategy was saved. Refresh and try again.");
 
       setVersion(saved.version);
       setUpdatedAt(saved.updated_at);
       setSavedMessage("Strategy saved. Future AI drafts and plans will use these settings.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save your content strategy.");
+      setError(userFacingError(err, "We couldn’t save your content strategy. Please try again."));
     } finally {
       setIsSaving(false);
     }

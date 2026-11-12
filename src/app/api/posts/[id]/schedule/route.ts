@@ -26,7 +26,7 @@ export async function POST(
 
     if (!body || !body.scheduledFor) {
       return NextResponse.json(
-        { error: "scheduledFor timestamp is required." },
+        { error: "Choose when you’d like this post to be published." },
         { status: 400 }
       );
     }

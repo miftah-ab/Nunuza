@@ -45,7 +45,7 @@ export async function generateCloudflareImage(
   if (!normalizedPrompt || normalizedPrompt.length > 2048) {
     throw new CloudflareImageError(
       "invalid_prompt",
-      "Image prompt must contain between 1 and 2,048 characters.",
+      "Please keep your image description between 1 and 2,048 characters.",
       400
     );
   }
@@ -53,9 +53,10 @@ export async function generateCloudflareImage(
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
   const apiToken = process.env.CLOUDFLARE_API_TOKEN?.trim();
   if (!accountId || !apiToken) {
+    console.error("[image-generation] Provider credentials are unavailable.");
     throw new CloudflareImageError(
       "not_configured",
-      "Image generation is not configured. Add the Cloudflare Workers AI credentials.",
+      "Image creation is temporarily unavailable. Please try again later.",
       503
     );
   }
@@ -74,10 +75,11 @@ export async function generateCloudflareImage(
         signal: AbortSignal.timeout(55_000),
       }
     );
-  } catch {
+  } catch (error) {
+    console.error("[image-generation] Provider request failed:", error);
     throw new CloudflareImageError(
       "provider_error",
-      "Cloudflare image generation could not be reached. Please retry.",
+      "We couldn’t reach the image service. Please try again.",
       502
     );
   }
@@ -87,8 +89,8 @@ export async function generateCloudflareImage(
     throw new CloudflareImageError(
       "provider_error",
       response.status === 429
-        ? "Cloudflare image generation is rate-limited. Please retry later."
-        : "Cloudflare image generation failed. Please retry.",
+        ? "Image creation is busy right now. Please try again in a little while."
+        : "We couldn’t create your image this time. Please try again.",
       response.status === 429 ? 429 : 502
     );
   }
@@ -99,7 +101,7 @@ export async function generateCloudflareImage(
   } catch {
     throw new CloudflareImageError(
       "invalid_image",
-      "Cloudflare returned an unreadable image response."
+      "We couldn’t process the image response. Please try again."
     );
   }
 
@@ -107,7 +109,7 @@ export async function generateCloudflareImage(
   if (payload.success === false || typeof base64 !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
     throw new CloudflareImageError(
       "invalid_image",
-      "Cloudflare did not return a valid generated image."
+      "We couldn’t create a usable image. Please try again."
     );
   }
 
@@ -115,13 +117,13 @@ export async function generateCloudflareImage(
   try {
     const binary = atob(base64);
     if (binary.length === 0 || binary.length > MAX_GENERATED_IMAGE_BYTES) {
-      throw new Error("Image size out of bounds");
+      throw new Error("Image size is outside the allowed limit.");
     }
     bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
   } catch {
     throw new CloudflareImageError(
       "invalid_image",
-      "The generated image was invalid or exceeded the 5 MB limit."
+      "The image couldn’t be created because it was too large or invalid. Please try again."
     );
   }
 
@@ -129,7 +131,7 @@ export async function generateCloudflareImage(
   if (bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) {
     throw new CloudflareImageError(
       "invalid_image",
-      "Cloudflare returned an unsupported image format."
+      "The image format isn’t supported. Please try again."
     );
   }
 

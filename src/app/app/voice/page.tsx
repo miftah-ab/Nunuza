@@ -43,7 +43,7 @@ export default async function VoicePage() {
         <div role="alert" className="card border-error-light bg-error-light/30 p-6">
           <div className="flex items-center gap-2 text-sm font-semibold text-error">
             <AlertCircle size={18} />
-            Could not load your Voice profile
+            We couldn’t load your writing style. Please refresh the page.
           </div>
           <p className="mt-1 text-xs text-ink-secondary">Refresh the page and try again. Your saved settings have not been changed.</p>
         </div>

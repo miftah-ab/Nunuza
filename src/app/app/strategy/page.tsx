@@ -34,7 +34,7 @@ export default async function StrategyPage() {
         <div className="card p-6 border-error-light bg-error-light/30">
           <div className="flex items-center gap-2 text-error font-semibold text-sm">
             <AlertCircle size={18} />
-            <span>Could not load content strategy</span>
+            <span>We couldn’t load your content strategy. Please refresh the page.</span>
           </div>
           <p className="text-xs text-ink-secondary mt-1">
             Your saved settings have not been changed. Refresh the page or try again later.

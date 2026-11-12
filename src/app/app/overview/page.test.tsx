@@ -122,7 +122,7 @@ describe("OverviewPage", () => {
     mocks.createClient.mockResolvedValue(supabase);
     const html = renderToStaticMarkup(await OverviewPage());
 
-    expect(html).toContain("Some metrics could not be loaded");
+    expect(html).toContain("Some numbers are temporarily unavailable");
     expect(html).toContain(">—<");
   });
 

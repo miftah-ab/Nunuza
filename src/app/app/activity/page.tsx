@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireWorkspace, AuthError } from "@/lib/auth/workspace";
+import { safeJobErrorMessage } from "@/lib/jobs/error-message";
 
 export const metadata: Metadata = {
   title: "Activity — Nunuza",
@@ -165,7 +166,7 @@ export default async function ActivityPage({
   const currentPage = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
 
   const supabase = await createClient();
-  const [auditResult, approvalResult, jobsResult, attemptsResult] = await Promise.all([
+  const [auditResult, approvalResult, jobsResult] = await Promise.all([
     supabase
       .from("audit_events")
       .select("id, actor_type, action, resource_type, created_at")
@@ -184,15 +185,9 @@ export default async function ActivityPage({
       .eq("workspace_id", workspace.id)
       .order("created_at", { ascending: false })
       .limit(100),
-    supabase
-      .from("agent_job_attempts")
-      .select("id, job_id, attempt_number, started_at, finished_at, outcome, safe_error_code")
-      .eq("workspace_id", workspace.id)
-      .order("started_at", { ascending: false })
-      .limit(100),
   ]);
 
-  const failedQuery = auditResult.error || approvalResult.error || jobsResult.error || attemptsResult.error;
+  const failedQuery = auditResult.error || approvalResult.error || jobsResult.error;
   if (failedQuery) {
     console.error("[activity] Failed to load workspace activity", failedQuery);
   }
@@ -236,8 +231,8 @@ export default async function ActivityPage({
     items.push({
       id: `job-${job.id}`,
       category: "agent",
-      title: `${humanize(job.job_type)} ${job.status === "succeeded" ? "completed" : job.status === "failed_terminal" ? "failed" : "job"}`,
-      description: job.safe_error_message?.slice(0, 180) ?? undefined,
+      title: `${humanize(job.job_type)} ${job.status === "succeeded" ? "completed" : "update"}`,
+      description: job.safe_error_message ? safeJobErrorMessage(job.safe_error_message) : undefined,
       actor: "Nunuza",
       timestamp,
       status: job.status,
@@ -245,20 +240,6 @@ export default async function ActivityPage({
     });
   }
 
-  for (const attempt of attemptsResult.data ?? []) {
-    const timestamp = attempt.finished_at ?? attempt.started_at;
-    if (!timestamp) continue;
-    items.push({
-      id: `attempt-${attempt.id}`,
-      category: "system",
-      title: `Job attempt ${attempt.attempt_number} ${attempt.finished_at ? "finished" : "started"}`,
-      description: attempt.safe_error_code ? `Reference: ${attempt.safe_error_code}` : undefined,
-      actor: "Nunuza",
-      timestamp,
-      status: attempt.outcome ?? (attempt.finished_at ? undefined : "running"),
-      icon: RefreshCw,
-    });
-  }
 
   items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   const filteredItems = activeFilter === "all"

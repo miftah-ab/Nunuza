@@ -14,8 +14,9 @@ export async function GET() {
     ]);
     if (items.error || unread.error) throw new Error("Notification inbox unavailable.");
     return NextResponse.json({ notifications: items.data ?? [], unreadCount: unread.count ?? 0 });
-  } catch {
-    return NextResponse.json({ error: "Could not load notifications." }, { status: 500 });
+  } catch (error) {
+    console.error("[notifications] Inbox load failed:", error);
+    return NextResponse.json({ error: "We couldn’t load your notifications. Please refresh and try again." }, { status: 500 });
   }
 }
 
@@ -34,10 +35,11 @@ export async function PATCH(request: Request) {
         .eq("workspace_id", workspace.id).eq("id", body.id).is("read_at", null);
       if (error) throw error;
     } else {
-      return NextResponse.json({ error: "A notification ID is required." }, { status: 400 });
+      return NextResponse.json({ error: "Choose a notification first." }, { status: 400 });
     }
     return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ error: "Could not update notification." }, { status: 500 });
+  } catch (error) {
+    console.error("[notifications] Inbox update failed:", error);
+    return NextResponse.json({ error: "We couldn’t update this notification. Please try again." }, { status: 500 });
   }
 }

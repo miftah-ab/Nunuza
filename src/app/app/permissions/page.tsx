@@ -4,7 +4,7 @@ import { requireWorkspace, AuthError } from "@/lib/auth/workspace";
 import { PermissionsClient } from "./PermissionsClient";
 
 export const metadata: Metadata = {
-  title: "Permissions & Operating Mode — Nunuza",
+  title: "Publishing & Permissions — Nunuza",
   robots: { index: false },
 };
 
@@ -20,9 +20,9 @@ export default async function PermissionsPage() {
   return (
     <div className="max-w-3xl mx-auto animate-fade-in py-2">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-ink">Permissions &amp; Operating Mode</h1>
+        <h1 className="text-2xl font-bold text-ink">Publishing &amp; Permissions</h1>
         <p className="text-sm text-ink-secondary mt-1">
-          Manage your master agent switch, operating autonomy, and safety limits.
+          Choose when Nunuza can work automatically, pause it at any time, and review the limits it follows.
         </p>
       </div>
 

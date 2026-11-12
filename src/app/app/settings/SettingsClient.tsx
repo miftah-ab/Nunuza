@@ -1,4 +1,5 @@
 "use client";
+import { userFacingError } from "@/lib/ui/error-message";
 
 import { useState } from "react";
 import type { Workspace, Profile } from "@/types/database";
@@ -41,12 +42,12 @@ export function SettingsClient({
       });
 
       const json = (await res.json()) as any;
-      if (!res.ok) throw new Error(json.error || "Failed to update settings");
+      if (!res.ok) throw new Error(json.error || "We couldn’t save your settings. Please try again.");
 
       setWorkspace(json.data.workspace);
       setSuccess("Settings saved successfully.");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Error saving settings");
+      setError(userFacingError(err, "We couldn’t save your settings. Please try again."));
     } finally {
       setIsSaving(false);
     }
@@ -82,7 +83,7 @@ export function SettingsClient({
       downloadAnchor.click();
       downloadAnchor.remove();
     } catch {
-      alert("Failed to export workspace data.");
+      alert("We couldn’t export your workspace data. Please try again.");
     }
   };
 

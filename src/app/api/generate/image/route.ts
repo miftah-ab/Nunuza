@@ -65,14 +65,14 @@ export async function GET(request: Request) {
     const workspace = await requireWorkspace();
     const postId = new URL(request.url).searchParams.get("postId");
     if (!postId || !UUID_PATTERN.test(postId)) {
-      return NextResponse.json({ error: "A valid postId is required." }, { status: 400 });
+      return NextResponse.json({ error: "Choose a post before creating an image." }, { status: 400 });
     }
 
     const post = await getPost(workspace.id, postId);
-    if (!post) return NextResponse.json({ error: "Post not found." }, { status: 404 });
+    if (!post) return NextResponse.json({ error: "We couldn’t find this post. Refresh and try again." }, { status: 404 });
     if (!post.image_path) return NextResponse.json({ data: { imagePath: null, previewUrl: null } });
     if (!post.image_path.startsWith(`${workspace.id}/`)) {
-      return NextResponse.json({ error: "Image path is outside this workspace." }, { status: 403 });
+      return NextResponse.json({ error: "This image isn’t available for this post." }, { status: 403 });
     }
 
     return NextResponse.json({
@@ -105,13 +105,7 @@ export async function POST(request: Request) {
     if (!post.text?.trim()) {
       return NextResponse.json({ error: "Add post text before generating an image." }, { status: 422 });
     }
-
-    if (!process.env.CLOUDFLARE_ACCOUNT_ID?.trim() || !process.env.CLOUDFLARE_API_TOKEN?.trim()) {
-      return NextResponse.json(
-        { error: "Image generation is not configured. Add the Cloudflare Workers AI credentials." },
-        { status: 503 }
-      );
-    }
+ 
 
     // Reuse the existing atomic usage counter; no additional quota table or migration.
     const service = createServiceClient();
@@ -161,7 +155,7 @@ export async function POST(request: Request) {
 
     if (updateError || !updated) {
       await service.storage.from(BUCKET).remove([path]);
-      throw new Error("Generated image could not be attached to the draft.");
+      throw new Error("We couldn’t add the image to your draft. Please try again.");
     }
 
     // Remove the previous private image only after the new image is safely attached.
@@ -189,7 +183,7 @@ export async function POST(request: Request) {
     }, { status: 201 });
   } catch (error) {
     if (error instanceof CloudflareImageError) {
-      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+      return NextResponse.json({ error: error.message }, { status: error.status });
     }
     return apiError(error);
   }

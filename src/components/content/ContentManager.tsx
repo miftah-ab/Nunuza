@@ -1,4 +1,5 @@
 "use client";
+import { userFacingError } from "@/lib/ui/error-message";
 
 /**
  * Interactive Content Manager Component.
@@ -115,7 +116,7 @@ export function ContentManager({
 
       const json = (await res.json()) as any;
       if (!res.ok) {
-        throw new Error(json.error ?? "Failed to generate draft.");
+        throw new Error(json.error ?? "We couldn’t create your draft. Please try again.");
       }
 
       setPosts((prev) => [json.data.post, ...prev]);
@@ -124,7 +125,7 @@ export function ContentManager({
       setAiNotes("");
       setAiPillar("");
     } catch (err: unknown) {
-      setGenerationError(err instanceof Error ? err.message : "Generation failed.");
+      setGenerationError(userFacingError(err, "We couldn’t create your draft. Please try again."));
     } finally {
       setIsGenerating(false);
     }
@@ -148,7 +149,7 @@ export function ContentManager({
       });
 
       const json = (await res.json()) as any;
-      if (!res.ok) throw new Error(json.error ?? "Failed to save post.");
+      if (!res.ok) throw new Error(json.error ?? "We couldn’t save your post. Please try again.");
 
       setPosts((prev) => [json.data, ...prev]);
       setIsManualModalOpen(false);
@@ -156,7 +157,7 @@ export function ContentManager({
       setManualText("");
       setManualPillar("");
     } catch (err: unknown) {
-      setPublishFeedback({ type: "error", message: err instanceof Error ? err.message : "Save failed." });
+      setPublishFeedback({ type: "error", message: userFacingError(err, "We couldn’t save your post. Please try again.") });
     } finally {
       setIsSavingManual(false);
     }
@@ -175,7 +176,7 @@ export function ContentManager({
       });
 
       const json = (await res.json()) as any;
-      if (!res.ok) throw new Error(json.error ?? "Failed to update post.");
+      if (!res.ok) throw new Error(json.error ?? "We couldn’t update your post. Please try again.");
 
       setPosts((prev) =>
         prev.map((p) => (p.id === postToUpdate.id ? json.data : p))
@@ -184,7 +185,7 @@ export function ContentManager({
         setEditingPost(null);
       }
     } catch (err: unknown) {
-      setPublishFeedback({ type: "error", message: err instanceof Error ? err.message : "Update failed." });
+      setPublishFeedback({ type: "error", message: userFacingError(err, "We couldn’t update your post. Please try again.") });
     }
   };
 
@@ -205,7 +206,7 @@ export function ContentManager({
         error?: string;
         data?: { post?: ContentPost };
       };
-      if (!res.ok) throw new Error(json.error || (deleting ? "Failed to delete post." : "Failed to cancel schedule."));
+      if (!res.ok) throw new Error(json.error || (deleting ? "We couldn’t delete your post. Please try again." : "We couldn’t cancel the scheduled post. Please try again."));
       const updatedPost = json.data?.post;
       if (deleting) {
         setPosts((prev) => prev.filter((post) => post.id !== confirmation.postId));
@@ -213,14 +214,14 @@ export function ContentManager({
         setPublishFeedback({ type: "success", message: "Post removed from active content. Its record is retained for audit history." });
       } else {
         if (!updatedPost) {
-          throw new Error("The server did not return the updated post.");
+          throw new Error("We couldn’t confirm that your post was updated. Refresh and try again.");
         }
         setPosts((prev) => prev.map((post) => post.id === confirmation.postId ? updatedPost : post));
         setPublishFeedback({ type: "success", message: "Scheduled publication canceled." });
       }
       setConfirmation(null);
     } catch (err) {
-      setPublishFeedback({ type: "error", message: err instanceof Error ? err.message : "The action could not be completed." });
+      setPublishFeedback({ type: "error", message: userFacingError(err, "We couldn’t complete that action. Please try again.") });
     } finally {
       setIsConfirmingAction(false);
     }
@@ -255,14 +256,14 @@ export function ContentManager({
       });
 
       const json = (await res.json()) as any;
-      if (!res.ok) throw new Error(json.error ?? "Failed to schedule post.");
+      if (!res.ok) throw new Error(json.error ?? "We couldn’t schedule your post. Please try again.");
 
       setPosts((prev) =>
         prev.map((p) => (p.id === schedulingPost.id ? json.data.post : p))
       );
       setSchedulingPost(null);
     } catch (err: unknown) {
-      setScheduleError(err instanceof Error ? err.message : "Scheduling failed.");
+      setScheduleError(userFacingError(err, "We couldn’t schedule your post. Please try again."));
     } finally {
       setIsScheduling(false);
     }
@@ -287,11 +288,11 @@ export function ContentManager({
         body: JSON.stringify({ outcome }),
       });
       const json = (await res.json()) as any;
-      if (!res.ok) throw new Error(json.error ?? "Could not record your answer.");
+      if (!res.ok) throw new Error(json.error ?? "We couldn’t save your publishing confirmation. Please try again.");
 
       const updatedPost = json.data as Partial<ContentPost>;
       if (!updatedPost.id || !updatedPost.status) {
-        throw new Error("The server did not return the saved reconciliation state.");
+        throw new Error("We couldn’t confirm the publishing status. Refresh the post before trying again.");
       }
       setPosts((prev) =>
         prev.map((p) => p.id === post.id ? { ...p, ...updatedPost } : p)
@@ -308,7 +309,7 @@ export function ContentManager({
       setPublishFeedback({
         type: "error",
         postId: post.id,
-        message: err instanceof Error ? err.message : "Could not record your answer.",
+        message: userFacingError(err, "We couldn’t save your publishing confirmation. Please try again."),
       });
     } finally {
       setReconcilingPostId(null);
@@ -335,12 +336,12 @@ export function ContentManager({
 
       const json = (await res.json()) as any;
       if (!res.ok) {
-        throw new Error(json.error ?? "Failed to publish post.");
+        throw new Error(json.error ?? "We couldn’t publish your post. Please try again.");
       }
 
       const publishedPost = json.data?.post as ContentPost | undefined;
       if (!publishedPost || publishedPost.status !== "published" || !publishedPost.published_at) {
-        throw new Error("The publishing request returned without a confirmed saved publication. Refresh the post before trying again.");
+        throw new Error("We couldn’t confirm that your post was published. Check LinkedIn and refresh the post before trying again.");
       }
       setPosts((prev) =>
         prev.map((p) => p.id === post.id ? publishedPost : p)
@@ -354,7 +355,7 @@ export function ContentManager({
       setPublishFeedback({
         type: "error",
         postId: post.id,
-        message: err instanceof Error ? err.message : "Publishing failed.",
+        message: userFacingError(err, "We couldn’t publish your post. Please try again."),
       });
     } finally {
       setPublishingPostId(null);

@@ -1,4 +1,5 @@
 "use client";
+import { userFacingError } from "@/lib/ui/error-message";
 
 import { useMemo, useState } from "react";
 import { Loader2, Mic2, Play, Save, Sparkles } from "lucide-react";
@@ -71,14 +72,14 @@ export function VoiceEditor({ initialProfile, preview = false }: { initialProfil
         }),
       });
       const json = await response.json() as { data?: VoiceProfile; error?: string };
-      if (!response.ok || !json.data) throw new Error(json.error || "Could not save your voice profile.");
+      if (!response.ok || !json.data) throw new Error(json.error || "We couldn’t save your writing style. Please try again.");
       const saved = json.data;
       setVersion(saved.version);
       setUpdatedAt(saved.updated_at);
       setSavedForm({ ...form });
       setMessage({ type: "success", text: "Voice profile saved. Future generations will use these settings." });
     } catch (error) {
-      setMessage({ type: "error", text: error instanceof Error ? error.message : "Could not save your voice profile." });
+      setMessage({ type: "error", text: userFacingError(error, "We couldn’t save your writing style. Please try again.") });
     } finally {
       setSaving(false);
     }
@@ -97,11 +98,11 @@ export function VoiceEditor({ initialProfile, preview = false }: { initialProfil
         body: JSON.stringify({ topic: testTopic.trim() }),
       });
       const json = await response.json() as { data?: { text: string; providerUsed: string }; error?: string };
-      if (!response.ok || !json.data) throw new Error(json.error || "Voice test failed.");
+      if (!response.ok || !json.data) throw new Error(json.error || "We couldn’t create a writing sample. Please try again.");
       setTestResult(json.data.text);
       setTestProvider(json.data.providerUsed);
     } catch (error) {
-      setMessage({ type: "error", text: error instanceof Error ? error.message : "Voice test failed." });
+      setMessage({ type: "error", text: userFacingError(error, "We couldn’t create a writing sample. Please try again.") });
     } finally {
       setTesting(false);
     }

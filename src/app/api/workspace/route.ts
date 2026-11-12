@@ -49,7 +49,7 @@ export async function PATCH(request: Request) {
 
     if (!body) {
       return NextResponse.json(
-        { error: "Invalid JSON request body." },
+        { error: "We couldn’t read your changes. Please try again." },
         { status: 400 }
       );
     }
@@ -66,10 +66,14 @@ export async function PATCH(request: Request) {
         profileUpdates.timezone = body.timezone.trim();
       }
       if (Object.keys(profileUpdates).length > 0) {
-        await supabase
+        const { error: profileError } = await supabase
           .from("profiles")
           .update(profileUpdates)
           .eq("id", workspace.owner_user_id);
+        if (profileError) {
+          console.error("[workspace] Profile update failed:", profileError);
+          return NextResponse.json({ error: "We couldn’t save your profile details. Please try again." }, { status: 500 });
+        }
       }
     }
 
@@ -114,8 +118,9 @@ export async function PATCH(request: Request) {
         .single();
 
       if (error) {
+        console.error("[workspace] Workspace update failed:", error);
         return NextResponse.json(
-          { error: "Failed to update workspace." },
+          { error: "We couldn’t save your workspace changes. Please try again." },
           { status: 500 }
         );
       }

@@ -20,8 +20,8 @@ export function findExcludedPhrase(
 }
 
 export class StrategyExclusionError extends Error {
-  constructor(context: string) {
-    super(`This ${context} conflicts with a strategy exclusion. Remove the excluded topic or update your strategy before continuing.`);
+  constructor(_context: string) {
+    super("This topic includes something you’ve chosen to avoid. Change the topic or update your content preferences, then try again.");
     this.name = "StrategyExclusionError";
   }
 }

@@ -56,14 +56,14 @@ export async function PATCH(request: Request) {
       ? [...new Set(body.preferredDays)]
       : [];
     if (preferredDays.some((day) => !Number.isInteger(day) || day < 0 || day > 6)) {
-      return NextResponse.json({ error: "Preferred days must use weekday values from 0 (Sunday) to 6 (Saturday)." }, { status: 400 });
+      return NextResponse.json({ error: "Choose one or more valid days of the week." }, { status: 400 });
     }
 
     const timezone = cleanText(body.timezone, 80) || "UTC";
     try {
       new Intl.DateTimeFormat("en-US", { timeZone: timezone });
     } catch {
-      return NextResponse.json({ error: "Enter a valid IANA time zone, such as America/New_York." }, { status: 400 });
+      return NextResponse.json({ error: "Enter a valid time zone, such as America/New_York." }, { status: 400 });
     }
 
     const preferredTime = body.preferredTime == null || body.preferredTime === ""

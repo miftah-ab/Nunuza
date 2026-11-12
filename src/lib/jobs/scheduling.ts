@@ -25,6 +25,7 @@ import { transitionJob, markJobRetryable, markJobTerminal } from "./state";
 import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
 import type { AgentJob, ContentPost } from "@/types/database";
 import type { JobExecutionResult, PublishPostPayload } from "./types";
+import { safeJobErrorMessage } from "./error-message";
 
 export interface SchedulePostResult {
   job: AgentJob;
@@ -61,7 +62,7 @@ export async function schedulePost(
 
   // 2. Pause check
   if (workspace.paused_at) {
-    throw new ForbiddenError("Agent is paused. Resume before scheduling posts.");
+    throw new ForbiddenError("Nunuza is paused. Resume it before scheduling posts.");
   }
 
   // 3. Post verification
@@ -341,7 +342,10 @@ export async function executePublishJob(
     status: JobExecutionResult["status"],
     retryable: boolean,
     error: string
-  ): JobExecutionResult => ({ jobId: job.id, success: false, status, retryable, error });
+  ): JobExecutionResult => {
+    console.error("[publisher] Publishing task did not complete:", { jobId: job.id, error });
+    return { jobId: job.id, success: false, status, retryable, error: safeJobErrorMessage(error) };
+  };
 
   // 1. Lease: queued jobs (inline Publish Now) are claimed here with compare-and-set.
   //    Jobs from the runner/queue arrive already 'running' with a lease and attempt counted.
@@ -371,14 +375,17 @@ export async function executePublishJob(
     patch: Record<string, unknown>
   ) => {
     if (options.deferJobFinalization) return;
-    await transitionJob(supabase, job.id, "running", to, patch, jobGuard());
+    const safePatch = typeof patch.safe_error_message === "string"
+      ? { ...patch, safe_error_message: safeJobErrorMessage(patch.safe_error_message) }
+      : patch;
+    await transitionJob(supabase, job.id, "running", to, safePatch, jobGuard());
   };
   const retryOutcome = async (message: string, errorCode: string) => {
     if (options.deferJobFinalization) return;
     await markJobRetryable(
       supabase,
       { id: job.id, attempt_count: attemptCount },
-      message,
+      safeJobErrorMessage(message),
       errorCode,
       "running",
       jobGuard()
@@ -386,7 +393,7 @@ export async function executePublishJob(
   };
   const terminalOutcome = async (message: string, errorCode: string) => {
     if (options.deferJobFinalization) return;
-    await markJobTerminal(supabase, job.id, message, errorCode, "running", jobGuard());
+    await markJobTerminal(supabase, job.id, safeJobErrorMessage(message), errorCode, "running", jobGuard());
   };
   const persistJobPayloadPatch = async (patch: Record<string, unknown>) => {
     let query = supabase
@@ -468,9 +475,9 @@ export async function executePublishJob(
       finished_at: new Date().toISOString(),
       lease_until: null,
       last_error_code: "WORKSPACE_PAUSED",
-      safe_error_message: "Agent is paused. The post was not published. Resume and reschedule it.",
+      safe_error_message: "Nunuza is paused. This post was not published. Resume Nunuza and schedule it again.",
     });
-    return fail("canceled", false, "Agent is paused. The post was not published.");
+    return fail("canceled", false, "Nunuza is paused. This post was not published.");
   }
 
   // 5. Recover a publication already durably confirmed by a previous worker.
@@ -492,7 +499,7 @@ export async function executePublishJob(
   }
 
   if (post.status === "published") {
-    const message = "The post is marked published but has no trustworthy LinkedIn post ID. Reconciliation is required; Nunuza will not retry it.";
+    const message = "We couldn’t confirm the published post. Check your LinkedIn profile and confirm its status in Nunuza before trying again.";
     await transitionOutcome("needs_reconciliation", {
       lease_until: null,
       last_error_code: "PUBLISHED_POST_ID_MISSING",
@@ -505,8 +512,7 @@ export async function executePublishJob(
   // expired. Never cancel-and-retry a post already in the publishing state.
   if (post.status === "publishing" || post.status === "needs_reconciliation") {
     const message =
-      "A previous LinkedIn publication attempt may still have reached LinkedIn. " +
-      "Nunuza will not retry it automatically. Check LinkedIn and confirm the outcome.";
+      "Nunuza couldn’t confirm whether this post went live. Check your LinkedIn profile before trying again; it won’t be retried automatically.";
     if (post.status === "publishing") {
       await casPostStatus(supabase, job.workspace_id, post.id, ["publishing"], {
         status: "needs_reconciliation",
@@ -525,7 +531,7 @@ export async function executePublishJob(
     const message =
       post.status === "published"
         ? "This post has already been published."
-        : `Post is '${post.status}' and is not eligible for publishing.`;
+        : "This post isn’t ready to publish. Review and approve it first.";
     await transitionOutcome("canceled", {
       finished_at: new Date().toISOString(),
       lease_until: null,
@@ -615,15 +621,22 @@ export async function executePublishJob(
       });
     }
   } catch (publishErr: any) {
+    console.error("[publisher] LinkedIn publishing request failed:", { jobId: job.id, postId: post.id, error: publishErr });
     const kind: string | undefined =
       publishErr instanceof LinkedInPublishError ? publishErr.kind : undefined;
-    const errorMsg: string = publishErr?.message || "Failed to publish post to LinkedIn.";
+    const errorMsg: string = publishErr?.message || "LinkedIn couldn’t publish this post.";
+    const userErrorMsg = kind === "auth" || kind === "not_connected"
+      ? "Your LinkedIn connection needs attention. Reconnect LinkedIn, then try again."
+      : kind === "rate_limited"
+        ? "LinkedIn is limiting publishing right now. Nunuza will try again when possible."
+        : kind === "rejected"
+          ? "LinkedIn couldn’t publish this post. Review your post details and try again."
+          : safeJobErrorMessage(errorMsg);
 
     // Ambiguous (or unknown error type): the post may be live. Never retry, never fail the post.
     if (kind === "ambiguous" || kind === undefined) {
       const userMessage =
-        "LinkedIn did not confirm this publication, so Nunuza cannot tell whether the post is live. " +
-        "Check your LinkedIn profile, then confirm in Nunuza whether it was published. Nunuza will not retry automatically, to avoid a duplicate post.";
+        "LinkedIn couldn’t confirm whether this post went live. Check your LinkedIn profile before retrying; Nunuza will not retry automatically to avoid a duplicate.";
       await casPostStatus(supabase, job.workspace_id, post.id, ["publishing"], { status: "needs_reconciliation" });
       await transitionOutcome("needs_reconciliation", {
         lease_until: null,
@@ -642,8 +655,8 @@ export async function executePublishJob(
         text:
           `⚠️ **Publication not confirmed**\n\n` +
           `Post: **${post.internal_title || "LinkedIn Post"}**\n` +
-          `LinkedIn did not confirm whether this post went live. Please check your LinkedIn profile, ` +
-          `then open Nunuza to confirm. It will not be retried automatically.`,
+          `LinkedIn couldn’t confirm whether this post went live. Please check your LinkedIn profile, ` +
+          `then open Nunuza to confirm. It won’t be retried automatically.`,
       }, supabase).catch(() => {});
       return fail("needs_reconciliation", false, userMessage);
     }
@@ -651,23 +664,23 @@ export async function executePublishJob(
     // Definitively NOT published: put the post back, then retry or fail.
     if (kind === "rate_limited" && attemptCount < maxAttempts) {
       await casPostStatus(supabase, job.workspace_id, post.id, ["publishing"], { status: priorStatus });
-      await retryOutcome(errorMsg, "LINKEDIN_RATE_LIMITED");
-      return fail("failed_retryable", true, errorMsg);
+      await retryOutcome(userErrorMsg, "LINKEDIN_RATE_LIMITED");
+      return fail("failed_retryable", true, userErrorMsg);
     }
 
     await casPostStatus(supabase, job.workspace_id, post.id, ["publishing"], { status: "failed" });
     await terminalOutcome(
-      errorMsg,
+      userErrorMsg,
       kind === "auth" || kind === "not_connected" ? "LINKEDIN_INTEGRATION_ERROR" : "PUBLISH_FAILED"
     );
     notifyWorkspaceTelegram(job.workspace_id, {
       text:
         `⚠️ **Publishing Failed**\n\n` +
         `Post: **${post.internal_title || "LinkedIn Post"}**\n` +
-        `Error: ${errorMsg}\n\n` +
+        `${userErrorMsg}\n\n` +
         `Visit your Nunuza dashboard to review and reschedule.`,
     }, supabase).catch(() => {});
-    return fail("failed_terminal", false, errorMsg);
+    return fail("failed_terminal", false, userErrorMsg);
   }
 
   // 8. LinkedIn confirmed a post ID. Save it durably BEFORE calling the job a success.
@@ -769,7 +782,7 @@ export async function publishPostNow(
 
   // 2. Pause check
   if (workspace.paused_at) {
-    throw new ForbiddenError("Agent is paused. Resume before publishing posts.");
+    throw new ForbiddenError("Nunuza is paused. Resume it before publishing posts.");
   }
 
   // 3. Post verification: MUST be approved

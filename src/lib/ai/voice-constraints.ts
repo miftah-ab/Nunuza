@@ -48,7 +48,7 @@ export function assertVoiceConstraints(
   const conflict = findVoiceConstraintConflict(text, voiceProfile);
   if (conflict) {
     throw new VoiceConstraintError(
-      "The generated content conflicts with a phrase or topic excluded in your Voice profile. Update the topic or your Voice exclusions and try again."
+      "This content includes a phrase or topic you’ve asked Nunuza to avoid. Update the content or your writing preferences, then try again."
     );
   }
 }

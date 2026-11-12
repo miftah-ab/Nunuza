@@ -5,7 +5,7 @@ export async function POST(request: NextRequest) {
   // A browser form must originate from this exact app origin.
   const origin = request.headers.get("origin");
   if (!origin || origin !== request.nextUrl.origin) {
-    return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
+    return NextResponse.json({ error: "We couldn’t verify this connection request. Please return to Claude and try again." }, { status: 403 });
   }
 
   const form = await request.formData();
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     authorizationId.length > 200 ||
     (decision !== "approve" && decision !== "deny")
   ) {
-    return NextResponse.json({ error: "Invalid authorization decision." }, { status: 400 });
+    return NextResponse.json({ error: "Choose whether to allow or deny this connection." }, { status: 400 });
   }
 
   const supabase = await createClient();
@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (userError || !user) {
+    if (userError) console.error("[oauth] Could not verify signed-in user:", userError);
     const returnTo = `/oauth/consent?authorization_id=${encodeURIComponent(authorizationId)}`;
     return NextResponse.redirect(new URL(`/login?redirect=${encodeURIComponent(returnTo)}`, request.url), { status: 303 });
   }
@@ -40,8 +41,9 @@ export async function POST(request: NextRequest) {
       : await supabase.auth.oauth.denyAuthorization(authorizationId, { skipBrowserRedirect: true });
 
   if (result.error || !result.data?.redirect_url) {
+    if (result.error) console.error("[oauth] Connection approval failed:", result.error);
     return NextResponse.json(
-      { error: "We couldn't complete this authorization. Return to Claude and try again." },
+      { error: "We couldn’t complete this connection. Return to Claude and try again." },
       { status: 400 }
     );
   }
@@ -49,12 +51,14 @@ export async function POST(request: NextRequest) {
   let redirectUrl: URL;
   try {
     redirectUrl = new URL(result.data.redirect_url);
-  } catch {
-    return NextResponse.json({ error: "The authorization provider returned an invalid redirect." }, { status: 400 });
+  } catch (error) {
+    console.error("[oauth] Could not validate return address:", error);
+    return NextResponse.json({ error: "We couldn’t complete this connection. Return to Claude and try again." }, { status: 400 });
   }
 
   if (redirectUrl.protocol !== "https:" && redirectUrl.hostname !== "localhost" && redirectUrl.hostname !== "127.0.0.1") {
-    return NextResponse.json({ error: "The authorization provider returned an unsafe redirect." }, { status: 400 });
+    console.warn("[oauth] Rejected an unsafe connection return address.");
+    return NextResponse.json({ error: "We couldn’t complete this connection. Return to Claude and try again." }, { status: 400 });
   }
 
   return NextResponse.redirect(redirectUrl, { status: 303 });

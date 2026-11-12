@@ -100,7 +100,7 @@ describe("POST /api/posts/[id]/schedule", () => {
     const res = await scheduleRoute(req, { params: Promise.resolve({ id: "post-1" }) });
     expect(res.status).toBe(403);
     const json = (await res.json()) as any;
-    expect(json.error).toContain("requires internal_beta or paid entitlement");
+    expect(json.error).toContain("This feature isn't included in your current plan");
   });
 
   it("succeeds when workspace entitlement is internal_beta", async () => {
@@ -164,7 +164,7 @@ describe("POST /api/posts/[id]/schedule", () => {
     };
     vi.mocked(requireWorkspace).mockResolvedValueOnce(pausedBetaWorkspace);
     vi.mocked(schedulingService.schedulePost).mockRejectedValueOnce(
-      new ForbiddenError("Agent is paused. Resume before scheduling posts.")
+      new ForbiddenError("Nunuza is paused. Resume it before scheduling posts.")
     );
 
     const req = new Request("http://localhost/api/posts/post-1/schedule", {
@@ -176,7 +176,7 @@ describe("POST /api/posts/[id]/schedule", () => {
     const res = await scheduleRoute(req, { params: Promise.resolve({ id: "post-1" }) });
     expect(res.status).toBe(403);
     const json = (await res.json()) as any;
-    expect(json.error).toContain("Agent is paused");
+    expect(json.error).toContain("Nunuza is paused");
   });
 
   it("cancels scheduled post successfully via cancel-schedule route", async () => {

@@ -20,28 +20,27 @@ export async function POST(req: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (!user || !user.email) {
-      return NextResponse.json({ error: "User email not found." }, { status: 400 });
+      return NextResponse.json({ error: "We couldn’t verify your account details. Please sign in again." }, { status: 400 });
     }
 
     const polarClient = new PolarClient();
 
     // 1. Seller Eligibility & Launch Gate Check (BED-08)
     if (!polarClient.isSellerEligible()) {
+      console.warn("[billing] Checkout is unavailable for the current seller configuration.");
       return NextResponse.json(
         {
-          error: "SELLER_INELIGIBLE",
-          message:
-            "Live checkout is temporarily unavailable. Please try again later or contact support.",
+          error: "Billing is temporarily unavailable. Please try again later or contact support.",
         },
         { status: 403 }
       );
     }
 
     if (!polarClient.isConfigured()) {
+      console.error("[billing] Checkout provider configuration is incomplete.");
       return NextResponse.json(
         {
-          error: "BILLING_UNCONFIGURED",
-          message: "Polar billing credentials or product ID are not configured.",
+          error: "We can’t start checkout right now. Please try again later.",
         },
         { status: 503 }
       );
@@ -61,10 +60,8 @@ export async function POST(req: NextRequest) {
       checkoutUrl: result.checkoutUrl,
       sessionId: result.sessionId,
     });
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: err.message || "Failed to create checkout session." },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.error("[billing] Checkout request failed:", err);
+    return NextResponse.json({ error: "We couldn’t start checkout. Please try again. If the problem continues, contact support." }, { status: 500 });
   }
 }

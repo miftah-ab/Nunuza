@@ -213,7 +213,7 @@ describe("POST /api/onboarding", () => {
     expect(response.status).toBe(500);
 
     const json = (await response.json()) as any;
-    expect(json.error).toBe("Failed to complete setup.");
+    expect(json.error).toBe("We couldn’t finish setting up your workspace. Please try again.");
   });
 
   it("returns 400 for malformed JSON request body", async () => {
@@ -230,7 +230,7 @@ describe("POST /api/onboarding", () => {
     expect(response.status).toBe(400);
 
     const json = (await response.json()) as any;
-    expect(json.error).toBe("Invalid JSON request body.");
+    expect(json.error).toBe("We couldn’t read your setup details. Please try again.");
   });
 
   it("returns 401 when user is not authenticated", async () => {

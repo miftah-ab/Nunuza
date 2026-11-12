@@ -26,7 +26,7 @@ function parseIds(value: FormDataEntryValue | null): string[] {
   try {
     const parsed: unknown = JSON.parse(value);
     if (!Array.isArray(parsed) || parsed.some((id) => typeof id !== "string" || !UUID_PATTERN.test(id))) {
-      throw new Error("Invalid media selection.");
+      throw new Error("Choose slides from this post and try again.");
     }
     return [...new Set(parsed)];
   } catch {
@@ -47,7 +47,7 @@ export async function GET(request: Request) {
     const workspace = await requireWorkspace();
     const postId = new URL(request.url).searchParams.get("postId");
     if (!postId || !UUID_PATTERN.test(postId)) {
-      return NextResponse.json({ error: "A valid postId is required." }, { status: 400 });
+      return NextResponse.json({ error: "Choose a post and try again." }, { status: 400 });
     }
     const service = createServiceClient();
     const { data: post, error: postError } = await service
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
       .eq("id", postId)
       .eq("workspace_id", workspace.id)
       .maybeSingle();
-    if (postError || !post) return NextResponse.json({ error: "Post not found." }, { status: 404 });
+    if (postError || !post) return NextResponse.json({ error: "We couldn’t find this post. Refresh and try again." }, { status: 404 });
     const { data: media, error: mediaError } = await service
       .from("content_post_media")
       .select("id, media_type, storage_path, file_name, mime_type, byte_size, sort_order, alt_text, created_at")
@@ -89,7 +89,7 @@ export async function POST(request: Request) {
     const caption = String(form.get("caption") ?? "").trim();
     const postIdValue = String(form.get("postId") ?? "");
     const postId = postIdValue || null;
-    if (postId && !UUID_PATTERN.test(postId)) return NextResponse.json({ error: "Invalid post." }, { status: 400 });
+    if (postId && !UUID_PATTERN.test(postId)) return NextResponse.json({ error: "We couldn’t find this post. Refresh and try again." }, { status: 400 });
     if (caption.length > 3000) return NextResponse.json({ error: "Caption must be 3,000 characters or fewer." }, { status: 400 });
 
     service = createServiceClient();
@@ -113,7 +113,7 @@ export async function POST(request: Request) {
     const keepIds = postId ? parseIds(form.get("existingMediaIds")) : [];
     const keepSet = new Set(keepIds);
     if (keepIds.some((id) => !oldMedia.some((asset) => asset.id === id))) {
-      return NextResponse.json({ error: "One or more selected slides do not belong to this post." }, { status: 403 });
+      return NextResponse.json({ error: "One or more selected slides are no longer available. Refresh and try again." }, { status: 403 });
     }
     const retained = oldMedia.filter((asset) => keepSet.has(String(asset.id)));
 
@@ -134,19 +134,19 @@ export async function POST(request: Request) {
       }
       for (let index = 0; index < stagedValue.length; index += 1) {
         const stagedPath = String(stagedValue[index]);
-        if (stagedPaths.includes(stagedPath)) return NextResponse.json({ error: "Duplicate AI slide selected." }, { status: 422 });
+        if (stagedPaths.includes(stagedPath)) return NextResponse.json({ error: "This slide has already been added." }, { status: 422 });
         const { data: file, error } = await service.storage.from(BUCKET).download(stagedPath);
         if (error || !file) return NextResponse.json({ error: "An AI slide preview expired. Generate it again." }, { status: 404 });
         const bytes = new Uint8Array(await file.arrayBuffer());
         const mime = detectMime(bytes);
         if (mime !== "image/jpeg" || bytes.byteLength > 5 * 1024 * 1024) {
-          return NextResponse.json({ error: "An AI slide is invalid. Generate it again." }, { status: 415 });
+          return NextResponse.json({ error: "This image couldn’t be used. Create it again." }, { status: 415 });
         }
         stagedPaths.push(stagedPath);
         assets.push({ bytes, mime, ext: "jpg", fileName: `AI slide ${index + 1}.jpg` });
       }
     } else {
-      if (source !== "upload" && source !== "template") return NextResponse.json({ error: "Unsupported slide source." }, { status: 400 });
+      if (source !== "upload" && source !== "template") return NextResponse.json({ error: "Choose a supported way to add your slides." }, { status: 400 });
       if (files.length > MAX_IMAGES) return NextResponse.json({ error: "A post can contain at most 20 slides." }, { status: 422 });
       for (const file of files) {
         if (file.size > MAX_FILE_BYTES) return NextResponse.json({ error: "Each file must be 20 MB or smaller." }, { status: 413 });

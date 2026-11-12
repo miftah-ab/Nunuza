@@ -24,6 +24,7 @@ import {
 } from "./state";
 import type { AgentJob } from "@/types/database";
 import type { JobExecutionResult } from "./types";
+import { safeJobErrorMessage } from "./error-message";
 
 export interface ClaimJobsOptions {
   limit?: number;
@@ -238,6 +239,7 @@ export async function processJob(
       result = await handler(liveJob, supabase);
     }
   } catch (err: any) {
+    console.error("[runner] Job handler failed:", { jobId: liveJob.id, error: err });
     result = {
       jobId: liveJob.id,
       success: false,
@@ -324,6 +326,9 @@ export async function processJob(
     );
   }
 
+  if (result.error) console.error("[runner] Job execution returned an error:", { jobId: liveJob.id, error: result.error });
+  const safeError = result.error ? safeJobErrorMessage(result.error) : null;
+
   if (after.status === "running") {
     if (result.success) {
       await transitionJob(supabase, liveJob.id, "running", "succeeded", {
@@ -336,19 +341,19 @@ export async function processJob(
         finished_at: finishedTime.toISOString(),
         lease_until: null,
         last_error_code: "JOB_CANCELED",
-        safe_error_message: result.error ?? "Job was canceled by a safety gate.",
+        safe_error_message: safeError ?? "This task was stopped by a safety check.",
       }, jobGuard());
     } else if (result.status === "needs_reconciliation") {
       await transitionJob(supabase, liveJob.id, "running", "needs_reconciliation", {
         lease_until: null,
         last_error_code: "NEEDS_RECONCILIATION",
-        safe_error_message: result.error ?? "Outcome could not be confirmed.",
+        safe_error_message: safeError ?? "We couldn’t confirm the outcome. Please review the post before trying again.",
       }, jobGuard());
     } else if (result.retryable && attemptCount < maxAttempts) {
       await markJobRetryable(
         supabase,
         { id: liveJob.id, attempt_count: attemptCount },
-        result.error ?? "Retryable error.",
+        safeError ?? "Nunuza couldn’t complete this task. It will try again when possible.",
         "RETRYABLE_ERROR",
         "running",
         jobGuard()
@@ -357,7 +362,7 @@ export async function processJob(
       await markJobTerminal(
         supabase,
         liveJob.id,
-        result.error ?? "Job failed.",
+        safeError ?? "Nunuza couldn’t complete this task. Please try again.",
         "TERMINAL_ERROR",
         "running",
         jobGuard()
@@ -370,7 +375,7 @@ export async function processJob(
     );
   }
 
-  return result;
+  return result.error ? { ...result, error: safeError ?? "Nunuza couldn’t complete this task. Please try again." } : result;
 }
 
 /**
@@ -421,7 +426,7 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
             await transitionJob(supabase, job.id, "running", "needs_reconciliation", {
               lease_until: null,
               last_error_code: "PUBLISHED_POST_ID_MISSING",
-              safe_error_message: "The post is marked published but has no confirmed LinkedIn post ID. Reconciliation is required.",
+              safe_error_message: "We couldn’t confirm the published post. Check your LinkedIn profile and confirm its status in Nunuza.",
             }, { attemptCount: job.attempt_count, leaseUntil: job.lease_until ?? undefined });
           } else {
             await transitionJob(supabase, job.id, "running", "succeeded", {
@@ -497,7 +502,7 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
           scheduled_for: nowIso,
           lease_until: null,
           last_error_code: "LEASE_EXPIRED",
-          safe_error_message: "Worker lease expired. Re-enqueued for retry.",
+          safe_error_message: "A task was interrupted and has been queued to try again.",
         }, { attemptCount: job.attempt_count, leaseUntil: job.lease_until ?? undefined });
       }
       reconciledCount++;

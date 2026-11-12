@@ -233,7 +233,8 @@ describe("Error classes", () => {
   it("EntitlementError has code SUBSCRIPTION_INACTIVE", () => {
     const e = new EntitlementError("paid_active", "draft_only");
     expect(e.code).toBe("SUBSCRIPTION_INACTIVE");
-    expect(e.message).toContain("paid_active");
-    expect(e.message).toContain("draft_only");
+    expect(e.message).toContain("current plan");
+    expect(e.message).not.toContain("paid_active");
+    expect(e.message).not.toContain("draft_only");
   });
 });
