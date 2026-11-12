@@ -341,7 +341,10 @@ export async function executePublishJob(
     status: JobExecutionResult["status"],
     retryable: boolean,
     error: string
-  ): JobExecutionResult => ({ jobId: job.id, success: false, status, retryable, error });
+  ): JobExecutionResult => {
+    console.error("[publisher] Publishing task did not complete:", { jobId: job.id, error });
+    return { jobId: job.id, success: false, status, retryable, error: safeJobErrorMessage(error) };
+  };
 
   // 1. Lease: queued jobs (inline Publish Now) are claimed here with compare-and-set.
   //    Jobs from the runner/queue arrive already 'running' with a lease and attempt counted.
@@ -371,7 +374,10 @@ export async function executePublishJob(
     patch: Record<string, unknown>
   ) => {
     if (options.deferJobFinalization) return;
-    await transitionJob(supabase, job.id, "running", to, patch, jobGuard());
+    const safePatch = typeof patch.safe_error_message === "string"
+      ? { ...patch, safe_error_message: safeJobErrorMessage(patch.safe_error_message) }
+      : patch;
+    await transitionJob(supabase, job.id, "running", to, safePatch, jobGuard());
   };
   const retryOutcome = async (message: string, errorCode: string) => {
     if (options.deferJobFinalization) return;
