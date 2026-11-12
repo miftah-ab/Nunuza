@@ -60,7 +60,7 @@ export async function POST(request: Request) {
 
     if (!body) {
       return NextResponse.json(
-        { error: "Invalid JSON request body." },
+        { error: "We couldn’t read your setup details. Please try again." },
         { status: 400 }
       );
     }
@@ -184,8 +184,9 @@ export async function POST(request: Request) {
           .single();
 
         if (error || !updated) {
+          console.error("[onboarding] Workspace setup could not be completed:", error);
           return NextResponse.json(
-            { error: "Failed to complete setup." },
+            { error: "We couldn’t finish setting up your workspace. Please try again." },
             { status: 500 }
           );
         }
