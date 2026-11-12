@@ -1,4 +1,5 @@
 "use client";
+import { userFacingError } from "@/lib/ui/error-message";
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
@@ -40,7 +41,7 @@ export function PostImageGenerator({
         if (active) setPreviewUrl(payload.data?.previewUrl ?? null);
       })
       .catch((cause: unknown) => {
-        if (active) setError(cause instanceof Error ? cause.message : "We couldn’t load your image preview. Please try again.");
+        if (active) setError(userFacingError(cause, "We couldn’t load your image preview. Please try again."));
       });
 
     return () => { active = false; };
@@ -63,7 +64,7 @@ export function PostImageGenerator({
       setPreviewUrl(payload.data.previewUrl);
       onImageUpdated(payload.data.imagePath, payload.data.status);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "We couldn’t create your image. Please try again.");
+      setError(userFacingError(cause, "We couldn’t create your image. Please try again."));
     } finally {
       setIsGenerating(false);
     }
