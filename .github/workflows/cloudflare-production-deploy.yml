@@ -17,55 +17,47 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      NEXT_PUBLIC_APP_ENV: production
-      NEXT_PUBLIC_APP_URL: ${{ vars.NUNUZA_APP_URL }}
-      NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
-      LINKEDIN_REDIRECT_URI: ${{ vars.LINKEDIN_REDIRECT_URI }}
-      LINKEDIN_API_VERSION: ${{ vars.LINKEDIN_API_VERSION }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      LINKEDIN_CLIENT_ID: ${{ secrets.LINKEDIN_CLIENT_ID }}
-      LINKEDIN_CLIENT_SECRET: ${{ secrets.LINKEDIN_CLIENT_SECRET }}
-      LINKEDIN_TOKEN_ENCRYPTION_KEY: ${{ secrets.LINKEDIN_TOKEN_ENCRYPTION_KEY }}
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
-      POLAR_ACCESS_TOKEN: ${{ secrets.POLAR_ACCESS_TOKEN }}
-      POLAR_WEBHOOK_SECRET: ${{ secrets.POLAR_WEBHOOK_SECRET }}
-      POLAR_PRODUCT_ID: ${{ secrets.POLAR_PRODUCT_ID }}
-      POLAR_PRICE_ID: ${{ secrets.POLAR_PRICE_ID }}
-      WEB_PUSH_VAPID_PUBLIC_KEY: ${{ secrets.WEB_PUSH_VAPID_PUBLIC_KEY }}
-      WEB_PUSH_VAPID_PRIVATE_KEY: ${{ secrets.WEB_PUSH_VAPID_PRIVATE_KEY }}
-      WEB_PUSH_VAPID_SUBJECT: ${{ vars.WEB_PUSH_VAPID_SUBJECT }}
-      WEB_PUSH_SUBSCRIPTION_ENCRYPTION_KEY: ${{ secrets.WEB_PUSH_SUBSCRIPTION_ENCRYPTION_KEY }}
+      NUNUZA_WORKER_ENV_JSON: ${{ secrets.NUNUZA_WORKER_ENV_JSON }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
-      - name: Validate deployment configuration
+      - name: Validate Cloudflare credentials
         shell: bash
         run: |
           set -euo pipefail
-          required=(CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID NEXT_PUBLIC_APP_URL NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY LINKEDIN_REDIRECT_URI LINKEDIN_API_VERSION SUPABASE_SERVICE_ROLE_KEY GROQ_API_KEY OPENROUTER_API_KEY LINKEDIN_CLIENT_ID LINKEDIN_CLIENT_SECRET LINKEDIN_TOKEN_ENCRYPTION_KEY TELEGRAM_BOT_TOKEN TELEGRAM_WEBHOOK_SECRET POLAR_ACCESS_TOKEN POLAR_WEBHOOK_SECRET POLAR_PRODUCT_ID POLAR_PRICE_ID WEB_PUSH_VAPID_PUBLIC_KEY WEB_PUSH_VAPID_PRIVATE_KEY WEB_PUSH_VAPID_SUBJECT WEB_PUSH_SUBSCRIPTION_ENCRYPTION_KEY)
-          missing=()
-          for name in "${required[@]}"; do
-            if [[ -z "${!name:-}" ]]; then missing+=("$name"); fi
-          done
-          if (( ${#missing[@]} )); then
-            printf 'Missing GitHub Actions secrets/variables:\n'
-            printf ' - %s\n' "${missing[@]}"
-            exit 1
-          fi
-          for name in LINKEDIN_TOKEN_ENCRYPTION_KEY WEB_PUSH_SUBSCRIPTION_ENCRYPTION_KEY; do
-            value="${!name}"
-            if [[ ! "$value" =~ ^[0-9a-fA-F]{64}$ ]]; then
-              echo "$name must be exactly 64 hexadecimal characters (32 bytes)."
-              exit 1
-            fi
-          done
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing CLOUDFLARE_API_TOKEN"; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing CLOUDFLARE_ACCOUNT_ID"; exit 1; }
+      - name: Load and validate application environment
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const crypto = require("node:crypto");
+          const env = JSON.parse(process.env.NUNUZA_WORKER_ENV_JSON || "{}");
+          const required = [
+            "NEXT_PUBLIC_APP_URL","NEXT_PUBLIC_SUPABASE_URL","NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+            "LINKEDIN_REDIRECT_URI","LINKEDIN_API_VERSION","SUPABASE_SERVICE_ROLE_KEY",
+            "GROQ_API_KEY","OPENROUTER_API_KEY","LINKEDIN_CLIENT_ID","LINKEDIN_CLIENT_SECRET",
+            "LINKEDIN_TOKEN_ENCRYPTION_KEY","TELEGRAM_BOT_TOKEN","TELEGRAM_WEBHOOK_SECRET",
+            "POLAR_ACCESS_TOKEN","POLAR_WEBHOOK_SECRET","POLAR_PRODUCT_ID","POLAR_PRICE_ID",
+            "WEB_PUSH_VAPID_PUBLIC_KEY","WEB_PUSH_VAPID_PRIVATE_KEY","WEB_PUSH_VAPID_SUBJECT",
+            "WEB_PUSH_SUBSCRIPTION_ENCRYPTION_KEY"
+          ];
+          const missing = required.filter(key => typeof env[key] !== "string" || !env[key].trim());
+          if (missing.length) throw new Error("Missing keys in NUNUZA_WORKER_ENV_JSON: " + missing.join(", "));
+          for (const key of ["LINKEDIN_TOKEN_ENCRYPTION_KEY","WEB_PUSH_SUBSCRIPTION_ENCRYPTION_KEY"]) {
+            if (!/^[0-9a-fA-F]{64}$/.test(env[key])) throw new Error(key + " must be exactly 64 hexadecimal characters.");
+          }
+          for (const [key, value] of Object.entries(env)) {
+            if (!/^[A-Z_][A-Z0-9_]*$/.test(key) || typeof value !== "string") throw new Error("Invalid environment entry: " + key);
+            process.stdout.write("::add-mask::" + value.replace(/%/g,"%25").replace(/\r/g,"%0D").replace(/\n/g,"%0A") + "\n");
+            const delimiter = "ENV_" + crypto.randomBytes(16).toString("hex");
+            fs.appendFileSync(process.env.GITHUB_ENV, key + "<<" + delimiter + "\n" + value + "\n" + delimiter + "\n");
+          }
+          NODE
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
       - name: Build production Worker
@@ -82,11 +74,11 @@ jobs:
               echo "Queue already exists: $queue"
             else
               payload="$(node -e 'process.stdout.write(JSON.stringify({queue_name:process.argv[1]}))' "$queue")"
-              response="$(curl --fail-with-body --silent --show-error -X POST \
+              curl --fail-with-body --silent --show-error -X POST \
                 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
                 -H "Content-Type: application/json" \
                 --data "$payload" \
-                "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/queues")"
+                "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/queues" >/dev/null
               echo "Created queue: $queue"
               queues="$(curl --fail-with-body --silent --show-error \
                 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
@@ -96,13 +88,12 @@ jobs:
       - name: Generate deployment config and Worker secrets
         shell: bash
         run: |
-          set -euo pipefail
           node <<'NODE'
           const fs = require("node:fs");
           const config = JSON.parse(fs.readFileSync("wrangler.jsonc", "utf8"));
           config.vars = {
             ...config.vars,
-            NEXT_PUBLIC_APP_ENV: process.env.NEXT_PUBLIC_APP_ENV,
+            NEXT_PUBLIC_APP_ENV: "production",
             NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
             NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
             NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
