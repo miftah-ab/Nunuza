@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
 
     // 1. Seller Eligibility & Launch Gate Check (BED-08)
     if (!polarClient.isSellerEligible()) {
+      console.warn("[billing] Checkout is unavailable for the current seller configuration.");
       return NextResponse.json(
         {
           error: "Billing is temporarily unavailable. Please try again later or contact support.",
@@ -36,6 +37,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!polarClient.isConfigured()) {
+      console.error("[billing] Checkout provider configuration is incomplete.");
       return NextResponse.json(
         {
           error: "We can’t start checkout right now. Please try again later.",
