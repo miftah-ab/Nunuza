@@ -40,7 +40,7 @@ export default async function IntegrationsPage() {
   const { data: oauthGrantData, error: oauthGrantError } = await supabase.auth.oauth.listGrants();
   const oauthGrants = oauthGrantError ? [] : (oauthGrantData || []).map((grant) => ({
     clientId: grant.client.id,
-    clientName: grant.client.name || "Authorized MCP client",
+    clientName: grant.client.name || "Connected AI tool",
     scopes: grant.scopes,
     createdAt: grant.granted_at,
   }));
