@@ -83,7 +83,7 @@ export default async function IntegrationsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-ink">Integrations & Channels</h1>
         <p className="text-sm text-ink-secondary mt-1">
-          Connect your LinkedIn profile, Telegram conversational bot, and remote MCP agents.
+          Connect your LinkedIn profile, Telegram assistant, and other AI tools.
         </p>
       </div>
 
