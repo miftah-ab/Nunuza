@@ -6,7 +6,7 @@ Nunuza keeps its web dashboard on Vercel and runs scheduled/background work on t
 
 The repository includes **Deploy Nunuza to Cloudflare** at `.github/workflows/cloudflare-production-deploy.yml`. After adding the three GitHub secrets below, run it from **GitHub Actions → Deploy Nunuza to Cloudflare → Run workflow**.
 
-The workflow validates the credentials, builds the Worker, creates both queues if missing, uploads the runtime secrets, and deploys the Worker. You do not need to create queues manually or run Wrangler locally.
+The workflow validates the credentials, builds the Worker, creates both queues if missing, uploads the runtime secrets as part of the same Worker deployment. You do not need to create queues manually or run Wrangler locally.
 
 ## One-time GitHub configuration
 
@@ -14,7 +14,7 @@ Open this repository's **Settings → Secrets and variables → Actions → New 
 
 Create these three secrets:
 
-1. `CLOUDFLARE_API_TOKEN` — Cloudflare API token with account-level **Workers Scripts: Edit** and **Queues: Edit** permissions.
+1. `CLOUDFLARE_API_TOKEN` — Cloudflare API token scoped to the correct account with **Workers: Admin** (needed to create the Worker on first deployment) and **Queues: Edit** permissions.
 2. `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID.
 3. `NUNUZA_WORKER_ENV_JSON` — one JSON object containing the application environment values listed below.
 
