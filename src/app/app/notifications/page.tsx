@@ -43,7 +43,11 @@ export default function NotificationsPage() {
       setError(e instanceof Error ? e.message : "Your notifications could not be loaded.");
     } finally { setLoading(false); }
   }, []);
-  useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 30_000); return () => window.clearInterval(timer); }, [refresh]);
+  useEffect(() => {
+    const initial = window.setTimeout(() => void refresh(), 0);
+    const timer = window.setInterval(() => void refresh(), 30_000);
+    return () => { window.clearTimeout(initial); window.clearInterval(timer); };
+  }, [refresh]);
 
   const markRead = async (id: string) => {
     const response = await fetch("/api/notifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
@@ -78,7 +82,7 @@ export default function NotificationsPage() {
         : items.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border bg-white px-6 py-16 text-center">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-forest-light text-forest"><Inbox size={25} /></div>
-            <h2 className="text-base font-semibold text-ink">{filter === "unread" ? "You're all caught up" : "Nothing to see yet"}</h2>
+            <h2 className="text-base font-semibold text-ink">{filter === "unread" ? "You&apos;re all caught up" : "Nothing to see yet"}</h2>
             <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-ink-muted">{filter === "unread" ? "New important updates will appear here when they need your attention." : "When something important happens in your workspace, Nunuza will keep the update here."}</p>
           </div>
         ) : (
