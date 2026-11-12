@@ -9,6 +9,9 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppSidebar } from "@/components/layout/AppSidebar";
+import { MobileTabBar } from "@/components/layout/MobileTabBar";
+import { NotificationPrompt } from "@/components/notifications/NotificationPrompt";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import type { Workspace } from "@/types/database";
 
 export default async function AppLayout({
@@ -49,10 +52,14 @@ export default async function AppLayout({
     <div className="flex flex-col md:flex-row min-h-screen bg-offwhite">
       <AppSidebar workspace={workspace as Workspace | null} />
       <div className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
-        <main id="main-content" className="flex-1 p-5 sm:p-6 lg:p-8 max-w-[1400px]">
+        {/* Bottom padding on phones keeps content clear of the floating tab bar. */}
+        <main id="main-content" className="flex-1 p-5 pb-28 sm:p-6 sm:pb-28 md:pb-6 lg:p-8 max-w-[1400px]">
+          <div className="mb-5 flex justify-end"><NotificationBell /></div>
+          <NotificationPrompt />
           {children}
         </main>
       </div>
+      <MobileTabBar workspace={workspace as Workspace | null} />
     </div>
   );
 }

@@ -4,110 +4,26 @@ import Link from "next/link";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
 import { Logo } from "@/components/layout/Logo";
-import { cn } from "@/lib/utils";
-
-const navLinks = [
-  { label: "Pricing", href: "/pricing" },
-  { label: "Privacy", href: "/privacy" },
-];
 
 export function MarketingHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const closeMenu = () => setMenuOpen(false);
 
   return (
-    <header className="sticky top-0 z-50 w-full bg-white/95 backdrop-blur-sm border-b border-border">
+    <header className="sticky top-0 z-50 w-full border-b border-[#E7EBE6] bg-white/95 backdrop-blur-md">
       <div className="container-page">
-        <div className="flex h-16 items-center justify-between">
-          {/* Logo */}
-          <Logo height={28} />
-
-          {/* Desktop nav */}
-          <nav aria-label="Main navigation" className="hidden md:flex items-center gap-6">
-            {navLinks.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className="text-sm text-ink-secondary hover:text-ink transition-colors"
-              >
-                {link.label}
-              </Link>
-            ))}
-          </nav>
-
-          {/* Desktop CTA */}
-          <div className="hidden md:flex items-center gap-3">
-            <Link
-              href="/login"
-              className="text-sm text-ink-secondary hover:text-ink transition-colors"
-            >
-              Sign in
-            </Link>
-            <Link
-              href="/login"
-              id="header-cta"
-              className="btn-primary text-sm px-4 py-2"
-            >
-              Get Started
-            </Link>
+        <div className="flex h-[68px] items-center justify-between">
+          <Logo height={29} />
+          <div className="hidden items-center gap-6 md:flex">
+            <Link href="/login" className="text-[13px] font-medium text-[#68716C] transition-colors hover:text-[#202522]">Log in</Link>
+            <Link href="/login" className="inline-flex items-center gap-2 rounded-full bg-[#174C3C] px-5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#103B2F]">Message Nunuza <span aria-hidden="true">↗</span></Link>
           </div>
-
-          {/* Mobile menu toggle */}
-          <button
-            type="button"
-            id="mobile-menu-toggle"
-            aria-label={menuOpen ? "Close menu" : "Open menu"}
-            aria-expanded={menuOpen}
-            aria-controls="mobile-menu"
-            className="md:hidden btn-ghost p-2"
-            onClick={() => setMenuOpen((v) => !v)}
-          >
-            {menuOpen ? (
-              <X size={20} aria-hidden="true" />
-            ) : (
-              <Menu size={20} aria-hidden="true" />
-            )}
+          <button type="button" aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"} aria-expanded={menuOpen} aria-controls="mobile-menu" className="btn-ghost p-2 md:hidden" onClick={() => setMenuOpen((open) => !open)}>
+            {menuOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
           </button>
         </div>
       </div>
-
-      {/* Mobile menu */}
-      {menuOpen && (
-        <div
-          id="mobile-menu"
-          role="dialog"
-          aria-label="Mobile navigation"
-          className="md:hidden border-t border-border bg-white animate-fade-in"
-        >
-          <div className="container-page py-4 flex flex-col gap-1">
-            {navLinks.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                onClick={() => setMenuOpen(false)}
-                className="px-3 py-2.5 rounded-lg text-sm text-ink-secondary hover:text-ink hover:bg-offwhite transition-colors"
-              >
-                {link.label}
-              </Link>
-            ))}
-            <div className="mt-3 pt-3 border-t border-border flex flex-col gap-2">
-              <Link
-                href="/login"
-                onClick={() => setMenuOpen(false)}
-                className="px-3 py-2.5 rounded-lg text-sm text-ink-secondary hover:text-ink hover:bg-offwhite transition-colors"
-              >
-                Sign in
-              </Link>
-              <Link
-                href="/login"
-                onClick={() => setMenuOpen(false)}
-                className="btn-primary text-sm text-center"
-              >
-                Get Started
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
+      {menuOpen && <nav id="mobile-menu" aria-label="Mobile navigation" className="animate-fade-in border-t border-[#E7EBE6] bg-white shadow-lg shadow-ink/5 md:hidden"><div className="container-page flex flex-col gap-1 py-3"><Link href="/login" onClick={closeMenu} className="rounded-lg px-3 py-3 text-sm font-medium text-[#68716C] hover:bg-[#F8F8F5]">Log in</Link><Link href="/login" onClick={closeMenu} className="mt-2 inline-flex justify-center rounded-full bg-[#174C3C] px-5 py-3 text-sm font-semibold text-white">Message Nunuza</Link></div></nav>}
     </header>
   );
 }

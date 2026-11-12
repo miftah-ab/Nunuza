@@ -8,6 +8,7 @@
 
 import { createServiceClient } from "@/lib/supabase/server";
 import { aiService } from "@/lib/ai/service";
+import { assertVoiceConstraints, VoiceConstraintError } from "@/lib/ai/voice-constraints";
 import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
 import { canUseAutopilot } from "@/lib/auth/workspace";
 import type { AgentJob } from "@/types/database";
@@ -719,6 +720,16 @@ export async function executeAutonomousCycle(
     (Array.isArray(strategy.pillars) ? strategy.pillars[0] : null);
   const pillarName = typeof pillar === "string" ? pillar : pillar?.name ?? pillar?.title ?? undefined;
 
+  const voiceContext = voice ? {
+    tone: voice.tone,
+    sentenceLength: voice.sentence_length,
+    formality: voice.formality,
+    phrasesUse: voice.phrases_use,
+    phrasesAvoid: voice.phrases_avoid,
+    sampleText: voice.sample_text,
+    exclusions: voice.exclusions,
+  } : undefined;
+
   const generated = await aiService.generateDraft({
     topic: "What this development means for " + String(workspace.name ?? "your business") + ": " + title,
     pillar: pillarName,
@@ -736,15 +747,7 @@ export async function executeAutonomousCycle(
       "Recent internal approval signals: " + JSON.stringify(approvalSummary),
     ].join("\n"),
     targetLength: "medium",
-    voiceProfile: voice ? {
-      tone: voice.tone,
-      sentenceLength: voice.sentence_length,
-      formality: voice.formality,
-      phrasesUse: voice.phrases_use,
-      phrasesAvoid: voice.phrases_avoid,
-      sampleText: voice.sample_text,
-      exclusions: voice.exclusions,
-    } : undefined,
+    voiceProfile: voiceContext,
     strategy: {
       audience: strategy.audience,
       goals: strategy.goals,
@@ -754,6 +757,19 @@ export async function executeAutonomousCycle(
     },
     companyName: workspace.name,
   });
+
+  try {
+    assertVoiceConstraints(generated.text, voiceContext);
+  } catch (error) {
+    if (!(error instanceof VoiceConstraintError)) throw error;
+    await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {
+      cycleDate,
+      decision: "no_op",
+      reason: "voice_constraint_violation",
+      sourceTitle: title,
+    });
+    return { jobId: job.id, success: true, status: "succeeded", retryable: false };
+  }
 
   if (generated.providerUsed === "mock_deterministic") {
     await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {

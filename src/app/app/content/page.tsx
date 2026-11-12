@@ -28,7 +28,7 @@ export default async function ContentPage() {
 
   // Fetch initial posts and draft usage
   const [posts, usage] = await Promise.all([
-    listPosts(workspace.id, { limit: 100 }),
+    listPosts(workspace.id, { limit: 100, excludeCanceled: true }),
     checkDraftLimit(workspace.id),
   ]);
 

@@ -1,51 +1,17 @@
 import Link from "next/link";
 import { Logo } from "@/components/layout/Logo";
 
-const footerLinks = [
-  { label: "Pricing", href: "/pricing" },
-  { label: "Privacy", href: "/privacy" },
-  { label: "Terms", href: "/terms" },
-];
-
 export function MarketingFooter() {
   const year = new Date().getFullYear();
 
   return (
-    <footer className="border-t border-border bg-offwhite">
-      <div className="container-page py-12">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-          {/* Brand */}
-          <div className="flex flex-col gap-2">
-            <Logo height={24} asLink={false} />
-            <p className="text-secondary text-ink-secondary max-w-xs">
-              LinkedIn content operations for solo founders.
-            </p>
-            <p className="text-xs text-ink-secondary">
-              14-day free trial. Cancel anytime.
-            </p>
-          </div>
-
-          {/* Links */}
-          <nav aria-label="Footer navigation">
-            <ul className="flex flex-wrap gap-x-6 gap-y-2">
-              {footerLinks.map((link) => (
-                <li key={link.href}>
-                  <Link
-                    href={link.href}
-                    className="text-sm text-ink-secondary hover:text-ink transition-colors"
-                  >
-                    {link.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        </div>
-
-        <div className="mt-8 pt-6 border-t border-border">
-          <p className="text-xs text-ink-secondary">
-            © {year} Nunuza. Autonomous LinkedIn content operations agent.
-          </p>
+    <footer className="border-t border-[#E7EBE6] bg-white">
+      <div className="container-page flex flex-col gap-5 py-8 sm:flex-row sm:items-center sm:justify-between">
+        <Logo height={25} asLink={false} />
+        <div className="flex items-center gap-5 text-xs text-[#68716C]">
+          <Link href="/privacy" className="transition-colors hover:text-[#174C3C]">Privacy</Link>
+          <Link href="/terms" className="transition-colors hover:text-[#174C3C]">Terms</Link>
+          <span>© {year} Nunuza</span>
         </div>
       </div>
     </footer>

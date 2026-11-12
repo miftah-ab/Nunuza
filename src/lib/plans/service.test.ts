@@ -14,6 +14,7 @@ vi.mock("@/lib/supabase/server", () => ({
 
 vi.mock("@/lib/db/workspace", () => ({
   getContentStrategy: vi.fn(),
+  getVoiceProfile: vi.fn(),
   logAuditEvent: vi.fn(),
 }));
 

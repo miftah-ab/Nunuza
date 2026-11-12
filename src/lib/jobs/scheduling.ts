@@ -20,7 +20,7 @@ import {
 } from "@/lib/auth/workspace";
 import { getPost } from "@/lib/db/posts";
 import { logAuditEvent } from "@/lib/db/workspace";
-import { publishPostToLinkedIn, LinkedInPublishError } from "@/lib/integrations/linkedin/client";
+import { publishPostToLinkedIn, publishMediaPostToLinkedIn, LinkedInPublishError } from "@/lib/integrations/linkedin/client";
 import { transitionJob, markJobRetryable, markJobTerminal } from "./state";
 import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
 import type { AgentJob, ContentPost } from "@/types/database";
@@ -70,8 +70,8 @@ export async function schedulePost(
     throw new Error(`Post ${postId} not found.`);
   }
 
-  if (post.status !== "approved" && post.status !== "draft" && post.status !== "needs_review") {
-    throw new Error(`Post cannot be scheduled from status '${post.status}'.`);
+  if (post.status !== "approved") {
+    throw new Error("Only approved posts can be scheduled. Submit the draft for review and approve it first.");
   }
 
   const targetDate = new Date(scheduledFor);
@@ -580,11 +580,40 @@ export async function executePublishJob(
   // 7. Publish via the official LinkedIn API
   let result: { linkedinPostId: string; publishedAt: string };
   try {
-    result = await publishPostToLinkedIn({
-      workspaceId: job.workspace_id,
-      text: post.text,
-      supabaseOverride: supabase,
-    });
+    const postFormat = post.post_format ?? "text";
+    if (postFormat === "text") {
+      if (typeof post.text !== "string" || !post.text.trim()) {
+        throw new LinkedInPublishError("rejected", "TEXT_POST_EMPTY: Add text before publishing.");
+      }
+      result = await publishPostToLinkedIn({
+        workspaceId: job.workspace_id,
+        text: post.text,
+        supabaseOverride: supabase,
+      });
+    } else {
+      const { data: mediaRows, error: mediaError } = await supabase
+        .from("content_post_media")
+        .select("storage_path, file_name, media_type, mime_type, alt_text, sort_order")
+        .eq("workspace_id", job.workspace_id)
+        .eq("post_id", post.id)
+        .order("sort_order", { ascending: true });
+      if (mediaError || !Array.isArray(mediaRows) || mediaRows.length === 0) {
+        throw new LinkedInPublishError("rejected", "POST_MEDIA_MISSING: Add valid media before publishing.");
+      }
+      result = await publishMediaPostToLinkedIn({
+        workspaceId: job.workspace_id,
+        text: typeof post.text === "string" ? post.text : "",
+        format: postFormat,
+        media: mediaRows.map((asset: any) => ({
+          storagePath: asset.storage_path,
+          mediaType: asset.media_type,
+          mimeType: asset.mime_type,
+          altText: asset.alt_text,
+          fileName: asset.file_name,
+        })),
+        supabaseOverride: supabase,
+      });
+    }
   } catch (publishErr: any) {
     const kind: string | undefined =
       publishErr instanceof LinkedInPublishError ? publishErr.kind : undefined;

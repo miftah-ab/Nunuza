@@ -13,6 +13,8 @@
  */
 
 import React, { useState } from "react";
+import { PostImageGenerator } from "@/components/content/PostImageGenerator";
+import { MediaPostComposer } from "@/components/content/MediaPostComposer";
 import type { ContentPost, PostStatus, Workspace } from "@/types/database";
 import {
   Sparkles,
@@ -22,6 +24,7 @@ import {
   CheckCircle2,
   AlertCircle,
   FileText,
+  FileImage,
   Trash2,
   Edit3,
   Calendar,
@@ -36,6 +39,8 @@ interface ContentManagerProps {
   workspace: Workspace;
   usageCount: number;
   usageLimit: number;
+  /** Read-only rendering for the public product preview. */
+  preview?: boolean;
 }
 
 export function ContentManager({
@@ -43,12 +48,16 @@ export function ContentManager({
   workspace,
   usageCount,
   usageLimit,
+  preview = false,
 }: ContentManagerProps) {
-  const [posts, setPosts] = useState<ContentPost[]>(initialPosts);
+  const [posts, setPosts] = useState<ContentPost[]>(() => initialPosts.filter((post) => post.status !== "canceled"));
+  const [confirmation, setConfirmation] = useState<{ type: "delete" | "cancel-schedule"; postId: string } | null>(null);
+  const [isConfirmingAction, setIsConfirmingAction] = useState(false);
   const [filter, setFilter] = useState<string>("all");
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [editingPost, setEditingPost] = useState<ContentPost | null>(null);
+  const [editingMediaPost, setEditingMediaPost] = useState<ContentPost | null>(null);
 
   // AI Generation Form State
   const [aiTopic, setAiTopic] = useState("");
@@ -147,7 +156,7 @@ export function ContentManager({
       setManualText("");
       setManualPillar("");
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Save failed.");
+      setPublishFeedback({ type: "error", message: err instanceof Error ? err.message : "Save failed." });
     } finally {
       setIsSavingManual(false);
     }
@@ -175,23 +184,45 @@ export function ContentManager({
         setEditingPost(null);
       }
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Update failed.");
+      setPublishFeedback({ type: "error", message: err instanceof Error ? err.message : "Update failed." });
     }
   };
 
-  // Handle Delete/Cancel
-  const handleDeletePost = async (postId: string) => {
-    if (!confirm("Are you sure you want to delete this post?")) return;
+  // Destructive actions use the app confirmation dialog, never browser-native popups.
+  const handleDeletePost = (postId: string) => {
+    setConfirmation({ type: "delete", postId });
+  };
 
+  const handleConfirmAction = async () => {
+    if (!confirmation || isConfirmingAction) return;
+    setIsConfirmingAction(true);
+    setPublishFeedback(null);
     try {
-      const res = await fetch(`/api/posts/${postId}`, { method: "DELETE" });
-      const json = (await res.json()) as any;
-      if (!res.ok) throw new Error(json.error ?? "Failed to delete post.");
-
-      setPosts((prev) => prev.filter((p) => p.id !== postId));
-      if (editingPost?.id === postId) setEditingPost(null);
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Delete failed.");
+      const deleting = confirmation.type === "delete";
+      const endpoint = deleting ? "/api/posts/" + confirmation.postId : "/api/posts/" + confirmation.postId + "/cancel-schedule";
+      const res = await fetch(endpoint, { method: deleting ? "DELETE" : "POST" });
+      const json = (await res.json()) as {
+        error?: string;
+        data?: { post?: ContentPost };
+      };
+      if (!res.ok) throw new Error(json.error || (deleting ? "Failed to delete post." : "Failed to cancel schedule."));
+      const updatedPost = json.data?.post;
+      if (deleting) {
+        setPosts((prev) => prev.filter((post) => post.id !== confirmation.postId));
+        if (editingPost && editingPost.id === confirmation.postId) setEditingPost(null);
+        setPublishFeedback({ type: "success", message: "Post removed from active content. Its record is retained for audit history." });
+      } else {
+        if (!updatedPost) {
+          throw new Error("The server did not return the updated post.");
+        }
+        setPosts((prev) => prev.map((post) => post.id === confirmation.postId ? updatedPost : post));
+        setPublishFeedback({ type: "success", message: "Scheduled publication canceled." });
+      }
+      setConfirmation(null);
+    } catch (err) {
+      setPublishFeedback({ type: "error", message: err instanceof Error ? err.message : "The action could not be completed." });
+    } finally {
+      setIsConfirmingAction(false);
     }
   };
 
@@ -258,19 +289,12 @@ export function ContentManager({
       const json = (await res.json()) as any;
       if (!res.ok) throw new Error(json.error ?? "Could not record your answer.");
 
-      const newStatus = json.data.status as PostStatus;
+      const updatedPost = json.data as Partial<ContentPost>;
+      if (!updatedPost.id || !updatedPost.status) {
+        throw new Error("The server did not return the saved reconciliation state.");
+      }
       setPosts((prev) =>
-        prev.map((p) =>
-          p.id === post.id
-            ? {
-                ...p,
-                status: newStatus,
-                ...(newStatus === "published"
-                  ? { published_at: new Date().toISOString() }
-                  : { scheduled_at: null }),
-              }
-            : p
-        )
+        prev.map((p) => p.id === post.id ? { ...p, ...updatedPost } : p)
       );
       setPublishFeedback({
         type: "success",
@@ -292,23 +316,8 @@ export function ContentManager({
   };
 
   // Handle Cancel Schedule
-  const handleCancelSchedule = async (postId: string) => {
-    if (!confirm("Are you sure you want to cancel this scheduled post?")) return;
-
-    try {
-      const res = await fetch(`/api/posts/${postId}/cancel-schedule`, {
-        method: "POST",
-      });
-
-      const json = (await res.json()) as any;
-      if (!res.ok) throw new Error(json.error ?? "Failed to cancel schedule.");
-
-      setPosts((prev) =>
-        prev.map((p) => (p.id === postId ? json.data.post : p))
-      );
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Cancel schedule failed.");
-    }
+  const handleCancelSchedule = (postId: string) => {
+    setConfirmation({ type: "cancel-schedule", postId });
   };
 
   // Handle Publish Now (immediate processing through agent_jobs pipeline)
@@ -329,12 +338,12 @@ export function ContentManager({
         throw new Error(json.error ?? "Failed to publish post.");
       }
 
+      const publishedPost = json.data?.post as ContentPost | undefined;
+      if (!publishedPost || publishedPost.status !== "published" || !publishedPost.published_at) {
+        throw new Error("The publishing request returned without a confirmed saved publication. Refresh the post before trying again.");
+      }
       setPosts((prev) =>
-        prev.map((p) =>
-          p.id === post.id
-            ? { ...p, status: "published" as PostStatus, published_at: new Date().toISOString() }
-            : p
-        )
+        prev.map((p) => p.id === post.id ? publishedPost : p)
       );
       setPublishFeedback({
         type: "success",
@@ -396,6 +405,79 @@ export function ContentManager({
     workspace.entitlement_type === "paid_trial" ||
     workspace.entitlement_type === "paid_active";
 
+  // The marketing page uses the same content manager UI with illustrative,
+  // read-only sample records. No API actions are exposed in preview mode.
+  if (preview) {
+    return (
+      <section aria-label="Content manager preview" className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-ink">Content & Drafts</h2>
+            <p className="mt-1 text-xs text-ink-secondary">Your LinkedIn content pipeline</p>
+          </div>
+          <span className="rounded-md border border-border bg-surface px-2.5 py-1 text-[10px] font-medium text-ink-secondary">
+            Sample workspace
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-border pb-2">
+          {[
+            ["all", "All Posts"],
+            ["draft", "Drafts"],
+            ["needs_review", "Needs Review"],
+            ["approved", "Approved"],
+          ].map(([key, label]) => (
+            <span
+              key={key}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium ${
+                key === "all"
+                  ? "bg-forest text-white"
+                  : "text-ink-secondary"
+              }`}
+            >
+              {label}
+            </span>
+          ))}
+        </div>
+        <div className="grid gap-3">
+          {filteredPosts.slice(0, 3).map((post) => (
+            <article key={post.id} className="card flex flex-col gap-3 p-4 sm:p-5">
+              <div className="flex flex-wrap items-center gap-2">
+                {getStatusBadge(post.status)}
+                {post.pillar && (
+                  <span className="rounded bg-forest-light px-2 py-0.5 text-xs font-medium text-forest">
+                    {post.pillar}
+                  </span>
+                )}
+                <span className="text-xs text-ink-secondary">
+                  v{post.version} · {new Date(post.updated_at).toLocaleDateString()}
+                </span>
+              </div>
+              <h3 className="text-sm font-semibold text-ink">
+                {post.internal_title ?? "Untitled Post"}
+              </h3>
+              <p className="line-clamp-3 whitespace-pre-line text-xs leading-relaxed text-ink/90">
+                {post.text}
+              </p>
+              <div className="flex items-center justify-between border-t border-border/60 pt-2 text-xs">
+                <span className="text-ink-secondary">{post.text.length} / 3000 chars</span>
+                <span className="font-medium text-forest">
+                  {post.status === "draft"
+                    ? "Submit for Review"
+                    : post.status === "needs_review"
+                      ? "Awaiting approval"
+                      : "Approved"}
+                </span>
+              </div>
+            </article>
+          ))}
+        </div>
+        <p className="text-[10px] text-ink-muted">
+          Illustrative records · Same content workflow as the Nunuza workspace
+        </p>
+      </section>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Top action bar */}
@@ -403,7 +485,7 @@ export function ContentManager({
         <div>
           <h1 className="text-2xl font-bold text-ink">Content & Drafts</h1>
           <p className="text-sm text-ink-secondary">
-            Manage your personal LinkedIn pipeline. Draft, review, and export from one place.
+            Manage your personal LinkedIn pipeline. Create, review, and publish from one place.
           </p>
         </div>
 
@@ -415,12 +497,12 @@ export function ContentManager({
           >
             <Download size={14} /> Export
           </button>
-          <button
-            onClick={() => setIsManualModalOpen(true)}
-            className="btn-secondary flex items-center gap-1.5 text-xs"
-          >
-            <Plus size={14} /> New Draft
-          </button>
+
+          <MediaPostComposer
+            editPost={editingMediaPost}
+            onEditClose={() => setEditingMediaPost(null)}
+            onCreated={(post) => setPosts((prev) => prev.some((item) => item.id === post.id) ? prev.map((item) => item.id === post.id ? post : item) : [post, ...prev])}
+          />
           <button
             onClick={() => setIsAiModalOpen(true)}
             className="btn-primary flex items-center gap-1.5 text-xs"
@@ -465,6 +547,9 @@ export function ContentManager({
           { key: "approved", label: "Approved" },
           { key: "scheduled", label: "Scheduled" },
           { key: "published", label: "Published" },
+          { key: "rejected", label: "Rejected" },
+          { key: "failed", label: "Failed" },
+          { key: "needs_reconciliation", label: "Check LinkedIn" },
         ].map((tab) => (
           <button
             key={tab.key}
@@ -548,6 +633,16 @@ export function ContentManager({
                   >
                     <Edit3 size={15} />
                   </button>
+                  {post.post_format && post.post_format !== "text" && ["draft", "needs_review", "approved"].includes(post.status) && (
+                    <button
+                      onClick={() => setEditingMediaPost(post)}
+                      className="p-1.5 text-ink-secondary hover:text-forest rounded hover:bg-forest-light"
+                      title="Edit slides or document"
+                      aria-label="Edit slides or document"
+                    >
+                      <FileImage size={15} />
+                    </button>
+                  )}
                   <button
                     onClick={() => handleDeletePost(post.id)}
                     className="p-1.5 text-ink-secondary hover:text-error rounded hover:bg-error-light transition-colors"
@@ -595,6 +690,14 @@ export function ContentManager({
                         <Lock size={11} /> Approval Gated
                       </span>
                     )
+                  )}
+                  {(post.status === "failed" || post.status === "rejected") && (
+                    <button
+                      onClick={() => handleUpdatePost({ status: "needs_review" }, post)}
+                      className="text-forest hover:underline font-medium text-xs"
+                    >
+                      Return to Review
+                    </button>
                   )}
                   {post.status === "approved" && (
                     canPublishPosts ? (
@@ -949,6 +1052,17 @@ export function ContentManager({
                 />
               </div>
 
+              <PostImageGenerator
+                postId={editingPost.id}
+                imagePath={editingPost.image_path ?? null}
+                onImageUpdated={(imagePath, status) => {
+                  setEditingPost((current) => current ? { ...current, image_path: imagePath, status: status as PostStatus } : current);
+                  setPosts((current) => current.map((post) =>
+                    post.id === editingPost.id ? { ...post, image_path: imagePath, status: status as PostStatus } : post
+                  ));
+                }}
+              />
+
               <div className="flex items-center justify-between pt-2">
                 <button
                   type="button"
@@ -981,6 +1095,28 @@ export function ContentManager({
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* In-app confirmation for destructive actions */}
+      {confirmation && (
+        <div className="fixed inset-0 z-[60] bg-ink/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="card max-w-md w-full p-6 shadow-xl animate-fade-in" role="alertdialog" aria-modal="true" aria-labelledby="action-confirm-title" aria-describedby="action-confirm-description">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 shrink-0 rounded-full bg-error/10 flex items-center justify-center"><AlertCircle size={19} className="text-error" /></div>
+              <div className="min-w-0">
+                <h2 id="action-confirm-title" className="text-base font-bold text-ink">{confirmation.type === "delete" ? "Delete this post?" : "Cancel scheduled publication?"}</h2>
+                <p id="action-confirm-description" className="mt-1.5 text-sm text-ink-secondary">{confirmation.type === "delete" ? "This post will be removed from your active content list. Its record remains stored for audit history and will not be permanently erased." : "The scheduled publishing job will be canceled. The post will remain in your content list."}</p>
+              </div>
+            </div>
+            {publishFeedback?.type === "error" && <p className="mt-4 text-sm text-error" role="alert">{publishFeedback.message}</p>}
+            <div className="flex items-center justify-end gap-2.5 mt-6">
+              <button type="button" disabled={isConfirmingAction} onClick={() => setConfirmation(null)} className="btn-ghost text-xs">Keep post</button>
+              <button type="button" disabled={isConfirmingAction} onClick={handleConfirmAction} className="btn-danger text-xs min-w-28 flex items-center justify-center gap-2 disabled:opacity-60">
+                {isConfirmingAction ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}{isConfirmingAction ? "Processing..." : confirmation.type === "delete" ? "Delete post" : "Cancel schedule"}
+              </button>
             </div>
           </div>
         </div>

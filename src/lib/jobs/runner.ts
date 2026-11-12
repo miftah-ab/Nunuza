@@ -15,6 +15,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { executePublishJob } from "./scheduling";
 import { executeAutonomousCycle } from "./intelligence";
+import { executeTelegramContentJob } from "@/lib/integrations/telegram/conversation";
 import {
   JobTransitionError,
   markJobRetryable,
@@ -88,6 +89,7 @@ export function isClaimedAgentJobEnvelope(value: unknown): value is AgentJob {
 const handlers: Record<string, JobHandler> = {
   publish_post: (job, supabase) => executePublishJob(job, supabase, { deferJobFinalization: true }),
   agent_cycle: (job, supabase) => executeAutonomousCycle(job, supabase),
+  telegram_content_generation: (job, supabase) => executeTelegramContentJob(job, supabase),
 };
 
 export function registerJobHandler(jobType: string, handler: JobHandler): void {

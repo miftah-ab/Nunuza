@@ -5,7 +5,7 @@ import { CheckCircle2, Info } from "lucide-react";
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "Nunuza Solo — $29/month with a 14-day free trial. Full LinkedIn content operations SaaS. Cancel anytime.",
+    "Nunuza Solo — $29/month with a 14-day free trial. Strategy-led LinkedIn content workflow. Cancel anytime.",
 };
 
 const includedFeatures = [
@@ -18,7 +18,7 @@ const includedFeatures = [
   "Dashboard controls",
   "Telegram bot controls & notifications",
   "Remote MCP read and control tools",
-  "Bounded Autopilot — with strict safety limits",
+  "Approval-first content workflow and supported account controls",
   "Activity log with job audit trail",
 ];
 
@@ -42,7 +42,7 @@ export default function PricingPage() {
             One simple plan. 14-day free trial.
           </h1>
           <p className="mt-4 text-lg text-ink-secondary max-w-xl mx-auto">
-            Get full access to autonomous LinkedIn content operations for $29/month. Start with a 14-day card-required trial. Cancel anytime.
+            Get the Nunuza Solo content workflow for $29/month after a 14-day card-required trial. Cancel anytime.
           </p>
         </div>
 
@@ -54,7 +54,7 @@ export default function PricingPage() {
               14-Day Free Trial
             </p>
             <p className="text-sm text-ink-secondary">
-              Start with a 14-day free trial with full access to all features. Cancel anytime during the trial before your first monthly charge of $29.
+              Start with a 14-day free trial with access to the Solo plan features. Cancel anytime during the trial before your first monthly charge of $29.
             </p>
           </div>
         </div>
@@ -66,7 +66,7 @@ export default function PricingPage() {
             <div>
               <h2 className="text-xl font-bold text-ink">Nunuza Solo</h2>
               <p className="text-sm text-ink-secondary mt-1">
-                Everything you need to run a high-impact LinkedIn content workflow.
+                A connected workspace for your LinkedIn content strategy, voice, and drafts.
               </p>
             </div>
             <div className="sm:text-right">

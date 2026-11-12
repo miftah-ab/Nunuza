@@ -1,276 +1,149 @@
-/**
- * Unit & Integration Tests for Overview Page (Dashboard).
- *
- * Verifies:
- * - Real draft counts (exact numbers, never '—')
- * - Truthful empty states (0 drafts, 0 activity)
- * - First-draft action callout when workspace has 0 posts
- * - Graceful database error handling without masking failures as 0
- * - Real agent state rendering (active_approval_required, paused)
- * - Draft-only preview restrictions banner
- * - Tenant isolation (queries scoped strictly by workspace_id)
- * - Setup required redirect to /app/onboarding
- */
-
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import React from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import OverviewPage from "./page";
 import { redirect } from "next/navigation";
 import type { Workspace } from "@/types/database";
 
-vi.mock("next/navigation", () => ({
-  redirect: vi.fn(),
+const mocks = vi.hoisted(() => ({
+  requireWorkspace: vi.fn(),
+  createClient: vi.fn(),
+  telegram: vi.fn(),
+  mcp: vi.fn(),
 }));
 
+vi.mock("next/navigation", () => ({ redirect: vi.fn((path: string) => { throw new Error("REDIRECT:" + path); }) }));
 vi.mock("@/lib/auth/workspace", () => ({
-  requireWorkspace: vi.fn(),
+  requireWorkspace: mocks.requireWorkspace,
   AuthError: class AuthError extends Error {},
   ForbiddenError: class ForbiddenError extends Error {},
 }));
+vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
+vi.mock("@/lib/integrations/telegram/service", () => ({ getTelegramLinkStatus: mocks.telegram }));
+vi.mock("@/lib/integrations/mcp/tokens", () => ({ getMcpCredentialStatus: mocks.mcp }));
 
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: vi.fn(),
-}));
+const workspace: Workspace = {
+  id: "ws-overview-test",
+  owner_user_id: "user-overview-test",
+  name: "Test workspace",
+  state: "active_approval_required",
+  entitlement_type: "draft_only",
+  operating_mode: "approval_required",
+  paused_at: null,
+  created_at: "2026-01-01T00:00:00.000Z",
+  updated_at: "2026-01-01T00:00:00.000Z",
+};
 
-describe("OverviewPage (Dashboard)", () => {
-  const baseWorkspace: Workspace = {
-    id: "ws-dash-test",
-    owner_user_id: "user-dash-test",
-    name: "Founder Ventures",
-    state: "active_approval_required",
-    entitlement_type: "draft_only",
-    operating_mode: "approval_required",
-    paused_at: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+function makeSupabase(options: { failPosts?: boolean } = {}) {
+  const queriedWorkspaceIds: string[] = [];
+  const supabase = {
+    from: vi.fn((table: string) => {
+      const filters: Array<[string, unknown]> = [];
+      const builder: any = {
+        select: vi.fn(() => builder),
+        eq: vi.fn((column: string, value: unknown) => {
+          filters.push([column, value]);
+          if (column === "workspace_id") queriedWorkspaceIds.push(String(value));
+          return builder;
+        }),
+        in: vi.fn(() => builder),
+        not: vi.fn(() => builder),
+        order: vi.fn(() => builder),
+        limit: vi.fn(() => builder),
+        maybeSingle: vi.fn(async () => {
+          if (table === "integration_connections") {
+            return { data: { status: "connected", expires_at: "2099-01-01T00:00:00.000Z", metadata: { name: "Test LinkedIn" } }, error: null };
+          }
+          if (table === "content_strategies") {
+            return { data: { cadence_per_week: 3, timezone: "UTC" }, error: null };
+          }
+          return { data: null, error: null };
+        }),
+        then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) => {
+          if (options.failPosts && table === "content_posts") {
+            return Promise.resolve({ data: null, count: null, error: { message: "database unavailable" } }).then(resolve, reject);
+          }
+          let count = 0;
+          if (table === "content_posts") {
+            const status = filters.find(([column]) => column === "status")?.[1];
+            const statuses = filters.find(([column]) => column === "status-list")?.[1];
+            if (status === "approved") count = 1;
+            else if (status === "scheduled") count = 3;
+            else if (status === "published") count = 5;
+            else if (Array.isArray(statuses) && statuses.length === 2) count = 2;
+            else if (Array.isArray(statuses)) count = 6;
+          }
+          return Promise.resolve({ data: [], count, error: null }).then(resolve, reject);
+        },
+      };
+      // Supabase uses .in("status", values); retain the values for realistic count assertions.
+      builder.in = vi.fn((column: string, value: unknown) => {
+        filters.push([column === "status" ? "status-list" : column, value]);
+        return builder;
+      });
+      return builder;
+    }),
   };
+  return { supabase, queriedWorkspaceIds };
+}
 
+describe("OverviewPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.requireWorkspace.mockResolvedValue(workspace);
+    mocks.telegram.mockResolvedValue({ linked: false });
+    mocks.mcp.mockResolvedValue({ active: false });
   });
 
-  it("redirects to /app/onboarding when workspace state is setup_required", async () => {
-    const { requireWorkspace } = await import("@/lib/auth/workspace");
-    vi.mocked(requireWorkspace).mockResolvedValue({
-      ...baseWorkspace,
-      state: "setup_required",
-    });
-
-    await OverviewPage();
+  it("redirects setup-required workspaces before querying data", async () => {
+    mocks.requireWorkspace.mockResolvedValue({ ...workspace, state: "setup_required" });
+    await expect(OverviewPage()).rejects.toThrow("REDIRECT:/app/onboarding");
     expect(redirect).toHaveBeenCalledWith("/app/onboarding");
+    expect(mocks.createClient).not.toHaveBeenCalled();
   });
 
-  it("renders truthful zero counts and first-draft callout when no drafts exist", async () => {
-    const { requireWorkspace } = await import("@/lib/auth/workspace");
-    const { createClient } = await import("@/lib/supabase/server");
+  it("renders truthful counts and empty states using workspace-scoped queries", async () => {
+    const { supabase, queriedWorkspaceIds } = makeSupabase();
+    mocks.createClient.mockResolvedValue(supabase);
+    const html = renderToStaticMarkup(await OverviewPage());
 
-    vi.mocked(requireWorkspace).mockResolvedValue(baseWorkspace);
-
-    const mockSupabase = {
-      from: vi.fn((table: string) => {
-        if (table === "content_posts") {
-          return {
-            select: vi.fn().mockReturnValue({
-              eq: vi.fn().mockImplementation((col: string, val: string) => {
-                expect(col).toBe("workspace_id");
-                expect(val).toBe("ws-dash-test"); // Tenant isolation check
-                return {
-                  in: vi.fn().mockResolvedValue({ count: 0, error: null }),
-                  eq: vi.fn().mockResolvedValue({ count: 0, error: null }),
-                  then: (resolve: any) => resolve({ count: 0, error: null }),
-                };
-              }),
-            }),
-          };
-        }
-        if (table === "audit_events" || table === "agent_jobs") {
-          return {
-            select: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                order: vi.fn().mockReturnValue({
-                  limit: vi.fn().mockResolvedValue({ data: [], error: null }),
-                }),
-              }),
-            }),
-          };
-        }
-        return {};
-      }),
-    };
-
-    vi.mocked(createClient).mockResolvedValue(mockSupabase as any);
-
-    const jsx = await OverviewPage();
-    const rendered = renderToStaticMarkup(jsx);
-
-    // Draft count should be 0, not "—"
-    expect(rendered).toContain(">0<");
-    expect(rendered).toContain("Ready for your first draft?");
-    expect(rendered).toContain("Create First Draft");
-    expect(rendered).toContain("Start Your Free Trial");
+    expect(html).toContain("Overview");
+    expect(html).toContain("Needs Review");
+    expect(html).toContain(">2<");
+    expect(html).toContain("1 approved");
+    expect(html).toContain("No upcoming publications");
+    expect(html).toContain("No drafts awaiting review");
+    expect(html).toContain("Test LinkedIn");
+    expect(queriedWorkspaceIds.length).toBeGreaterThan(0);
+    expect(queriedWorkspaceIds.every((id) => id === workspace.id)).toBe(true);
   });
 
-  it("renders real counts when drafts exist", async () => {
-    const { requireWorkspace } = await import("@/lib/auth/workspace");
-    const { createClient } = await import("@/lib/supabase/server");
+  it("does not present failed post metrics as zero", async () => {
+    const { supabase } = makeSupabase({ failPosts: true });
+    mocks.createClient.mockResolvedValue(supabase);
+    const html = renderToStaticMarkup(await OverviewPage());
 
-    vi.mocked(requireWorkspace).mockResolvedValue(baseWorkspace);
-
-    const mockSupabase = {
-      from: vi.fn((table: string) => {
-        if (table === "content_posts") {
-          return {
-            select: vi.fn().mockReturnValue({
-              eq: vi.fn().mockImplementation((col: string, val: string) => {
-                expect(col).toBe("workspace_id");
-                expect(val).toBe("ws-dash-test"); // Tenant isolation check
-                return {
-                  in: vi.fn().mockResolvedValue({ count: 4, error: null }),
-                  eq: vi.fn().mockResolvedValue({ count: 2, error: null }),
-                  then: (resolve: any) => resolve({ count: 6, error: null }),
-                };
-              }),
-            }),
-          };
-        }
-        if (table === "audit_events" || table === "agent_jobs") {
-          return {
-            select: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                order: vi.fn().mockReturnValue({
-                  limit: vi.fn().mockResolvedValue({ data: [], error: null }),
-                }),
-              }),
-            }),
-          };
-        }
-        return {};
-      }),
-    };
-
-    vi.mocked(createClient).mockResolvedValue(mockSupabase as any);
-
-    const jsx = await OverviewPage();
-    const rendered = renderToStaticMarkup(jsx);
-
-    expect(rendered).toContain("Needs Review");
-    expect(rendered).toContain(">4<");
-    expect(rendered).toContain("2 approved");
-    expect(rendered).not.toContain("Ready for your first draft?");
+    expect(html).toContain("Some metrics could not be loaded");
+    expect(html).toContain(">—<");
   });
 
-  it("handles database query failures explicitly without masking as zero", async () => {
-    const { requireWorkspace } = await import("@/lib/auth/workspace");
-    const { createClient } = await import("@/lib/supabase/server");
+  it("shows paused state when the workspace has a pause timestamp", async () => {
+    const { supabase } = makeSupabase();
+    mocks.createClient.mockResolvedValue(supabase);
+    mocks.requireWorkspace.mockResolvedValue({ ...workspace, paused_at: "2026-11-11T00:00:00.000Z" });
+    const html = renderToStaticMarkup(await OverviewPage());
 
-    vi.mocked(requireWorkspace).mockResolvedValue(baseWorkspace);
-
-    const mockSupabase = {
-      from: vi.fn((table: string) => {
-        if (table === "content_posts") {
-          return {
-            select: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                in: vi.fn().mockResolvedValue({
-                  count: null,
-                  error: { message: "Database connection timeout" },
-                }),
-                eq: vi.fn().mockResolvedValue({ count: null, error: null }),
-                then: (resolve: any) => resolve({ count: null, error: null }),
-              }),
-            }),
-          };
-        }
-        if (table === "audit_events" || table === "agent_jobs") {
-          return {
-            select: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                order: vi.fn().mockReturnValue({
-                  limit: vi.fn().mockResolvedValue({ data: [], error: null }),
-                }),
-              }),
-            }),
-          };
-        }
-        return {};
-      }),
-    };
-
-    vi.mocked(createClient).mockResolvedValue(mockSupabase as any);
-
-    const jsx = await OverviewPage();
-    const rendered = renderToStaticMarkup(jsx);
-
-    expect(rendered).toContain("—");
-    expect(rendered).not.toContain("0 drafts currently waiting for review.");
+    expect(html).toContain("Paused");
+    expect(html).toContain("The workspace is paused");
   });
 
-  it("correctly displays paused state when workspace is paused", async () => {
-    const { requireWorkspace } = await import("@/lib/auth/workspace");
-    const { createClient } = await import("@/lib/supabase/server");
+  it("shows the private beta entitlement without claiming unsupported capabilities", async () => {
+    const { supabase } = makeSupabase();
+    mocks.createClient.mockResolvedValue(supabase);
+    mocks.requireWorkspace.mockResolvedValue({ ...workspace, entitlement_type: "internal_beta" });
+    const html = renderToStaticMarkup(await OverviewPage());
 
-    vi.mocked(requireWorkspace).mockResolvedValue({
-      ...baseWorkspace,
-      state: "paused",
-      paused_at: new Date().toISOString(),
-    });
-
-    const mockSupabase = {
-      from: vi.fn(() => ({
-        select: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({
-            in: vi.fn().mockResolvedValue({ count: 0, error: null }),
-            eq: vi.fn().mockResolvedValue({ count: 0, error: null }),
-            order: vi.fn().mockReturnValue({
-              limit: vi.fn().mockResolvedValue({ data: [], error: null }),
-            }),
-            then: (resolve: any) => resolve({ count: 0, error: null }),
-          }),
-        }),
-      })),
-    };
-
-    vi.mocked(createClient).mockResolvedValue(mockSupabase as any);
-
-    const jsx = await OverviewPage();
-    const rendered = renderToStaticMarkup(jsx);
-
-    expect(rendered).toContain("Paused");
-    expect(rendered).toContain("All background jobs and publishing are halted.");
-  });
-
-  it("renders Private Beta badge and active notice for provisioned beta workspaces", async () => {
-    const { requireWorkspace } = await import("@/lib/auth/workspace");
-    const { createClient } = await import("@/lib/supabase/server");
-
-    vi.mocked(requireWorkspace).mockResolvedValue({
-      ...baseWorkspace,
-      entitlement_type: "internal_beta",
-    });
-
-    const mockSupabase = {
-      from: vi.fn(() => ({
-        select: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({
-            in: vi.fn().mockResolvedValue({ count: 1, error: null }),
-            eq: vi.fn().mockResolvedValue({ count: 1, error: null }),
-            order: vi.fn().mockReturnValue({
-              limit: vi.fn().mockResolvedValue({ data: [], error: null }),
-            }),
-            then: (resolve: any) => resolve({ count: 2, error: null }),
-          }),
-        }),
-      })),
-    };
-
-    vi.mocked(createClient).mockResolvedValue(mockSupabase as any);
-
-    const jsx = await OverviewPage();
-    const rendered = renderToStaticMarkup(jsx);
-
-    expect(rendered).toContain("Private Beta");
-    expect(rendered).toContain("Full v1.0.0 access");
-    expect(rendered).not.toContain("Start Your Free Trial");
+    expect(html).toContain("Private Beta");
+    expect(html).toContain("Your workspace has private-beta access");
+    expect(html).not.toContain("Full v1.0.0 access");
   });
 });

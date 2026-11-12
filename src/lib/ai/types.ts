@@ -33,6 +33,7 @@ export interface DraftGenerationRequest {
   strategy?: ContentStrategyContext;
   userRole?: string;
   companyName?: string;
+  revision?: { previousDraft: string; instruction: string };
 }
 
 export interface DraftGenerationResult {
@@ -59,7 +60,9 @@ export interface PlanGenerationRequest {
   periodDays: number;  // 7 or 14
   cadencePerWeek: number; // 1 to 7
   preferredDays?: number[]; // 0=Sun .. 6=Sat
+  preferredTime?: string | null; // local wall-clock preference in the strategy timezone
   strategy: ContentStrategyContext;
+  voiceProfile?: VoiceProfileContext;
   userRole?: string;
 }
 
