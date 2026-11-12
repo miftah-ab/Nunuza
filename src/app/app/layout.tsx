@@ -41,6 +41,8 @@ export default async function AppLayout({
     return (
       <div className="min-h-screen bg-offwhite">
         <main id="main-content" className="p-4 sm:p-6 lg:p-8">
+          <div className="mb-5 flex justify-end"><NotificationBell /></div>
+          <NotificationPrompt />
           {children}
         </main>
       </div>
