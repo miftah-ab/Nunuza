@@ -24,6 +24,13 @@ import {
 
 export const runtime = "nodejs";
 
+// Keep the resource identifier identical in the verifier and bearer-auth gate.
+// The SDK's expectedResource check requires AuthInfo.resource to be populated.
+const mcpResourceUrl = new URL(
+  process.env.MCP_RESOURCE_URL || "/api/mcp",
+  process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+);
+
 type NunuzaAuthInfo = AuthInfo & {
   workspaceId: string;
   userId: string;
@@ -46,6 +53,7 @@ const verifier: OAuthTokenVerifier = {
       token,
       clientId: credential.id,
       scopes: credential.scopes,
+      resource: mcpResourceUrl,
       // Legacy workspace keys have no expiry; they are checked against the
       // credential table on every request and can be revoked immediately.
       expiresAt: credential.expiresAt ?? 253402300799,
@@ -145,8 +153,7 @@ async function handleMcpRequest(request: NextRequest): Promise<Response> {
     );
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin;
-  const resourceUrl = new URL(process.env.MCP_RESOURCE_URL || "/api/mcp", appUrl);
+  const resourceUrl = mcpResourceUrl;
   const gate = requireBearerAuth({
     verifier,
     expectedResource: resourceUrl,
