@@ -109,7 +109,7 @@ export async function scanOwnPostComments(
     }),
   ]);
   if (localResult.error) throw new Error("Could not load published LinkedIn posts for engagement monitoring.");
-  const localByUrn = new Map((localResult.data ?? []).map((post: any) => [post.linkedin_post_id, post]));
+  const localByUrn = new Map<string, any>((localResult.data ?? []).map((post: any) => [String(post.linkedin_post_id), post] as const));
   const remotePosts = Array.isArray(remoteResult?.elements) ? remoteResult.elements : [];
   const posts = remotePosts
     .filter((post: any) => post.lifecycleState === "PUBLISHED" && safeUrn(post.id))
@@ -135,7 +135,7 @@ export async function scanOwnPostComments(
   for (const post of posts ?? []) {
     if (!safeUrn(post.linkedin_post_id)) continue;
     const encodedUrn = encodeURIComponent(post.linkedin_post_id);
-    const result = await linkedinRequest(token, `socialActions/${encodedUrn}/comments?count=50&start=0&sortOrder=LAST_MODIFIED`);
+    const result = await linkedinRequest(token, `socialActions/${encodedUrn}/comments?count=50&start=0`);
     const comments = Array.isArray(result?.elements) ? result.elements : [];
     scannedPosts++;
 
