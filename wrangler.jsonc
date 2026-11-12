@@ -23,7 +23,7 @@
     ]
   },
   "triggers": {
-    "crons": ["*/5 * * * *"]
+    "crons": ["*/5 * * * *", "* * * * *"]
   },
   "vars": {
     // Non-secret runtime configuration only.

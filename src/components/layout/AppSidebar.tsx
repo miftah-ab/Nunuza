@@ -11,6 +11,7 @@ import {
   Mic2,
   BarChart2,
   Activity,
+  Bell,
   Plug,
   Shield,
   Settings,
@@ -47,6 +48,7 @@ const navSections: NavSection[] = [
       { href: "/app/content", label: "Content", icon: FileText },
       { href: "/app/calendar", label: "Calendar", icon: Calendar },
       { href: "/app/activity", label: "Activity", icon: Activity },
+      { href: "/app/notifications", label: "Notifications", icon: Bell },
     ],
   },
   {
