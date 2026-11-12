@@ -4,9 +4,9 @@
  * Implements MCP Tools according to Model Context Protocol standards.
  * All tools are strictly workspace-scoped, tenant-isolated, and schema-validated.
  *
- * CRITICAL BINDING RULE (BED-11 / Spec §11):
- * - `approve_draft` is PROHIBITED in MCP. AI agents and MCP clients cannot approve
- *   their own drafts. Approval must only occur via web UI or verified Telegram.
+ * MCP approval is available only for explicit owner-directed actions. Claude must
+ * never approve autonomously; configure approve_draft as "Needs approval" in
+ * Claude Manual mode. Approval changes review status only; scheduling is separate.
  */
 
 import { getCalendarMonthPeriod, incrementDraftCounter } from "@/lib/db/usage";
@@ -138,6 +138,17 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     },
   },
   {
+    name: "approve_draft",
+    description: "Approve a specific draft only after the workspace owner explicitly instructs you in the current conversation. Never approve a draft autonomously or merely because Nunuza generated it. In Claude Manual mode, configure this tool as Needs approval. Approval changes the draft status only; it does not schedule or publish the post.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        draft_id: { type: "string", description: "UUID of the exact draft the owner explicitly approved" },
+      },
+      required: ["draft_id"],
+    },
+  },
+  {
     name: "reject_draft",
     description: "Mark a draft as rejected with an optional reason.",
     inputSchema: {
@@ -189,11 +200,6 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     },
   },
 ];
-
-// Verify at compile/runtime that approve_draft is NOT present
-if (MCP_TOOLS.some((t) => t.name === "approve_draft")) {
-  throw new Error("CRITICAL SECURITY VIOLATION: approve_draft tool is prohibited in MCP (BED-11).");
-}
 
 const READ_MCP_TOOL_NAMES = new Set([
   "get_agent_status", "get_content_plan", "list_drafts",
@@ -537,6 +543,56 @@ export async function executeMcpTool(
       });
 
       return { success: true, note: "Revision request recorded for draft." };
+    }
+
+    case "approve_draft": {
+      const { draft_id } = args;
+      if (!draft_id) throw new Error("draft_id is required");
+
+      const { data: workspace, error: workspaceError } = await supabase
+        .from("workspaces").select("entitlement_type").eq("id", workspaceId).single();
+      if (workspaceError || !workspace) throw new Error("Workspace not found");
+
+      if (workspace.owner_user_id !== userId) {
+        throw new Error("Only the workspace owner can approve drafts through MCP.");
+      }
+
+      const canApprove = ["internal_beta", "publishing_beta", "paid_trial", "paid_active"].includes(workspace.entitlement_type);
+      if (!canApprove) throw new Error("ENTITLEMENT_RESTRICTED: This workspace does not have approval and publishing access.");
+
+      const { data: post, error: findError } = await supabase
+        .from("content_posts").select("*").eq("id", draft_id).eq("workspace_id", workspaceId).single();
+      if (findError || !post) throw new Error("Draft not found or access denied");
+      if (post.status !== "draft" && post.status !== "needs_review") {
+        throw new Error(`Only drafts awaiting review can be approved. Current status: "${post.status}".`);
+      }
+
+      const { data: approved, error: approveError } = await supabase
+        .from("content_posts")
+        .update({ status: "approved", updated_at: new Date().toISOString() })
+        .eq("id", draft_id)
+        .eq("workspace_id", workspaceId)
+        .in("status", ["draft", "needs_review"])
+        .select().single();
+      if (approveError || !approved) throw new Error("Could not approve this draft. Refresh its status and try again.");
+
+      const { error: signalError } = await supabase.from("approval_events").insert({
+        workspace_id: workspaceId, post_id: draft_id, actor_type: "user", actor_id: userId,
+        action: "approved", reason: "Explicit owner approval through Claude MCP",
+      });
+      if (signalError) console.error("[mcp] Approval learning signal failed:", signalError.message);
+
+      const { error: auditError } = await supabase.from("audit_events").insert({
+        workspace_id: workspaceId, actor_type: "mcp", action: "draft_approved",
+        resource_type: "content_post", resource_id: draft_id,
+        safe_metadata: { approval_channel: "mcp", explicit_owner_instruction_required: true },
+      });
+      if (auditError) console.error("[mcp] Draft approval audit event failed:", auditError.message);
+
+      return {
+        success: true, message: "Draft approved. It is not scheduled or published.",
+        draft: approved, next_step: "Schedule only if the workspace owner explicitly requests it.",
+      };
     }
 
     case "reject_draft": {

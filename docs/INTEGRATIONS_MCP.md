@@ -15,7 +15,7 @@
 - [ ] All read and write tools implemented with strict input schemas
 - [ ] Cross-tenant access denial verified
 - [ ] Unapproved publishing denied
-- [ ] Schema/tool discovery contains no `approve_draft` tool
+- [x] `approve_draft` is exposed as an explicit owner-directed action; Claude Manual mode must set it to Needs approval
 - [ ] MCP gate passed → integration enabled for users
 
 Until this gate passes, the Integrations page shows only: "Integration not enabled."

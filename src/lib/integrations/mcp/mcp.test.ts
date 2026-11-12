@@ -140,29 +140,25 @@ class MockMcpDb {
             else if (table === "workspaces") targetRows = db.workspaces;
             else if (table === "content_posts") targetRows = db.contentPosts;
 
-            let filterCol: string | null = null;
-            let filterVal: any = null;
-            let isCol: string | null = null;
-            let isVal: any = null;
+            const filters: Array<(row: any) => boolean> = [];
 
             const chain = {
               eq(col: string, val: any) {
-                filterCol = col;
-                filterVal = val;
+                filters.push((row) => row[col] === val);
                 return chain;
               },
-              in(_col: string, _vals: any[]) {
+              in(col: string, values: any[]) {
+                filters.push((row) => values.includes(row[col]));
                 return chain;
               },
               is(col: string, val: any) {
-                isCol = col;
-                isVal = val;
+                filters.push((row) => val === null ? row[col] === null || row[col] === undefined : row[col] === val);
                 return chain;
               },
               select() {
                 return {
                   async single() {
-                    const r = targetRows.find((item) => (!filterCol || item[filterCol] === filterVal));
+                    const r = targetRows.find((item) => filters.every((filter) => filter(item)));
                     if (r) Object.assign(r, updates);
                     return { data: r || null, error: null };
                   },
@@ -170,10 +166,7 @@ class MockMcpDb {
               },
               then(resolve: any) {
                 targetRows.forEach((r) => {
-                  let match = true;
-                  if (filterCol && r[filterCol] !== filterVal) match = false;
-                  if (isCol && (isVal === null ? r[isCol] !== null && r[isCol] !== undefined : r[isCol] !== isVal)) match = false;
-                  if (match) {
+                  if (filters.every((filter) => filter(r))) {
                     Object.assign(r, updates);
                   }
                 });
@@ -195,13 +188,14 @@ describe("Remote MCP Integration", () => {
     mockDb = new MockMcpDb();
   });
 
-  describe("Schema Discovery & Prohibitions (BED-11 / Spec §11)", () => {
-    it("strictly DOES NOT expose approve_draft in MCP tool definitions", () => {
-      const toolNames = MCP_TOOLS.map((t) => t.name);
-      expect(toolNames).not.toContain("approve_draft");
-
-      const hasApprovalInName = MCP_TOOLS.some((t) => t.name.includes("approve"));
-      expect(hasApprovalInName).toBe(false);
+  describe("Schema Discovery & Approval Controls", () => {
+    it("exposes approve_draft as a separate owner-directed action", () => {
+      const toolNames = MCP_TOOLS.map((tool) => tool.name);
+      expect(toolNames).toContain("approve_draft");
+      const approvalTool = MCP_TOOLS.find((tool) => tool.name === "approve_draft");
+      expect(approvalTool?.inputSchema.required).toContain("draft_id");
+      expect(approvalTool?.description).toContain("explicitly instructs");
+      expect(approvalTool?.description).toContain("does not schedule or publish");
     });
 
     it("exposes all required read and write tools with valid schemas", () => {
@@ -224,6 +218,33 @@ describe("Remote MCP Integration", () => {
       expect(toolNames).toContain("resume_agent");
       expect(toolNames).toContain("schedule_post");
       expect(toolNames).toContain("cancel_scheduled_post");
+    });
+  });
+
+  describe("Explicit MCP draft approval", () => {
+    it("approves a workspace-owned review draft when entitlement permits it", async () => {
+      mockDb.contentPosts.push({
+        id: "post-3", workspace_id: "ws-bbb", text: "Draft B awaiting review",
+        internal_title: "Hook B review", version: 1, status: "needs_review",
+        created_at: new Date().toISOString(),
+      });
+      const result = await executeMcpTool("approve_draft", { draft_id: "post-3" },
+        { workspaceId: "ws-bbb", userId: "user-bbb", scopes: ["write"] }, mockDb.createClient());
+      expect(result.success).toBe(true);
+      expect(result.draft.status).toBe("approved");
+      expect(result.next_step).toContain("explicitly requests");
+    });
+
+    it("rejects approval for draft-only workspaces", async () => {
+      await expect(executeMcpTool("approve_draft", { draft_id: "post-1" },
+        { workspaceId: "ws-aaa", userId: "user-aaa", scopes: ["write"] }, mockDb.createClient()))
+        .rejects.toThrow("does not have approval and publishing access");
+    });
+
+    it("rejects posts that are not awaiting review", async () => {
+      await expect(executeMcpTool("approve_draft", { draft_id: "post-2" },
+        { workspaceId: "ws-bbb", userId: "user-bbb", scopes: ["write"] }, mockDb.createClient()))
+        .rejects.toThrow("Only drafts awaiting review can be approved");
     });
   });
 
