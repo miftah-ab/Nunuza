@@ -21,7 +21,7 @@ import { createClient } from "@/lib/supabase/server";
 export class AuthError extends Error {
   readonly code = "AUTH_REQUIRED";
   constructor() {
-    super("Authentication required.");
+    super("Your session may have expired. Please sign in again.");
     this.name = "AuthError";
   }
 }
@@ -37,9 +37,7 @@ export class ForbiddenError extends Error {
 export class EntitlementError extends Error {
   readonly code: string;
   constructor(required: string, actual: string) {
-    super(
-      `This action requires ${required} entitlement. Current: ${actual}.`
-    );
+    super("This feature isn’t included in your current plan. Review your plan to see available options.");
     this.name = "EntitlementError";
     this.code = "SUBSCRIPTION_INACTIVE";
   }
@@ -133,7 +131,7 @@ export async function requireWorkspace(): Promise<Workspace> {
     console.error("[requireWorkspace] Self-healing workspace provisioning failed:", healError);
   }
 
-  throw new ForbiddenError("Workspace not found.");
+  throw new ForbiddenError("We couldn’t open your workspace. Please refresh and try again.");
 }
 
 /**
