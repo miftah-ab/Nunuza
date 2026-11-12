@@ -14,7 +14,8 @@ export async function GET() {
     ]);
     if (items.error || unread.error) throw new Error("Notification inbox unavailable.");
     return NextResponse.json({ notifications: items.data ?? [], unreadCount: unread.count ?? 0 });
-  } catch {
+  } catch (error) {
+    console.error("[notifications] Inbox load failed:", error);
     return NextResponse.json({ error: "We couldn’t load your notifications. Please refresh and try again." }, { status: 500 });
   }
 }
@@ -37,7 +38,8 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Choose a notification first." }, { status: 400 });
     }
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (error) {
+    console.error("[notifications] Inbox update failed:", error);
     return NextResponse.json({ error: "We couldn’t update this notification. Please try again." }, { status: 500 });
   }
 }
