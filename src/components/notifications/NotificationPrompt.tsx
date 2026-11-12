@@ -58,6 +58,9 @@ export function NotificationPrompt() {
     const dismissed = sessionStorage.getItem(DISMISSED_KEY) === "1";
     if (!dismissed) setVisible(true);
     if ("Notification" in window && Notification.permission === "granted") {
+      // Keep the prompt visible until an existing browser permission is
+      // successfully registered with this workspace.
+      setVisible(true);
       void activate().then((ok) => { if (active && ok) setVisible(false); });
     }
     return () => { active = false; };
