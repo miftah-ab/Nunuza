@@ -184,7 +184,7 @@ export async function scanOwnPostComments(
           ...(Array.isArray(strategy?.exclusions) ? strategy.exclusions : []),
           ...(Array.isArray(voice?.exclusions) ? voice.exclusions : []),
           ...(Array.isArray(voice?.phrases_avoid) ? voice.phrases_avoid : []),
-        ]);
+        ], "reply");
       } catch (err) {
         if (err instanceof VoiceConstraintError || err instanceof StrategyExclusionError) {
           ignored++;
