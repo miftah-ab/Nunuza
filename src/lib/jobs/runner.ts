@@ -423,7 +423,7 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
             await transitionJob(supabase, job.id, "running", "needs_reconciliation", {
               lease_until: null,
               last_error_code: "PUBLISHED_POST_ID_MISSING",
-              safe_error_message: "The post is marked published but has no confirmed LinkedIn post ID. Reconciliation is required.",
+              safe_error_message: "We couldn’t confirm the published post. Check your LinkedIn profile and confirm its status in Nunuza.",
             }, { attemptCount: job.attempt_count, leaseUntil: job.lease_until ?? undefined });
           } else {
             await transitionJob(supabase, job.id, "running", "succeeded", {
@@ -499,7 +499,7 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
           scheduled_for: nowIso,
           lease_until: null,
           last_error_code: "LEASE_EXPIRED",
-          safe_error_message: "Worker lease expired. Re-enqueued for retry.",
+          safe_error_message: "A task was interrupted and has been queued to try again.",
         }, { attemptCount: job.attempt_count, leaseUntil: job.lease_until ?? undefined });
       }
       reconciledCount++;
