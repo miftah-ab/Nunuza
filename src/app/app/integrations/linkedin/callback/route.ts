@@ -20,14 +20,15 @@ export async function GET(request: NextRequest) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
   if (errorParam) {
+    console.warn("[linkedin] Connection could not be completed:", { error: errorParam, description: errorDescription });
     const redirectUrl = new URL("/app/integrations", baseUrl);
-    redirectUrl.searchParams.set("error", errorDescription ?? errorParam);
+    redirectUrl.searchParams.set("error", "LinkedIn connection wasn’t completed. Please try again and approve the requested access.");
     return NextResponse.redirect(redirectUrl);
   }
 
   if (!code || !state) {
     const redirectUrl = new URL("/app/integrations", baseUrl);
-    redirectUrl.searchParams.set("error", "Missing OAuth authorization code or state.");
+    redirectUrl.searchParams.set("error", "We couldn’t complete the LinkedIn connection. Please try again.");
     return NextResponse.redirect(redirectUrl);
   }
 
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
 
   if (!savedState || savedState !== state) {
     const redirectUrl = new URL("/app/integrations", baseUrl);
-    redirectUrl.searchParams.set("error", "Invalid or expired OAuth state parameter (CSRF detected).");
+    redirectUrl.searchParams.set("error", "Your connection request expired. Please start again.");
     return NextResponse.redirect(redirectUrl);
   }
 
@@ -53,11 +54,9 @@ export async function GET(request: NextRequest) {
     redirectUrl.searchParams.set("connected", "linkedin");
     return NextResponse.redirect(redirectUrl);
   } catch (err: unknown) {
+    console.error("[linkedin] Connection could not be completed:", err);
     const redirectUrl = new URL("/app/integrations", baseUrl);
-    redirectUrl.searchParams.set(
-      "error",
-      err instanceof Error ? err.message : "Failed to complete LinkedIn connection."
-    );
+    redirectUrl.searchParams.set("error", "We couldn’t connect LinkedIn. Please try again. If the problem continues, contact support.");
     return NextResponse.redirect(redirectUrl);
   }
 }
