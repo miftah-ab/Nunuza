@@ -264,15 +264,33 @@ export async function executeMcpTool(
     }
 
     case "get_content_plan": {
-      const { data: plan } = await supabase
-        .from("content_plans")
-        .select("*")
-        .eq("workspace_id", workspaceId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      // The agent's operational strategy is stored in content_strategies.
+      // content_plans is a separate generated-calendar table and may be empty
+      // even when onboarding strategy is configured.
+      const [{ data: strategy, error: strategyError }, { data: voice, error: voiceError }] =
+        await Promise.all([
+          supabase.from("content_strategies").select("*").eq("workspace_id", workspaceId).maybeSingle(),
+          supabase.from("voice_profiles").select("*").eq("workspace_id", workspaceId).maybeSingle(),
+        ]);
 
-      return plan || { note: "No active content plan found for this workspace." };
+      if (strategyError || voiceError) {
+        throw new Error("Could not load the workspace content strategy.");
+      }
+
+      if (!strategy) {
+        return {
+          configured: false,
+          note: "No content strategy is configured yet. Use the workspace's existing profile and content history where available; ask the owner to complete strategy setup only when essential context is genuinely missing.",
+          voice_profile_configured: Boolean(voice),
+          voice_profile: voice,
+        };
+      }
+
+      return {
+        configured: true,
+        strategy,
+        voice_profile: voice,
+      };
     }
 
     case "list_drafts": {
