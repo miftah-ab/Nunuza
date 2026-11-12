@@ -148,3 +148,62 @@ The following evidence must be recorded before any live publishing gate can pass
 - [ ] Reconciliation / duplicate-safety test evidence
 - [ ] Reconnect behavior test
 - [ ] Failure test evidence (401 handling, 429 backoff)
+
+
+---
+
+## Organic media publishing (2026-11)
+
+Nunuza supports these personal-profile organic formats:
+
+| Nunuza format | LinkedIn Posts API content | Organic support |
+|---|---|---|
+| Text only | Commentary only | Yes |
+| Image carousel | `content.multiImage.images` | Yes, 2–20 images |
+| PDF document | `content.media.id` with a document URN | Yes |
+| Commentary + either media format | Commentary plus the corresponding content object | Yes |
+
+**Important terminology:** LinkedIn's dedicated Carousel API is sponsored-only. Do not use it for organic profile posts or market organic MultiImage as the sponsored Carousel API. The organic MultiImage API accepts 2–20 images, and all images must be owned by the author. One image is a normal image post, not a MultiImage post.
+
+### Image upload flow
+
+For every slide, initialize an image upload with:
+
+```http
+POST https://api.linkedin.com/rest/images?action=initializeUpload
+Authorization: Bearer {ACCESS_TOKEN}
+LinkedIn-Version: {LINKEDIN_API_VERSION}
+X-Restli-Protocol-Version: 2.0.0
+Content-Type: application/json
+
+{
+  "initializeUploadRequest": {
+    "owner": "urn:li:person:{MEMBER_ID}"
+  }
+}
+```
+
+Upload the bytes to the returned `value.uploadUrl` using HTTP PUT. Retain the returned `value.image` URN. Do not assume that an initialized upload is ready for a post; the asset must finish processing. The member token may not have permission to GET versioned image resources, so do not make a GET-based readiness check a hard requirement without verifying the app's actual access. Use the supported upload/post response behavior and handle rejected or processing assets safely.
+
+Create the organic multi-image post using `POST /rest/posts` and `content.multiImage.images`, with 2–20 image URNs and optional alt text. Persist the post URN only after LinkedIn returns a trustworthy `x-restli-id`.
+
+### PDF document flow
+
+A PDF is a document post, not the dedicated sponsored Carousel API. Initialize a document upload through the Documents API, transfer the PDF to its returned upload URL, and create the organic post with the resulting `urn:li:document:{id}` in `content.media.id`. Validate the PDF signature, size, and page constraints before upload. Do not accept arbitrary URLs as uploaded media.
+
+### Product and safety contract
+
+- Caption/commentary is optional for image and PDF-only posts; text-only posts require non-empty text.
+- Image carousel: 2–20 images. Validate MIME type and actual file signature; do not trust the browser-provided MIME type alone.
+- Store media in private workspace-scoped storage. Never use public storage URLs for source files.
+- Check workspace ownership on every upload, reorder, delete, preview, and publish operation.
+- Media edits invalidate approval and return the post to draft.
+- Publishing must reuse the existing entitlement, approval, daily/weekly caps, durable job, idempotency and reconciliation state machine.
+- A timeout or server error after a post request is sent is ambiguous. Do not retry blindly; transition to reconciliation.
+- Do not claim the live media publishing gate has passed until the actual connected member account has completed acceptance tests for both MultiImage and PDF document posts.
+
+**Official references (checked 2026-11-12):**
+- Posts API: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-06
+- Images API: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api?view=li-lms-2026-06
+- MultiImage API: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/multiimage-post-api?view=li-lms-2026-06
+- Documents API: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/documents-api?view=li-lms-2026-06
