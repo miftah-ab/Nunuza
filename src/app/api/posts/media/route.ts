@@ -76,6 +76,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const uploadedPaths: string[] = [];
   let createdPostId: string | null = null;
+  let activePostId: string | null = null;
   let service: ReturnType<typeof createServiceClient> | null = null;
   try {
     const workspace = await requireWorkspace();
@@ -103,6 +104,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Only drafts can be edited. Return the post to draft before changing its slides." }, { status: 409 });
       }
       existingPost = data;
+      activePostId = postId;
       const { data: currentMedia, error: mediaError } = await service.from("content_post_media").select("*")
         .eq("workspace_id", workspace.id).eq("post_id", postId).order("sort_order", { ascending: true });
       if (mediaError) throw new Error("Existing slides could not be loaded.");
@@ -222,15 +224,6 @@ export async function POST(request: Request) {
       if (error) throw new Error("Slide order could not be saved.");
     }
 
-    const removed = oldMedia.filter((asset) => !keepSet.has(String(asset.id)));
-    if (removed.length) {
-      const { error } = await service.from("content_post_media").delete()
-        .eq("workspace_id", workspace.id).eq("post_id", post.id)
-        .in("id", removed.map((asset) => String(asset.id)));
-      if (error) throw new Error("Removed slides could not be updated.");
-      await service.storage.from(BUCKET).remove(removed.map((asset) => String(asset.storage_path)));
-    }
-
     const { data: updatedPost, error: updateError } = await service.from("content_posts").update({
       text: caption,
       internal_title: title || (format === "document" ? "PDF document" : format === "image_carousel" ? "Image carousel" : "Text post"),
@@ -242,6 +235,15 @@ export async function POST(request: Request) {
       .select("id, workspace_id, text, internal_title, status, post_format, version, created_at, updated_at").single();
     if (updateError || !updatedPost) throw new Error("The post could not be updated.");
 
+    const removed = oldMedia.filter((asset) => !keepSet.has(String(asset.id)));
+    if (removed.length) {
+      const { error } = await service.from("content_post_media").delete()
+        .eq("workspace_id", workspace.id).eq("post_id", post.id)
+        .in("id", removed.map((asset) => String(asset.id)));
+      if (error) throw new Error("Removed slides could not be updated.");
+      await service.storage.from(BUCKET).remove(removed.map((asset) => String(asset.storage_path)));
+    }
+
     const { data: media, error: mediaError } = await service.from("content_post_media")
       .select("id, media_type, storage_path, mime_type, byte_size, sort_order, alt_text, created_at")
       .eq("workspace_id", workspace.id).eq("post_id", post.id).order("sort_order", { ascending: true });
@@ -250,7 +252,10 @@ export async function POST(request: Request) {
       data: { post: { ...updatedPost, media: await signedMedia(service, (media ?? []) as Array<Record<string, unknown>>) } },
     }, { status: existingPost ? 200 : 201 });
   } catch (error) {
-    if (service && uploadedPaths.length) await service.storage.from(BUCKET).remove(uploadedPaths).catch(() => {});
+    if (service && uploadedPaths.length) {
+      if (activePostId) await service.from("content_post_media").delete().eq("workspace_id", (await requireWorkspace()).id).eq("post_id", activePostId).in("storage_path", uploadedPaths).catch(() => {});
+      await service.storage.from(BUCKET).remove(uploadedPaths).catch(() => {});
+    }
     if (service && createdPostId) await service.from("content_posts").delete().eq("id", createdPostId).catch(() => {});
     return apiError(error);
   }
