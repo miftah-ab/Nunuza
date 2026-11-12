@@ -56,6 +56,18 @@ INSERT INTO public.engagement_actions(
  repeat('a',64),'awaiting_approval'
 );
 
+INSERT INTO public.engagement_actions(
+ id,workspace_id,action_type,target_kind,target_post_urn,parent_post_urn,parent_comment_urn,
+ source_comment_urn,draft_text,draft_hash,status
+) VALUES (
+ '00000000-0000-0000-0000-000000000021',
+ '00000000-0000-0000-0000-000000000010',
+ 'reply','own_post_comment','urn:li:activity:123','urn:li:activity:123',
+ 'urn:li:comment:(urn:li:activity:123,789)',
+ 'urn:li:comment:(urn:li:activity:123,789)','A thoughtful reply.',
+ repeat('b',64),'awaiting_approval'
+);
+
 -- Only the workspace owner can configure engagement, and the daily cap is bounded.
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
