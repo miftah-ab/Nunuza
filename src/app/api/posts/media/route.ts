@@ -22,6 +22,7 @@ function detectMime(bytes: Uint8Array): string | null {
 export async function POST(request: Request) {
   const uploadedPaths: string[] = [];
   let createdPostId: string | null = null;
+  let service: ReturnType<typeof createServiceClient> | null = null;
   try {
     const workspace = await requireWorkspace();
     const form = await request.formData();
@@ -54,13 +55,13 @@ export async function POST(request: Request) {
       validated.push({ file, bytes, mime, ext: mime === "image/jpeg" ? "jpg" : mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "pdf" });
     }
 
-    const service = createServiceClient();
+    service = createServiceClient();
     const postFormat: Format = format;
     const { data: post, error: postError } = await service
       .from("content_posts")
       .insert({
         workspace_id: workspace.id,
-        text: caption || null,
+        text: caption,
         internal_title: title || (format === "document" ? "PDF document" : "Image carousel"),
         status: "draft",
         post_format: postFormat,
@@ -98,7 +99,7 @@ export async function POST(request: Request) {
     const { data: media, error: mediaError } = await service
       .from("content_post_media")
       .insert(rows)
-      .select("id, media_type, mime_type, byte_size, sort_order, alt_text, created_at");
+      .select("id, media_type, storage_path, mime_type, byte_size, sort_order, alt_text, created_at");
     if (mediaError || !media) throw new Error("Your media could not be attached to the post.");
 
     return NextResponse.json({
@@ -108,9 +109,8 @@ export async function POST(request: Request) {
       },
     }, { status: 201 });
   } catch (error) {
-    const service = createServiceClient();
-    if (uploadedPaths.length) await service.storage.from(BUCKET).remove(uploadedPaths).catch(() => {});
-    if (createdPostId) await service.from("content_posts").delete().eq("id", createdPostId).catch(() => {});
+    if (service && uploadedPaths.length) await service.storage.from(BUCKET).remove(uploadedPaths).catch(() => {});
+    if (service && createdPostId) await service.from("content_posts").delete().eq("id", createdPostId).catch(() => {});
     return apiError(error);
   }
 }
