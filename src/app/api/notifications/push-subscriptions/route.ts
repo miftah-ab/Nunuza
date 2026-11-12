@@ -23,7 +23,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid notification subscription." }, { status: 400 });
     }
     const db = createServiceClient();
-    const { error } = await db.from("web_push_subscriptions").upsert({
+    const { data: existing, error: lookupError } = await db.from("web_push_subscriptions")
+      .select("id,workspace_id").eq("endpoint", body.endpoint).maybeSingle();
+    if (lookupError) throw lookupError;
+    if (existing && existing.workspace_id !== workspace.id) {
+      return NextResponse.json({ error: "This device is already linked to another workspace." }, { status: 409 });
+    }
+    const values = {
       workspace_id: workspace.id,
       user_id: workspace.owner_user_id,
       endpoint: body.endpoint,
@@ -31,8 +37,11 @@ export async function POST(request: Request) {
       auth_secret: body.keys.auth,
       expiration_time: typeof body.expirationTime === "number" ? body.expirationTime : null,
       updated_at: new Date().toISOString(),
-    }, { onConflict: "endpoint" });
-    if (error) throw error;
+    };
+    const write = existing
+      ? await db.from("web_push_subscriptions").update(values).eq("id", existing.id).eq("workspace_id", workspace.id)
+      : await db.from("web_push_subscriptions").insert(values);
+    if (write.error) throw write.error;
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: "Could not enable notifications." }, { status: 500 });
