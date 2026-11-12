@@ -217,7 +217,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
   };
 
   const handleRevokeMcpKey = async () => {
-    if (!confirm("Are you sure you want to revoke your MCP key? External agents will lose access immediately.")) {
+    if (!confirm("Are you sure you want to remove this connection? Connected AI tools will lose access immediately.")) {
       return;
     }
 
