@@ -1,86 +1,16 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  LayoutDashboard,
-  FileText,
-  Calendar,
-  Target,
-  Mic2,
-  BarChart2,
-  Activity,
-  Bell,
-  Plug,
-  Shield,
-  Settings,
-  CreditCard,
-  LogOut,
-  Menu,
-  X,
-  ChevronRight,
-} from "lucide-react";
+import { LogOut, ChevronRight } from "lucide-react";
 import { Logo } from "@/components/layout/Logo";
 import { cn } from "@/lib/utils";
+import { ENTITLEMENT_LABELS, isActivePath, navSections } from "@/components/layout/nav-items";
 import type { Workspace } from "@/types/database";
 
 interface AppSidebarProps {
   workspace: Workspace | null;
 }
-
-interface NavItem {
-  href: string;
-  label: string;
-  icon: typeof LayoutDashboard;
-}
-
-interface NavSection {
-  title: string;
-  items: NavItem[];
-}
-
-const navSections: NavSection[] = [
-  {
-    title: "Workspace",
-    items: [
-      { href: "/app/overview", label: "Overview", icon: LayoutDashboard },
-      { href: "/app/content", label: "Content", icon: FileText },
-      { href: "/app/calendar", label: "Calendar", icon: Calendar },
-      { href: "/app/activity", label: "Activity", icon: Activity },
-      { href: "/app/notifications", label: "Notifications", icon: Bell },
-    ],
-  },
-  {
-    title: "Strategy",
-    items: [
-      { href: "/app/permissions", label: "Autopilot", icon: Shield },
-      { href: "/app/strategy", label: "Strategy", icon: Target },
-      { href: "/app/voice", label: "Voice", icon: Mic2 },
-      { href: "/app/performance", label: "Performance", icon: BarChart2 },
-    ],
-  },
-  {
-    title: "Account",
-    items: [
-      { href: "/app/integrations", label: "Integrations", icon: Plug },
-      { href: "/app/settings", label: "Settings", icon: Settings },
-      { href: "/app/billing", label: "Billing", icon: CreditCard },
-    ],
-  },
-];
-
-const ENTITLEMENT_LABELS: Record<string, { label: string; color: string }> = {
-  internal_beta: { label: "Private Beta", color: "bg-forest-light text-forest border-forest-muted" },
-  publishing_beta: { label: "Private Beta", color: "bg-forest-light text-forest border-forest-muted" },
-  internal_test: { label: "Internal Beta", color: "bg-forest-light text-forest border-forest-muted" },
-  paid_trial: { label: "Trial Active", color: "bg-success-light text-success border-success/20" },
-  paid_active: { label: "Nunuza Solo", color: "bg-success-light text-success border-success/20" },
-  suspended: { label: "Suspended", color: "bg-error-light text-error border-error/20" },
-  expired: { label: "Trial Expired", color: "bg-error-light text-error border-error/20" },
-  draft_only: { label: "Onboarding", color: "bg-surface text-ink-secondary border-border" },
-  inactive: { label: "Inactive", color: "bg-surface text-ink-secondary border-border" },
-};
 
 function WorkspaceInfo({
   workspace,
@@ -124,13 +54,12 @@ function SignOutButton({ className }: { className?: string }) {
 
 export function AppSidebar({ workspace }: AppSidebarProps) {
   const pathname = usePathname();
-  const [mobileOpen, setMobileOpen] = useState(false);
 
   const entitlement = workspace
     ? (ENTITLEMENT_LABELS[workspace.entitlement_type] ?? { label: workspace.entitlement_type, color: "bg-surface text-ink-secondary border-border" })
     : null;
 
-  const renderNavLinks = (onItemClick?: () => void) => (
+  const renderNavLinks = () => (
     <nav aria-label="Application navigation" className="flex-1 overflow-y-auto py-4 px-3 space-y-5">
       {navSections.map((section) => (
         <div key={section.title}>
@@ -139,12 +68,11 @@ export function AppSidebar({ workspace }: AppSidebarProps) {
           </p>
           <ul role="list" className="space-y-0.5">
             {section.items.map(({ href, label, icon: Icon }) => {
-              const active = pathname === href || pathname.startsWith(href + "/");
+              const active = isActivePath(pathname, href);
               return (
                 <li key={href}>
                   <Link
                     href={href}
-                    onClick={onItemClick}
                     aria-current={active ? "page" : undefined}
                     className={cn(
                       "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
@@ -174,62 +102,15 @@ export function AppSidebar({ workspace }: AppSidebarProps) {
 
   return (
     <>
-      {/* ─── Mobile Header (< md) ─── */}
-      <header className="md:hidden flex items-center justify-between h-14 px-4 bg-white border-b border-border sticky top-0 z-40">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setMobileOpen(true)}
-            aria-label="Open navigation menu"
-            aria-expanded={mobileOpen}
-            className="p-2 rounded-lg text-ink-secondary hover:bg-surface hover:text-ink transition-colors"
-          >
-            <Menu size={20} />
-          </button>
-          <Logo height={22} />
-        </div>
-
+      {/* ─── Mobile header (< md). Navigation lives in the bottom tab bar. ─── */}
+      <header className="md:hidden flex items-center justify-between h-14 px-4 bg-white border-b border-border sticky top-0 z-30">
+        <Logo height={22} />
         {entitlement && (
           <span className={cn("text-[11px] px-2 py-0.5 rounded-full border font-medium", entitlement.color)}>
             {entitlement.label}
           </span>
         )}
       </header>
-
-      {/* ─── Mobile Slide-over Drawer ─── */}
-      {mobileOpen && (
-        <div className="md:hidden fixed inset-0 z-50 flex" role="dialog" aria-modal="true" aria-label="Navigation menu">
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 bg-ink/30 backdrop-blur-sm"
-            onClick={() => setMobileOpen(false)}
-            aria-hidden="true"
-          />
-
-          {/* Drawer */}
-          <div className="relative flex flex-col max-w-[280px] w-full bg-white shadow-xl animate-slide-in">
-            {/* Drawer header */}
-            <div className="h-14 flex items-center justify-between px-4 border-b border-border shrink-0">
-              <Logo height={22} />
-              <button
-                type="button"
-                onClick={() => setMobileOpen(false)}
-                aria-label="Close navigation menu"
-                className="p-2 rounded-lg text-ink-secondary hover:bg-surface hover:text-ink transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <WorkspaceInfo workspace={workspace} entitlement={entitlement} />
-            {renderNavLinks(() => setMobileOpen(false))}
-
-            <div className="p-3 border-t border-border">
-              <SignOutButton />
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ─── Desktop Sidebar (md+) ─── */}
       <aside
