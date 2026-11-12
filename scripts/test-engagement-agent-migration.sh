@@ -17,9 +17,23 @@ AS $fn$ SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid 
 GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated;
 CREATE TABLE public.profiles(id uuid PRIMARY KEY);
 CREATE TABLE public.workspaces(id uuid PRIMARY KEY, owner_user_id uuid NOT NULL REFERENCES public.profiles(id));
+CREATE TABLE public.agent_jobs(
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(), workspace_id uuid NOT NULL REFERENCES public.workspaces(id),
+ job_type text NOT NULL, status text NOT NULL, idempotency_key text NOT NULL UNIQUE,
+ payload jsonb NOT NULL, scheduled_for timestamptz NOT NULL, attempt_count integer NOT NULL, max_attempts integer NOT NULL
+);
+CREATE TABLE public.integration_connections(
+ workspace_id uuid NOT NULL REFERENCES public.workspaces(id), provider text NOT NULL,
+ status text NOT NULL, granted_scopes text[]
+);
+CREATE TABLE public.telegram_links(
+ workspace_id uuid NOT NULL REFERENCES public.workspaces(id), telegram_user_id bigint NOT NULL,
+ chat_id bigint NOT NULL, revoked_at timestamptz
+);
 SQL
 
 psql -v ON_ERROR_STOP=1 -f supabase/migrations/0021_engagement_agent_foundation.sql
+psql -v ON_ERROR_STOP=1 -f supabase/migrations/0022_engagement_approval_dispatch.sql
 
 psql -v ON_ERROR_STOP=1 <<'SQL'
 INSERT INTO public.profiles(id) VALUES
@@ -27,6 +41,10 @@ INSERT INTO public.profiles(id) VALUES
  ('00000000-0000-0000-0000-000000000002');
 INSERT INTO public.workspaces(id,owner_user_id) VALUES
  ('00000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-000000000001');
+INSERT INTO public.integration_connections(workspace_id,provider,status,granted_scopes)
+ VALUES ('00000000-0000-0000-0000-000000000010','linkedin','connected',ARRAY['w_member_social_feed']);
+INSERT INTO public.telegram_links(workspace_id,telegram_user_id,chat_id)
+ VALUES ('00000000-0000-0000-0000-000000000010',12345,67890);
 INSERT INTO public.engagement_actions(
  id,workspace_id,action_type,target_kind,target_post_urn,parent_post_urn,parent_comment_urn,
  draft_text,draft_hash,status
@@ -73,6 +91,9 @@ BEGIN
  WHERE id='00000000-0000-0000-0000-000000000020';
  IF v_status <> 'approved' OR v_hash <> repeat('a',64) THEN
    RAISE EXCEPTION 'Approval evidence was not persisted correctly';
+ END IF;
+ IF (SELECT count(*) FROM public.agent_jobs WHERE idempotency_key='engagement-publish-00000000-0000-0000-0000-000000000020') <> 1 THEN
+   RAISE EXCEPTION 'Approval did not enqueue exactly one publish job';
  END IF;
 END $$;
 
