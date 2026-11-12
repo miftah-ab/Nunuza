@@ -14,6 +14,7 @@
 
 import React, { useState } from "react";
 import { PostImageGenerator } from "@/components/content/PostImageGenerator";
+import { MediaPostComposer } from "@/components/content/MediaPostComposer";
 import type { ContentPost, PostStatus, Workspace } from "@/types/database";
 import {
   Sparkles,
@@ -500,6 +501,7 @@ export function ContentManager({
           >
             <Plus size={14} /> New Draft
           </button>
+          <MediaPostComposer onCreated={(post) => setPosts((prev) => [post, ...prev])} />
           <button
             onClick={() => setIsAiModalOpen(true)}
             className="btn-primary flex items-center gap-1.5 text-xs"
