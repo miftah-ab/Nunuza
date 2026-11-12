@@ -1,10 +1,17 @@
 {
-  "$schema": "https://raw.githubusercontent.com/cloudflare/wrangler/main/packages/wrangler/config-schema.json",
+  "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "nunuza",
   "main": "src/worker.ts",
-  "compatibility_date": "2026-01-01",
+  "compatibility_date": "2026-11-12",
   "compatibility_flags": ["nodejs_compat"],
-  "pages_build_output_dir": ".open-next/assets",
+  "upload_source_maps": true,
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
   "queues": {
     "producers": [
       {
@@ -26,9 +33,6 @@
     "crons": ["*/5 * * * *", "* * * * *"]
   },
   "vars": {
-    // Non-secret runtime configuration only.
-    // Secrets are supplied via `wrangler secret put` or Cloudflare dashboard.
-    // See .env.example for all required variable names.
-    "NEXT_PUBLIC_APP_ENV": "development"
+    "NEXT_PUBLIC_APP_ENV": "production"
   }
 }
