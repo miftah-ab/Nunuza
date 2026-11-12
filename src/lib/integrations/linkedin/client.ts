@@ -579,7 +579,7 @@ export async function publishMediaPostToLinkedIn(
       });
     } else {
       documentUrn = mediaUrn;
-      documentTitle = (asset.fileName || "Nunuza document.pdf").slice(0, 200);
+      documentTitle = (asset.fileName || "Nunuza document.pdf").replace(/[\\x00-\\x1F\\x7F]/g, "").slice(0, 200) || "Nunuza document.pdf";
     }
   }
 
