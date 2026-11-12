@@ -252,3 +252,12 @@ $$;
 CREATE TRIGGER trg_notify_subscription_status
 AFTER UPDATE OF status ON public.subscriptions
 FOR EACH ROW EXECUTE FUNCTION public.notify_subscription_status_change();
+
+
+-- Trigger functions are not public RPC endpoints.
+REVOKE ALL ON FUNCTION public.notify_post_status_change() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notify_agent_job_status_change() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notify_approval_event() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notify_integration_status_change() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notify_workspace_state_change() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notify_subscription_status_change() FROM PUBLIC, anon, authenticated;
