@@ -130,7 +130,7 @@ function helpReply(): TelegramConversationResult {
       "✍️ *Create a LinkedIn post by chatting with me.*\n\n" +
       "Tell me the topic, point of view, audience, or rough idea. I'll queue a draft using your workspace strategy and voice profile, then send it here when it is ready.\n\n" +
       "Then ask me to revise it naturally, for example: _make the opening stronger_, _shorten it_, or _add a practical example_.\n\n" +
-      "Your draft is saved in Nunuza. I never publish from a chat-generation request. Use /new to start another post. /cancel ends an idle chat session; an in-progress generation must finish first.",
+      "Your draft is saved in Nunuza. I never publish from a chat-generation request. Use /new to start another post. If a request is stuck before it starts, use /cancel to clear it and try again.",
   };
 }
 
@@ -161,13 +161,56 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
   if (expired && !state.pendingJobId) state = {};
 
   try {
+    // A queued job can be stranded when the worker is unavailable. Allow the
+    // owner to cancel only work that has not started; never cancel a running
+    // generation because it may already be producing or persisting a draft.
+    if (text === "/cancel") {
+      if (state.pendingJobId) {
+        const { data: pendingJob, error: pendingError } = await input.supabase.from("agent_jobs")
+          .select("id, status").eq("id", state.pendingJobId).eq("workspace_id", input.workspaceId).maybeSingle();
+        if (pendingError) throw new Error("Could not verify the pending content request.");
+        if (pendingJob?.status === "running") {
+          await releaseConversation(input, lockToken, state);
+          return { replyText: "Your post has already started, so I can't safely cancel it. I'll send the draft here when it's ready." };
+        }
+        if (pendingJob && ["queued", "failed_retryable"].includes(pendingJob.status)) {
+          const { error: cancelError } = await input.supabase.from("agent_jobs")
+            .update({
+              status: "canceled",
+              finished_at: new Date().toISOString(),
+              lease_until: null,
+              last_error_code: "USER_CANCELED",
+              safe_error_message: "This request was canceled by the user before generation started.",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", state.pendingJobId)
+            .eq("workspace_id", input.workspaceId)
+            .in("status", ["queued", "failed_retryable"]);
+          if (cancelError) throw new Error("Could not cancel the pending content request.");
+        }
+      }
+      await releaseConversation(input, lockToken, stateWithoutPending(state));
+      return { replyText: "Cancelled the request that had not started. Your existing drafts are unchanged. Send a new post idea whenever you're ready." };
+    }
+
+    if (text === "/new" && state.pendingJobId) {
+      await releaseConversation(input, lockToken, state);
+      return { replyText: "Your previous post is still in progress. If it has not started, send /cancel first; then you can start a new post." };
+    }
+
     if (state.pendingJobId) {
       const { data: pendingJob, error: pendingError } = await input.supabase.from("agent_jobs")
         .select("id, status").eq("id", state.pendingJobId).eq("workspace_id", input.workspaceId).maybeSingle();
       if (pendingError) throw new Error("Could not verify the pending content request.");
       if (pendingJob && ["queued", "running", "failed_retryable"].includes(pendingJob.status)) {
         await releaseConversation(input, lockToken, state);
-        return { replyText: "I'm still working on your previous post. Wait for my reply before starting another content request." };
+        if (pendingJob.status === "queued") {
+          return { replyText: "Your previous post hasn't started yet. The request is still saved. Send /cancel if you want to clear it and try again." };
+        }
+        if (pendingJob.status === "failed_retryable") {
+          return { replyText: "Your previous post hit a temporary issue and is waiting to retry. I'll update you when it finishes." };
+        }
+        return { replyText: "I'm still creating your previous post. I'll send the draft here when it's ready." };
       }
       if (pendingJob?.status === "succeeded" && state.activePostId) {
         await releaseConversation(input, lockToken, stateWithoutPending(state));
@@ -185,10 +228,6 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
       };
     }
 
-    if (text === "/cancel") {
-      await releaseConversation(input, lockToken, {});
-      return { replyText: "Cancelled this chat session. Any draft already saved in Nunuza is unchanged. Send a new idea whenever you're ready." };
-    }
     if (text === "/new") {
       await releaseConversation(input, lockToken, {});
       return { replyText: "Ready for a new post. Tell me what you want to write about." };
