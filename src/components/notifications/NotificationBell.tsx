@@ -18,7 +18,14 @@ export function NotificationBell() {
     };
     void refresh();
     const interval = window.setInterval(refresh, 30_000);
-    return () => { active = false; window.clearInterval(interval); };
+    // Keep the badge in sync immediately when an item is read in the inbox.
+    const onNotificationsUpdated = () => { void refresh(); };
+    window.addEventListener("nunuza:notifications-updated", onNotificationsUpdated);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener("nunuza:notifications-updated", onNotificationsUpdated);
+    };
   }, []);
   return (
     <Link
