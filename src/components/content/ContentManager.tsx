@@ -483,7 +483,7 @@ export function ContentManager({
         <div>
           <h1 className="text-2xl font-bold text-ink">Content & Drafts</h1>
           <p className="text-sm text-ink-secondary">
-            Manage your personal LinkedIn pipeline. Draft, review, and export from one place.
+            Manage your personal LinkedIn pipeline. Create, review, and publish from one place.
           </p>
         </div>
 
@@ -495,12 +495,7 @@ export function ContentManager({
           >
             <Download size={14} /> Export
           </button>
-          <button
-            onClick={() => setIsManualModalOpen(true)}
-            className="btn-secondary flex items-center gap-1.5 text-xs"
-          >
-            <Plus size={14} /> New Draft
-          </button>
+
           <MediaPostComposer onCreated={(post) => setPosts((prev) => [post, ...prev])} />
           <button
             onClick={() => setIsAiModalOpen(true)}
