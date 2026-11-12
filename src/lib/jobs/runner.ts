@@ -326,6 +326,9 @@ export async function processJob(
     );
   }
 
+  if (result.error) console.error("[runner] Job execution returned an error:", { jobId: liveJob.id, error: result.error });
+  const safeError = result.error ? safeJobErrorMessage(result.error) : null;
+
   if (after.status === "running") {
     if (result.success) {
       await transitionJob(supabase, liveJob.id, "running", "succeeded", {
