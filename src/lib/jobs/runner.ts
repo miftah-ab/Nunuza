@@ -239,8 +239,8 @@ export async function processJob(
     } else {
       const execute = () => handler(liveJob, supabase);
       const telegramChatId = (liveJob.payload as Record<string, unknown> | null)?.chatId;
-      result = Number.isSafeInteger(telegramChatId)
-        ? await withTelegramTyping(Number(telegramChatId), execute)
+      result = typeof telegramChatId === "number" && Number.isSafeInteger(telegramChatId)
+        ? await withTelegramTyping(telegramChatId, execute)
         : await execute();
     }
   } catch (err: any) {
