@@ -60,7 +60,7 @@ export function Hero({ startStep = 0 }: { startStep?: number }) {
             Telegram or the web. It drafts in your voice, you approve, and it publishes.
           </p>
           <div className="nz-hero-cta">
-            <Link href="/login" className="nz-btn nz-btn-gold">
+            <Link href="/login" className="nz-btn nz-btn-primary">
               Continue with Google
             </Link>
             <a href="#how" className="nz-btn nz-btn-ghost">
