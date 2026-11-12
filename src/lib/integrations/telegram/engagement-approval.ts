@@ -4,9 +4,9 @@ import { answerCallbackQuery, editTelegramMessage } from "./service";
 export async function handleEngagementApprovalCallback(input: {
   callbackQueryId: string; telegramUserId: number; chatId: number; messageId: number; data: string;
 }): Promise<boolean> {
-  const match = /^eng:(approve|reject):([0-9a-f-]{36})$/i.exec(input.data);
+  const match = /^eng:(approve|reject):([0-9a-f-]{36}):([a-f0-9]{15})$/i.exec(input.data);
   if (!match) return false;
-  const [, decision, actionId] = match;
+  const [, decision, actionId, draftHashPrefix] = match;
   const db = createServiceClient();
   const rpc = decision === "approve"
     ? "approve_engagement_action_telegram"
@@ -15,6 +15,7 @@ export async function handleEngagementApprovalCallback(input: {
     p_action_id: actionId,
     p_telegram_user_id: input.telegramUserId,
     p_chat_id: input.chatId,
+    p_draft_hash_prefix: draftHashPrefix,
   });
   if (error || data !== true) {
     await answerCallbackQuery(input.callbackQueryId, "This approval is expired or no longer available.");
