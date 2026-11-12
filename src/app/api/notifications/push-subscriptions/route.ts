@@ -47,7 +47,7 @@ export async function POST(request: Request) {
     if (write.error) throw write.error;
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("[notifications] Subscription registration failed:", error instanceof Error ? error.message : "unknown_error");
+    console.error("[notifications] Subscription registration failed:", error);
     return NextResponse.json({ error: "Could not enable notifications." }, { status: 500 });
   }
 }
@@ -63,7 +63,8 @@ export async function DELETE(request: Request) {
       .eq("workspace_id", workspace.id).eq("endpoint_hash", endpointHash);
     if (error) throw error;
     return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ error: "Could not remove notification subscription." }, { status: 500 });
+  } catch (error) {
+    console.error("[notifications] Subscription removal failed:", error);
+    return NextResponse.json({ error: "We couldn’t turn off notifications on this device. Please try again." }, { status: 500 });
   }
 }
