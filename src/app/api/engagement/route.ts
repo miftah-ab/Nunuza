@@ -12,7 +12,16 @@ export async function GET() {
       .eq("workspace_id", workspace.id)
       .order("created_at", { ascending: false }).limit(100);
     if (error) throw error;
-    return NextResponse.json({ actions: data ?? [] });
+    const { data: connection } = await db.from("integration_connections")
+      .select("status,expires_at,granted_scopes").eq("workspace_id", workspace.id)
+      .eq("provider", "linkedin").maybeSingle();
+    const scopes = Array.isArray(connection?.granted_scopes) ? connection.granted_scopes : [];
+    return NextResponse.json({ actions: data ?? [], capabilities: {
+      linkedinConnected: connection?.status === "connected",
+      canReadComments: connection?.status === "connected" && scopes.includes("r_member_social_feed"),
+      canWriteComments: connection?.status === "connected" && scopes.includes("w_member_social_feed"),
+      externalPostDiscovery: false,
+    } });
   } catch {
     return NextResponse.json({ error: "Could not load engagement actions." }, { status: 500 });
   }
@@ -28,6 +37,14 @@ export async function POST(request: Request) {
     }
     const db = await createClient();
     if (body.decision === "approve") {
+      const serviceDb = createServiceClient();
+      const { data: connection } = await serviceDb.from("integration_connections")
+        .select("status,expires_at,granted_scopes").eq("workspace_id", workspace.id)
+        .eq("provider", "linkedin").maybeSingle();
+      const scopes = Array.isArray(connection?.granted_scopes) ? connection.granted_scopes : [];
+      if (connection?.status !== "connected" || !scopes.includes("w_member_social_feed")) {
+        return NextResponse.json({ error: "LinkedIn comment publishing permission is not available on this connection yet." }, { status: 409 });
+      }
       if (typeof body.draftHash !== "string" || !/^[a-f0-9]{64}$/.test(body.draftHash)) {
         return NextResponse.json({ error: "Draft approval token is invalid." }, { status: 400 });
       }
