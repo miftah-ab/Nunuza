@@ -14,6 +14,7 @@
 
 import React, { useState } from "react";
 import { PostImageGenerator } from "@/components/content/PostImageGenerator";
+import { MediaPostComposer } from "@/components/content/MediaPostComposer";
 import type { ContentPost, PostStatus, Workspace } from "@/types/database";
 import {
   Sparkles,
@@ -23,6 +24,7 @@ import {
   CheckCircle2,
   AlertCircle,
   FileText,
+  FileImage,
   Trash2,
   Edit3,
   Calendar,
@@ -55,6 +57,7 @@ export function ContentManager({
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [editingPost, setEditingPost] = useState<ContentPost | null>(null);
+  const [editingMediaPost, setEditingMediaPost] = useState<ContentPost | null>(null);
 
   // AI Generation Form State
   const [aiTopic, setAiTopic] = useState("");
@@ -482,7 +485,7 @@ export function ContentManager({
         <div>
           <h1 className="text-2xl font-bold text-ink">Content & Drafts</h1>
           <p className="text-sm text-ink-secondary">
-            Manage your personal LinkedIn pipeline. Draft, review, and export from one place.
+            Manage your personal LinkedIn pipeline. Create, review, and publish from one place.
           </p>
         </div>
 
@@ -494,12 +497,12 @@ export function ContentManager({
           >
             <Download size={14} /> Export
           </button>
-          <button
-            onClick={() => setIsManualModalOpen(true)}
-            className="btn-secondary flex items-center gap-1.5 text-xs"
-          >
-            <Plus size={14} /> New Draft
-          </button>
+
+          <MediaPostComposer
+            editPost={editingMediaPost}
+            onEditClose={() => setEditingMediaPost(null)}
+            onCreated={(post) => setPosts((prev) => prev.some((item) => item.id === post.id) ? prev.map((item) => item.id === post.id ? post : item) : [post, ...prev])}
+          />
           <button
             onClick={() => setIsAiModalOpen(true)}
             className="btn-primary flex items-center gap-1.5 text-xs"
@@ -630,6 +633,16 @@ export function ContentManager({
                   >
                     <Edit3 size={15} />
                   </button>
+                  {post.post_format && post.post_format !== "text" && ["draft", "needs_review", "approved"].includes(post.status) && (
+                    <button
+                      onClick={() => setEditingMediaPost(post)}
+                      className="p-1.5 text-ink-secondary hover:text-forest rounded hover:bg-forest-light"
+                      title="Edit slides or document"
+                      aria-label="Edit slides or document"
+                    >
+                      <FileImage size={15} />
+                    </button>
+                  )}
                   <button
                     onClick={() => handleDeletePost(post.id)}
                     className="p-1.5 text-ink-secondary hover:text-error rounded hover:bg-error-light transition-colors"

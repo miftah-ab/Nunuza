@@ -101,9 +101,9 @@ The exact Next.js-on-Cloudflare compatibility must be proven before implementing
 
 ## BED-05. Content scope and roadmap decision
 
-v1 remains text-only for organic personal LinkedIn posts. This is deliberate scope control, not a claim that images/documents are unimportant. Do not expand to images, carousels, videos, company pages, or other platforms in v1.
+v1 supports three composer formats for organic personal LinkedIn posts: (1) text only, (2) media only, and (3) optional commentary plus media. Media formats are (a) organic MultiImage posts containing 2–20 images and (b) organic document posts containing a PDF. Do not call MultiImage posts the sponsored Carousel API; the dedicated LinkedIn Carousel API is sponsored-only. PDF documents are document posts and may render as swipeable pages in LinkedIn. Company pages, videos, and other platforms remain out of scope.
 
-Before adding media, the product must first demonstrate: reliable authorized publishing, durable scheduling, no duplicate posts, useful voice adherence, user trust in approval/autopilot, and evidence that the current workflow solves a real customer problem. Track media as a post-v1 roadmap candidate only; do not build it preemptively.
+The composer must support AI-created slide artwork, editable ready-made slide templates, and user-uploaded images. Users can add, remove, reorder, preview, and add accessible alt text to slides. PDF creation/export and PDF upload must be supported. Captions are optional for media-only posts. All media mutations invalidate prior approval and return the post to draft. Publishing media remains behind the same verified LinkedIn access, entitlement, approval, scheduling, idempotency, and reconciliation gates as text posts. LinkedIn's API currently requires 2–20 images for organic MultiImage; a single image remains a single-image post, not a carousel. Keep file validation, ownership checks, private storage, and upload/publish failures fail-closed.
 
 ## BED-06. Analytics and honest performance UI
 
