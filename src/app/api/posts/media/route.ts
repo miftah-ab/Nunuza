@@ -59,7 +59,7 @@ export async function GET(request: Request) {
     if (postError || !post) return NextResponse.json({ error: "Post not found." }, { status: 404 });
     const { data: media, error: mediaError } = await service
       .from("content_post_media")
-      .select("id, media_type, storage_path, mime_type, byte_size, sort_order, alt_text, created_at")
+      .select("id, media_type, storage_path, file_name, mime_type, byte_size, sort_order, alt_text, created_at")
       .eq("workspace_id", workspace.id)
       .eq("post_id", postId)
       .order("sort_order", { ascending: true });
@@ -200,7 +200,7 @@ export async function POST(request: Request) {
       newRows.push({
         workspace_id: workspace.id, post_id: post.id,
         media_type: format === "document" ? "document" : "image",
-        storage_path: path, mime_type: asset.mime, byte_size: asset.bytes.byteLength,
+        storage_path: path, file_name: asset.fileName.replace(/[\\u0000-\\u001f\\u007f]/g, "").slice(0, 255) || "media-file", mime_type: asset.mime, byte_size: asset.bytes.byteLength,
         sort_order: retained.length + index, alt_text: null,
       });
     }
