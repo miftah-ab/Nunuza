@@ -11,10 +11,6 @@ ALTER TABLE public.content_posts
   ADD CONSTRAINT content_posts_post_format_check
   CHECK (post_format IN ('text', 'image_carousel', 'document'));
 
--- A media-only post is valid: text is the optional LinkedIn commentary/caption.
-ALTER TABLE public.content_posts
-  ALTER COLUMN text DROP NOT NULL;
-
 CREATE TABLE IF NOT EXISTS public.content_post_media (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
@@ -129,4 +125,4 @@ COMMENT ON TABLE public.content_post_media IS
 COMMENT ON COLUMN public.content_posts.post_format IS
   'text: text-only post; image_carousel: organic multi-image post; document: PDF document post.';
 COMMENT ON COLUMN public.content_posts.text IS
-  'Optional LinkedIn commentary/caption. May be empty for media-only posts.';
+  'Optional LinkedIn commentary/caption. An empty string represents media-only posts.';
