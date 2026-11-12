@@ -27,7 +27,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const body = await parseBody<{ outcome?: string }>(request);
     if (!body || (body.outcome !== "published" && body.outcome !== "not_published")) {
       return NextResponse.json(
-        { error: "outcome must be 'published' or 'not_published'." },
+        { error: "Choose whether the post was published or not published." },
         { status: 400 }
       );
     }
