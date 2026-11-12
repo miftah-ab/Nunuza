@@ -44,7 +44,7 @@ async function renderTemplateSlide(title: string, body: string, index: number, t
     try {
       await background.decode();
       ctx.drawImage(background, 0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "rgba(20, 38, 61, 0.76)";
+      ctx.fillStyle = theme.id === "paper" ? "rgba(245, 241, 232, 0.84)" : "rgba(20, 38, 61, 0.76)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
     } catch {
       throw new Error("The AI preview could not be combined with the slide design. Try the template without a background.");
