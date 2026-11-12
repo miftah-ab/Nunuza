@@ -512,8 +512,7 @@ export async function executePublishJob(
   // expired. Never cancel-and-retry a post already in the publishing state.
   if (post.status === "publishing" || post.status === "needs_reconciliation") {
     const message =
-      "A previous LinkedIn publication attempt may still have reached LinkedIn. " +
-      "Nunuza will not retry it automatically. Check LinkedIn and confirm the outcome.";
+      "Nunuza couldn’t confirm whether this post went live. Check your LinkedIn profile before trying again; it won’t be retried automatically.";
     if (post.status === "publishing") {
       await casPostStatus(supabase, job.workspace_id, post.id, ["publishing"], {
         status: "needs_reconciliation",
@@ -637,8 +636,7 @@ export async function executePublishJob(
     // Ambiguous (or unknown error type): the post may be live. Never retry, never fail the post.
     if (kind === "ambiguous" || kind === undefined) {
       const userMessage =
-        "LinkedIn did not confirm this publication, so Nunuza cannot tell whether the post is live. " +
-        "Check your LinkedIn profile, then confirm in Nunuza whether it was published. Nunuza will not retry automatically, to avoid a duplicate post.";
+        "LinkedIn couldn’t confirm whether this post went live. Check your LinkedIn profile before retrying; Nunuza will not retry automatically to avoid a duplicate.";
       await casPostStatus(supabase, job.workspace_id, post.id, ["publishing"], { status: "needs_reconciliation" });
       await transitionOutcome("needs_reconciliation", {
         lease_until: null,
@@ -657,8 +655,8 @@ export async function executePublishJob(
         text:
           `⚠️ **Publication not confirmed**\n\n` +
           `Post: **${post.internal_title || "LinkedIn Post"}**\n` +
-          `LinkedIn did not confirm whether this post went live. Please check your LinkedIn profile, ` +
-          `then open Nunuza to confirm. It will not be retried automatically.`,
+          `LinkedIn couldn’t confirm whether this post went live. Please check your LinkedIn profile, ` +
+          `then open Nunuza to confirm. It won’t be retried automatically.`,
       }, supabase).catch(() => {});
       return fail("needs_reconciliation", false, userMessage);
     }
