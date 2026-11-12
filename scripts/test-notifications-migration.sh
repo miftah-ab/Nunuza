@@ -48,7 +48,8 @@ CREATE TABLE public.content_posts (
   id uuid PRIMARY KEY,
   workspace_id uuid NOT NULL REFERENCES public.workspaces(id),
   status public.post_status NOT NULL,
-  internal_title text
+  internal_title text,
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE TABLE public.agent_jobs (
   id uuid PRIMARY KEY,
@@ -72,7 +73,8 @@ CREATE TABLE public.integration_connections (
 CREATE TABLE public.subscriptions (
   id uuid PRIMARY KEY,
   workspace_id uuid NOT NULL REFERENCES public.workspaces(id),
-  status text NOT NULL
+  status text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 SQL
 
