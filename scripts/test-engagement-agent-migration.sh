@@ -56,6 +56,21 @@ INSERT INTO public.engagement_actions(
  repeat('a',64),'awaiting_approval'
 );
 
+-- Only the workspace owner can configure engagement, and the daily cap is bounded.
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
+DO $
+DECLARE v_settings public.engagement_settings;
+BEGIN
+ v_settings := public.update_engagement_settings(
+   '00000000-0000-0000-0000-000000000010',true,7
+ );
+ IF v_settings.enabled IS DISTINCT FROM TRUE OR v_settings.daily_limit <> 7 THEN
+   RAISE EXCEPTION 'Engagement settings were not saved';
+ END IF;
+END $;
+RESET ROLE;
+
 -- A non-owner cannot approve.
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',false);
