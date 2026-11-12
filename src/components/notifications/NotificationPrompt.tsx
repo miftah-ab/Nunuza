@@ -91,7 +91,7 @@ export function NotificationPrompt() {
           <div className="min-w-0">
             <h2 className="text-base font-semibold tracking-tight text-ink">Stay informed with Nunuza</h2>
             <p className="mt-1 max-w-xl text-sm leading-6 text-ink-secondary">
-              Get important updates about your posts, approvals, and agent activity, even when you're away.
+              Get important updates about your posts, approvals, and agent activity, even when you&apos;re away.
             </p>
           </div>
         </div>
