@@ -4,8 +4,8 @@ self.addEventListener("push", (event) => {
   const title = typeof data.title === "string" ? data.title : "Nunuza update";
   const options = {
     body: typeof data.body === "string" ? data.body : "You have an important update.",
-    icon: "/icons/icon-192.png",
-    badge: "/icons/badge-72.png",
+    icon: "/brand/logo-icon.svg",
+    badge: "/brand/logo-icon.svg",
     tag: typeof data.tag === "string" ? data.tag : "nunuza-notification",
     renotify: false,
     data: {
