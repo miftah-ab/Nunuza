@@ -566,7 +566,7 @@ export async function executeMcpTool(
       const { data: approved, error: approveError } = await supabase
         .from("content_posts")
         .update({ status: "approved", updated_at: new Date().toISOString() })
-        .eq("id", draft_id).eq("workspace_id", workspaceId).select().single();
+        .eq("id", draft_id).select().single();
       if (approveError || !approved) throw new Error("Could not approve this draft. Refresh its status and try again.");
 
       const { error: signalError } = await supabase.from("approval_events").insert({
