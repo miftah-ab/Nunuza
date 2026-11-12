@@ -219,7 +219,9 @@ describe("Telegram conversational content", () => {
       supabase: db,
     });
 
-    expect(result.replyText).toContain("I'm working on your LinkedIn post");
+    expect(result.replyText).toContain("request is saved in the queue");
+    expect(result.replyText).toContain("Generation has not started yet");
+    expect(result.replyText).not.toContain("I'm working on your LinkedIn post");
     expect(db.jobs).toHaveLength(1);
     expect(db.jobs[0].job_type).toBe("telegram_content_generation");
     expect(db.jobs[0].idempotency_key).toBe("telegram-content-987654");
