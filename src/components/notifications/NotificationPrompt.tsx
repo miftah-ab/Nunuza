@@ -57,7 +57,7 @@ export function NotificationPrompt() {
     let active = true;
     const dismissed = sessionStorage.getItem(DISMISSED_KEY) === "1";
     if (!dismissed) setVisible(true);
-    if (Notification.permission === "granted") {
+    if ("Notification" in window && Notification.permission === "granted") {
       void activate().then((ok) => { if (active && ok) setVisible(false); });
     }
     return () => { active = false; };
