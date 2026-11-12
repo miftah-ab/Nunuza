@@ -71,7 +71,7 @@ INSERT INTO public.engagement_actions(
 -- Only the workspace owner can configure engagement, and the daily cap is bounded.
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
-DO $
+DO $$
 DECLARE v_settings public.engagement_settings;
 BEGIN
  v_settings := public.update_engagement_settings(
@@ -80,7 +80,7 @@ BEGIN
  IF v_settings.enabled IS DISTINCT FROM TRUE OR v_settings.daily_limit <> 7 THEN
    RAISE EXCEPTION 'Engagement settings were not saved';
  END IF;
-END $;
+END $$;
 RESET ROLE;
 
 -- A non-owner cannot approve.
@@ -126,7 +126,7 @@ END $$;
 
 -- Telegram approval is bound to the exact displayed draft prefix and linked user/chat.
 SET ROLE service_role;
-DO $
+DO $$
 BEGIN
  IF NOT public.approve_engagement_action_telegram(
    '00000000-0000-0000-0000-000000000021',12345,67890,left(repeat('b',64),15)
@@ -134,7 +134,7 @@ BEGIN
  IF public.approve_engagement_action_telegram(
    '00000000-0000-0000-0000-000000000021',12345,67890,left(repeat('b',64),15)
  ) THEN RAISE EXCEPTION 'Telegram approval replay unexpectedly succeeded'; END IF;
-END $;
+END $$;
 RESET ROLE;
 
 SELECT 'engagement agent migration and approval tests passed' AS result;
