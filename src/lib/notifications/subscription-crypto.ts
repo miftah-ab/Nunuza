@@ -10,12 +10,15 @@ const decoder = new TextDecoder();
 function keyBytes(): Uint8Array {
   const value = process.env.WEB_PUSH_SUBSCRIPTION_ENCRYPTION_KEY || "";
   if (!/^[0-9a-fA-F]{64}$/.test(value)) throw new Error("Notification encryption key is not configured.");
-  return Uint8Array.from(value.match(/.{2}/g) ?? [], (pair) => Number.parseInt(pair, 16));
+  return Uint8Array.from(
+    { length: value.length / 2 },
+    (_, index) => Number.parseInt(value.slice(index * 2, index * 2 + 2), 16),
+  );
 }
 function toBase64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  return btoa(binary).replace(/=/g, "").replace(/\\+/g, "-").replace(/\\//g, "_");
 }
 function fromBase64Url(value: string): Uint8Array {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
