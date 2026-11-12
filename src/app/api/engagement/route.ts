@@ -12,11 +12,13 @@ export async function GET() {
       .eq("workspace_id", workspace.id)
       .order("created_at", { ascending: false }).limit(100);
     if (error) throw error;
+    const { data: settings } = await db.from("engagement_settings")
+      .select("enabled,daily_limit").eq("workspace_id", workspace.id).maybeSingle();
     const { data: connection } = await db.from("integration_connections")
       .select("status,expires_at,granted_scopes").eq("workspace_id", workspace.id)
       .eq("provider", "linkedin").maybeSingle();
     const scopes = Array.isArray(connection?.granted_scopes) ? connection.granted_scopes : [];
-    return NextResponse.json({ actions: data ?? [], capabilities: {
+    return NextResponse.json({ actions: data ?? [], settings: settings ?? { enabled: false, daily_limit: 5 }, capabilities: {
       linkedinConnected: connection?.status === "connected",
       canReadComments: connection?.status === "connected" && scopes.includes("r_member_social_feed"),
       canWriteComments: connection?.status === "connected" && scopes.includes("w_member_social_feed"),
@@ -61,5 +63,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, status: "rejected" });
   } catch {
     return NextResponse.json({ error: "Could not process engagement approval." }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const workspace = await requireWorkspace();
+    const body = await request.json() as { enabled?: boolean; dailyLimit?: number };
+    if (typeof body.enabled !== "boolean" || !Number.isInteger(body.dailyLimit) ||
+        Number(body.dailyLimit) < 1 || Number(body.dailyLimit) > 30) {
+      return NextResponse.json({ error: "Choose an enable state and a daily limit from 1 to 30." }, { status: 400 });
+    }
+    const db = await createClient();
+    const { data, error } = await db.rpc("update_engagement_settings", {
+      p_workspace_id: workspace.id,
+      p_enabled: body.enabled,
+      p_daily_limit: body.dailyLimit,
+    });
+    if (error || !data) throw new Error("Could not save engagement settings.");
+    return NextResponse.json({ ok: true, settings: data });
+  } catch {
+    return NextResponse.json({ error: "Could not update engagement settings." }, { status: 500 });
   }
 }
