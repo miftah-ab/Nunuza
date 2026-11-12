@@ -593,7 +593,7 @@ export async function executePublishJob(
     } else {
       const { data: mediaRows, error: mediaError } = await supabase
         .from("content_post_media")
-        .select("storage_path, media_type, mime_type, alt_text, sort_order")
+        .select("storage_path, file_name, media_type, mime_type, alt_text, sort_order")
         .eq("workspace_id", job.workspace_id)
         .eq("post_id", post.id)
         .order("sort_order", { ascending: true });
@@ -609,7 +609,7 @@ export async function executePublishJob(
           mediaType: asset.media_type,
           mimeType: asset.mime_type,
           altText: asset.alt_text,
-          fileName: String(asset.storage_path).split("/").pop(),
+          fileName: asset.file_name,
         })),
         supabaseOverride: supabase,
       });
