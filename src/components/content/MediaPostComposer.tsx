@@ -193,10 +193,12 @@ export function MediaPostComposer({
     }
   };
 
+  const pendingAiSlides = source === "ai" ? prompts.length : 0;
+  const totalSlides = existing.length + files.length + pendingAiSlides;
   const canSubmit = format === "text"
-    ? caption.trim().length > 0
+    ? caption.trim().length > 0 && existing.length + files.length === 0
     : format === "image_carousel"
-      ? existing.length + files.length >= 2 && existing.length + files.length <= 20 && (source !== "ai" || (prompts.length >= 2 && prompts.length <= 5 && prompts.every((item) => item.trim())))
+      ? totalSlides >= 2 && totalSlides <= 20 && (source !== "ai" || (prompts.length >= 2 && prompts.length <= 5 && prompts.every((item) => item.trim())))
       : existing.length + files.length === 1;
 
   return (
@@ -331,6 +333,12 @@ export function MediaPostComposer({
                     ))}
                   </div>
                 )}
+                {format === "document" && existing.map((item) => (
+                  <div key={item.id} className="mt-3 flex items-center justify-between rounded-lg border border-border p-3 text-xs">
+                    <span className="truncate">Saved PDF · {(item.byte_size / 1024 / 1024).toFixed(1)} MB</span>
+                    <button type="button" onClick={() => setExisting([])} className="ml-3 text-error">Remove</button>
+                  </div>
+                ))}
                 {format === "document" && files[0] && <p className="mt-2 text-xs text-ink-secondary">{files[0].name} · {(files[0].size / 1024 / 1024).toFixed(1)} MB</p>}
               </>
             )}
