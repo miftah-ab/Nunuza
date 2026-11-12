@@ -24,6 +24,7 @@ import {
   CheckCircle2,
   AlertCircle,
   FileText,
+  FileImage,
   Trash2,
   Edit3,
   Calendar,
