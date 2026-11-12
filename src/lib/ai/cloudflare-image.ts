@@ -53,6 +53,7 @@ export async function generateCloudflareImage(
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
   const apiToken = process.env.CLOUDFLARE_API_TOKEN?.trim();
   if (!accountId || !apiToken) {
+    console.error("[image-generation] Provider credentials are unavailable.");
     throw new CloudflareImageError(
       "not_configured",
       "Image creation is temporarily unavailable. Please try again later.",
@@ -74,7 +75,8 @@ export async function generateCloudflareImage(
         signal: AbortSignal.timeout(55_000),
       }
     );
-  } catch {
+  } catch (error) {
+    console.error("[image-generation] Provider request failed:", error);
     throw new CloudflareImageError(
       "provider_error",
       "We couldn’t reach the image service. Please try again.",
