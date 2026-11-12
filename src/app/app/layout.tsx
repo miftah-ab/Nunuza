@@ -12,6 +12,7 @@ import { AppSidebar } from "@/components/layout/AppSidebar";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { NotificationPrompt } from "@/components/notifications/NotificationPrompt";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { InstallAppPrompt } from "@/components/pwa/InstallAppPrompt";
 import type { Workspace } from "@/types/database";
 
 export default async function AppLayout({
@@ -21,7 +22,6 @@ export default async function AppLayout({
 }) {
   const supabase = await createClient();
 
-  // Server-side auth check
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -30,14 +30,12 @@ export default async function AppLayout({
     redirect("/login");
   }
 
-  // Load workspace for sidebar display
   const { data: workspace } = await supabase
     .from("workspaces")
     .select("*")
     .eq("owner_user_id", user.id)
     .single();
 
-  // If user is in onboarding wizard (setup_required), render full-page onboarding
   if (!workspace || workspace.state === "setup_required") {
     return (
       <div className="min-h-screen bg-offwhite">
@@ -52,9 +50,11 @@ export default async function AppLayout({
     <div className="flex flex-col md:flex-row min-h-screen bg-offwhite">
       <AppSidebar workspace={workspace as Workspace | null} />
       <div className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
-        {/* Bottom padding on phones keeps content clear of the floating tab bar. */}
         <main id="main-content" className="flex-1 p-5 pb-28 sm:p-6 sm:pb-28 md:pb-6 lg:p-8 max-w-[1400px]">
-          <div className="mb-5 flex justify-end"><NotificationBell /></div>
+          <div className="mb-5 flex items-center justify-end gap-3">
+            <InstallAppPrompt />
+            <NotificationBell />
+          </div>
           <NotificationPrompt />
           {children}
         </main>
@@ -63,4 +63,3 @@ export default async function AppLayout({
     </div>
   );
 }
-
