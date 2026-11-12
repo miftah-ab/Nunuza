@@ -18,7 +18,8 @@ async function sendTypingAction(chatId: number): Promise<void> {
       body: JSON.stringify({ chat_id: chatId, action: "typing" }),
       signal: AbortSignal.timeout(2_500),
     });
-    if (!response.ok) {
+    const result = await response.json() as { ok?: boolean };
+    if (!response.ok || result?.ok !== true) {
       console.warn("[telegram-typing] Telegram did not accept the typing indicator.");
     }
   } catch {
