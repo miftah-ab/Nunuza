@@ -38,7 +38,7 @@ export function apiError(err: unknown): NextResponse<ApiError> {
   console.error("[api] Request failed:", err);
   if (err instanceof AuthError) return NextResponse.json({ error: "Your session may have expired. Please sign in again." }, { status: 401 });
   if (err instanceof EntitlementError) return NextResponse.json({ error: "This feature isn't included in your current plan. Review your plan to see available options." }, { status: 403 });
-  if (err instanceof ForbiddenError) return NextResponse.json({ error: "You don't have permission to do that. Check your access and try again." }, { status: 403 });
+  if (err instanceof ForbiddenError) return NextResponse.json({ error: err.message }, { status: 403 });
   if (err instanceof StrategyExclusionError) return NextResponse.json({ error: err.message }, { status: 422 });
   return NextResponse.json({ error: "We couldn't complete that action. Please try again. If the problem continues, contact support." }, { status: 500 });
 }
