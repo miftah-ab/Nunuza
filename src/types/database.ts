@@ -146,6 +146,7 @@ export interface ContentPostMedia {
   post_id: string;
   media_type: "image" | "document";
   storage_path: string;
+  file_name: string;
   mime_type: "image/jpeg" | "image/png" | "application/pdf";
   byte_size: number;
   sort_order: number;
