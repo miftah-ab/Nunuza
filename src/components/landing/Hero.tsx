@@ -59,9 +59,9 @@ export function Hero({ startStep = 0 }: { startStep?: number }) {
             Nunuza is the content agent for your LinkedIn. Send it a rough thought on
             Telegram or the web. It drafts in your voice, you approve, and it publishes.
           </p>
-          <div className="nz-hero-cta">
+          <div id="hero-cta" className="nz-hero-cta">
             <Link href="/login" className="nz-btn nz-btn-primary">
-              Continue with Google
+              Get started
             </Link>
             <a href="#how" className="nz-btn nz-btn-ghost">
               See how it works <ArrowDown size={18} aria-hidden="true" />

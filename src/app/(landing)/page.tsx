@@ -7,6 +7,7 @@ import { Guarantees } from "@/components/landing/Guarantees";
 import { BeforeAfter } from "@/components/landing/BeforeAfter";
 import { LandingNav } from "@/components/landing/LandingNav";
 import { LandingFooter } from "@/components/landing/LandingFooter";
+import { StickyCta } from "@/components/landing/StickyCta";
 
 export const metadata: Metadata = {
   title: "Nunuza — Talk it out. Post it right.",
@@ -30,7 +31,7 @@ export default function LandingPage() {
         <VoiceDemo />
         <Guarantees />
         <BeforeAfter />
-        <section className="nz-final">
+        <section id="final-cta" className="nz-final">
           <div className="nz-wrap">
             <h2 className="nz-display">
               Your next post
@@ -41,12 +42,13 @@ export default function LandingPage() {
               Connect Google, link LinkedIn, and send your first thought. You approve every post.
             </p>
             <Link href="/login" className="nz-btn nz-btn-primary">
-              Continue with Google
+              Get started
             </Link>
           </div>
         </section>
       </main>
       <LandingFooter />
+      <StickyCta />
     </>
   );
 }
