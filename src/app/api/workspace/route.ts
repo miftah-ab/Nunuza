@@ -49,7 +49,7 @@ export async function PATCH(request: Request) {
 
     if (!body) {
       return NextResponse.json(
-        { error: "Invalid JSON request body." },
+        { error: "We couldn’t read your changes. Please try again." },
         { status: 400 }
       );
     }
@@ -114,8 +114,9 @@ export async function PATCH(request: Request) {
         .single();
 
       if (error) {
+        console.error("[workspace] Workspace update failed:", error);
         return NextResponse.json(
-          { error: "Failed to update workspace." },
+          { error: "We couldn’t save your workspace changes. Please try again." },
           { status: 500 }
         );
       }
