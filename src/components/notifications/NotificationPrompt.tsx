@@ -1,9 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bell, X } from "lucide-react";
-
-const DISMISSED_KEY = "nunuza-notification-prompt-dismissed";
+import { Bell } from "lucide-react";
 
 function decodeVapidKey(value: string): Uint8Array {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
@@ -15,17 +13,31 @@ export function NotificationPrompt() {
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [permission, setPermission] = useState<NotificationPermission>("default");
 
   const activate = useCallback(async () => {
-    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return false;
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+      setError("This browser does not support notifications. Try a supported desktop browser.");
+      return false;
+    }
+
     setBusy(true);
     setError(null);
     try {
-      const permission = Notification.permission === "default"
-        ? await Notification.requestPermission()
-        : Notification.permission;
-      if (permission !== "granted") {
-        setError("Allow notifications in your browser to receive updates from Nunuza.");
+      let currentPermission = Notification.permission;
+      if (currentPermission === "denied") {
+        setPermission("denied");
+        setError("Notifications are blocked in your browser. Open the site settings beside the address bar, allow notifications for Nunuza, then return and try again.");
+        return false;
+      }
+      if (currentPermission === "default") {
+        // Browsers require this native permission request to follow a user action.
+        // If the browser prompt is dismissed, our in-app reminder remains visible.
+        currentPermission = await Notification.requestPermission();
+        setPermission(currentPermission);
+      }
+      if (currentPermission !== "granted") {
+        setError("Choose Allow in your browser's notification prompt. This reminder will stay here until notifications are enabled.");
         return false;
       }
 
@@ -54,7 +66,6 @@ export function NotificationPrompt() {
         setError(result.error || "We couldn’t save your notification settings. Please try again.");
         return false;
       }
-      sessionStorage.removeItem(DISMISSED_KEY);
       setVisible(false);
       return true;
     } catch {
@@ -68,34 +79,28 @@ export function NotificationPrompt() {
   useEffect(() => {
     let active = true;
     const frame = window.requestAnimationFrame(() => {
-      const dismissed = sessionStorage.getItem(DISMISSED_KEY) === "1";
-      const permissionGranted = "Notification" in window && Notification.permission === "granted";
-      if (!dismissed || permissionGranted) setVisible(true);
-      if (permissionGranted) {
-        // Keep the prompt visible until an existing browser permission is
-        // successfully registered with this workspace.
+      if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+        return;
+      }
+
+      setPermission(Notification.permission);
+      setVisible(true);
+      if (Notification.permission === "granted") {
+        // Keep the reminder visible until permission is also registered to this workspace.
         void activate().then((ok) => { if (active && ok) setVisible(false); });
       }
     });
-    return () => { active = false; window.cancelAnimationFrame(frame); };
+    return () => {
+      active = false;
+      window.cancelAnimationFrame(frame);
+    };
   }, [activate]);
 
   if (!visible) return null;
 
   return (
     <section aria-label="Enable notifications" className="relative mb-5 overflow-hidden rounded-2xl border border-forest/15 bg-gradient-to-br from-white to-forest-light/50 shadow-sm">
-      <button
-        type="button"
-        aria-label="Dismiss notification reminder"
-        onClick={() => {
-          sessionStorage.setItem(DISMISSED_KEY, "1");
-          setVisible(false);
-        }}
-        className="absolute right-3 top-3 rounded-lg p-2 text-ink-muted transition hover:bg-white/80 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest"
-      >
-        <X size={17} />
-      </button>
-      <div className="flex flex-col gap-4 p-5 pr-12 sm:flex-row sm:items-center sm:justify-between sm:p-6 sm:pr-14">
+      <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
         <div className="flex items-start gap-3">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-forest text-white shadow-sm">
             <Bell size={20} />
@@ -103,7 +108,9 @@ export function NotificationPrompt() {
           <div className="min-w-0">
             <h2 className="text-base font-semibold tracking-tight text-ink">Stay informed with Nunuza</h2>
             <p className="mt-1 max-w-xl text-sm leading-6 text-ink-secondary">
-              Get important updates about your posts, approvals, and agent activity, even when you&apos;re away.
+              {permission === "denied"
+                ? "Notifications are currently blocked by your browser. Allow them in the site settings, then come back here. This reminder will stay visible until setup succeeds."
+                : "Get important updates about your posts, approvals, and agent activity, even when you’re away. This reminder stays here until notifications are enabled."}
             </p>
             {error && <p role="alert" className="mt-2 text-sm text-error">{error}</p>}
           </div>
@@ -115,7 +122,7 @@ export function NotificationPrompt() {
           className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-forest px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-forest/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70"
         >
           <Bell size={16} />
-          {busy ? "Enabling..." : "Enable notifications"}
+          {busy ? "Enabling..." : permission === "denied" ? "Check again" : "Enable notifications"}
         </button>
       </div>
     </section>
