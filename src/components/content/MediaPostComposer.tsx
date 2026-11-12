@@ -6,7 +6,7 @@ import { FileImage, FileText, Plus, X, ChevronUp, ChevronDown, Loader2 } from "l
 
 export function MediaPostComposer({ onCreated }: { onCreated: (post: ContentPost) => void }) {
   const [open, setOpen] = useState(false);
-  const [format, setFormat] = useState<"image_carousel" | "document">("image_carousel");
+  const [format, setFormat] = useState<"text" | "image_carousel" | "document">("text");
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -63,11 +63,11 @@ export function MediaPostComposer({ onCreated }: { onCreated: (post: ContentPost
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 id="media-post-title" className="text-lg font-bold text-ink">Create a media post</h2>
-                <p className="mt-1 text-xs text-ink-secondary">Create an image carousel or upload a PDF document. A caption is optional.</p>
+                <p className="mt-1 text-xs text-ink-secondary">Choose text, an image carousel, or a PDF document. Captions are optional for media posts.</p>
               </div>
               <button onClick={close} className="rounded p-1 text-ink-secondary hover:bg-surface-muted" aria-label="Close"><X size={18} /></button>
             </div>
-            <div className="mt-5 grid grid-cols-2 gap-2">
+            <div className="mt-5 grid grid-cols-3 gap-2">\n              <button onClick={() => { setFormat("text"); setFiles([]); }} className={format === "text" ? "rounded-lg border border-forest bg-forest-light p-3 text-left" : "rounded-lg border border-border p-3 text-left"}><FileText size={18} className="mb-2" /><span className="block text-sm font-semibold">Text only</span><span className="text-xs text-ink-secondary">No media</span></button>
               <button onClick={() => { setFormat("image_carousel"); setFiles([]); }} className={`rounded-lg border p-3 text-left ${format === "image_carousel" ? "border-forest bg-forest-light" : "border-border"}`}>
                 <FileImage size={18} className="mb-2" /><span className="block text-sm font-semibold">Image carousel</span><span className="text-xs text-ink-secondary">2–20 slides</span>
               </button>
@@ -77,9 +77,9 @@ export function MediaPostComposer({ onCreated }: { onCreated: (post: ContentPost
             </div>
             <label className="mt-4 block text-xs font-semibold text-ink">Internal title</label>
             <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={160} className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm" placeholder="Give this post a name" />
-            <label className="mt-4 block text-xs font-semibold text-ink">Caption <span className="font-normal text-ink-secondary">(optional)</span></label>
-            <textarea value={caption} onChange={(event) => setCaption(event.target.value)} maxLength={3000} rows={4} className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm" placeholder="Add commentary, or leave empty for a media-only post." />
-            <label className="mt-4 block text-xs font-semibold text-ink">{format === "image_carousel" ? "Slides" : "PDF file"}</label>
+            <label className="mt-4 block text-xs font-semibold text-ink">{format === "text" ? "Post text (required)" : "Caption (optional)"}</label>
+            <textarea value={caption} onChange={(event) => setCaption(event.target.value)} maxLength={3000} rows={4} className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm" placeholder={format === "text" ? "Write your LinkedIn post..." : "Add commentary, or leave empty for a media-only post."} />
+            {format !== "text" && (\n              <>\n              <label className="mt-4 block text-xs font-semibold text-ink">{format === "image_carousel" ? "Slides" : "PDF file"}</label>
             <input
               key={format}
               type="file"
@@ -112,7 +112,7 @@ export function MediaPostComposer({ onCreated }: { onCreated: (post: ContentPost
             {error && <p role="alert" className="mt-3 rounded-lg bg-error/10 p-3 text-xs text-error">{error}</p>}
             <div className="mt-5 flex justify-end gap-2">
               <button onClick={close} disabled={busy} className="btn-ghost text-xs">Cancel</button>
-              <button onClick={submit} disabled={busy || (format === "image_carousel" ? files.length < 2 : files.length !== 1)} className="btn-primary flex items-center gap-2 text-xs disabled:opacity-50">
+              <button onClick={submit} disabled={busy || (format === "text" ? !caption.trim() : format === "image_carousel" ? files.length < 2 : files.length !== 1)} className="btn-primary flex items-center gap-2 text-xs disabled:opacity-50">
                 {busy ? <><Loader2 size={13} className="animate-spin" /> Saving...</> : "Save as draft"}
               </button>
             </div>
