@@ -46,13 +46,14 @@ function isWorthReplying(text: string): boolean {
     /\b(how|why|what|when|where|which|could you|can you|disagree|however|i think|in my experience|not sure|but)\b/i.test(text);
 }
 
-async function linkedinRequest(token: string, path: string): Promise<any> {
+async function linkedinRequest(token: string, path: string, extraHeaders: Record<string, string> = {}): Promise<any> {
   const response = await fetch(`https://api.linkedin.com/rest/${path}`, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,
       "LinkedIn-Version": LINKEDIN_API_VERSION,
       "X-Restli-Protocol-Version": "2.0.0",
+      ...extraHeaders,
     },
     signal: AbortSignal.timeout(15000),
   });
@@ -95,14 +96,35 @@ export async function scanOwnPostComments(
 
   const token = decryptToken(connection.encrypted_token_ref);
   const memberUrn = connection.external_account_id;
-  const { data: posts, error: postsError } = await db.from("content_posts")
-    .select("id,linkedin_post_id,text,internal_title")
-    .eq("workspace_id", workspaceId)
-    .eq("status", "published")
-    .not("linkedin_post_id", "is", null)
-    .order("published_at", { ascending: false })
-    .limit(Math.min(Math.max(options.maxPosts ?? 20, 1), 50));
-  if (postsError) throw new Error("Could not load published LinkedIn posts for engagement monitoring.");
+  if (typeof memberUrn !== "string" || !memberUrn.startsWith("urn:li:person:")) {
+    return { scannedPosts: 0, newComments: 0, draftsCreated: 0, ignored: 0, unavailableReason: "linkedin_member_identity_missing" };
+  }
+  const maxPosts = Math.min(Math.max(options.maxPosts ?? 50, 1), 100);
+  const [localResult, remoteResult] = await Promise.all([
+    db.from("content_posts").select("id,linkedin_post_id,text,internal_title")
+      .eq("workspace_id", workspaceId).eq("status", "published")
+      .not("linkedin_post_id", "is", null).order("published_at", { ascending: false }).limit(maxPosts),
+    linkedinRequest(token, `posts?author=${encodeURIComponent(memberUrn)}&q=author&count=${maxPosts}&sortBy=LAST_MODIFIED`, {
+      "X-RestLi-Method": "FINDER",
+    }),
+  ]);
+  if (localResult.error) throw new Error("Could not load published LinkedIn posts for engagement monitoring.");
+  const localByUrn = new Map((localResult.data ?? []).map((post: any) => [post.linkedin_post_id, post]));
+  const remotePosts = Array.isArray(remoteResult?.elements) ? remoteResult.elements : [];
+  const posts = remotePosts
+    .filter((post: any) => post.lifecycleState === "PUBLISHED" && safeUrn(post.id))
+    .map((post: any) => ({
+      id: localByUrn.get(post.id)?.id ?? null,
+      linkedin_post_id: post.id,
+      text: typeof post.commentary === "string" ? post.commentary : localByUrn.get(post.id)?.text ?? "",
+      internal_title: localByUrn.get(post.id)?.internal_title ?? "LinkedIn post",
+    }));
+  for (const localPost of localResult.data ?? []) {
+    if (safeUrn(localPost.linkedin_post_id) && !posts.some((post: any) => post.linkedin_post_id === localPost.linkedin_post_id)) {
+      posts.push(localPost);
+    }
+  }
+  posts.splice(maxPosts);
 
   const [{ data: strategy }, { data: voice }] = await Promise.all([
     db.from("content_strategies").select("*").eq("workspace_id", workspaceId).maybeSingle(),
