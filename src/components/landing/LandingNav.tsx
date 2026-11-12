@@ -5,7 +5,7 @@ export function LandingNav() {
   return (
     <header className="nz-nav">
       <div className="nz-wrap nz-nav-in">
-        <Logo theme="dark" height={29} />
+        <Logo height={29} />
         <nav className="nz-nav-links" aria-label="Main">
           <a href="#how" className="nz-nav-link">
             How it works

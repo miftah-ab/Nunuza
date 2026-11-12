@@ -18,7 +18,7 @@
   --nz-line: rgba(32, 37, 34, 0.12);
   --nz-display: var(--font-display), "Arial Black", "Helvetica Neue", Arial, sans-serif;
 
-  background: var(--nz-paper);
+  background: #fff;
   color: var(--nz-ink);
   overflow-x: clip;
   scroll-behavior: smooth;
@@ -35,6 +35,7 @@
   font-weight: 800;
   letter-spacing: -0.045em;
   line-height: 0.94;
+  color: var(--nz-deep);
 }
 
 .nz-wrap {
@@ -79,11 +80,11 @@
 }
 .nz-btn-ghost {
   background: transparent;
-  color: var(--nz-paper);
-  box-shadow: inset 0 0 0 2px rgba(248, 248, 245, 0.35);
+  color: var(--nz-deep);
+  box-shadow: inset 0 0 0 2px rgba(12, 46, 36, 0.25);
 }
 .nz-btn-ghost:hover {
-  box-shadow: inset 0 0 0 2px var(--nz-paper);
+  box-shadow: inset 0 0 0 2px var(--nz-deep);
 }
 .nz-btn-sm {
   padding: 11px 20px;
@@ -100,10 +101,10 @@
   position: fixed;
   inset: 0 0 auto 0;
   z-index: 50;
-  background: rgba(12, 46, 36, 0.72);
+  background: rgba(255, 255, 255, 0.86);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  border-bottom: 1px solid rgba(248, 248, 245, 0.08);
+  border-bottom: 1px solid var(--nz-line);
 }
 .nz-nav-in {
   display: flex;
@@ -117,19 +118,19 @@
   gap: 22px;
 }
 .nz-nav-link {
-  color: rgba(248, 248, 245, 0.78);
+  color: var(--nz-mute);
   font: 600 14px/1 var(--font-inter), system-ui, sans-serif;
   text-decoration: none;
 }
 .nz-nav-link:hover {
-  color: #fff;
+  color: var(--nz-ink);
 }
 
 /* ── Hero ────────────────────────────────────────────────────────────────── */
 .nz-hero {
   position: relative;
-  background: radial-gradient(1100px 620px at 78% 38%, var(--nz-forest-2) 0%, var(--nz-forest) 46%, var(--nz-deep) 100%);
-  color: var(--nz-paper);
+  background: #fff;
+  color: var(--nz-ink);
   padding: 132px 0 96px;
   min-height: 100svh;
   display: flex;
@@ -157,7 +158,7 @@
   margin: 34px 0 0;
   max-width: 30em;
   font: 400 clamp(1.05rem, 1.5vw, 1.3rem) / 1.55 var(--font-inter), system-ui, sans-serif;
-  color: rgba(248, 248, 245, 0.82);
+  color: #4b554f;
 }
 .nz-hero-cta {
   margin-top: 36px;
@@ -169,7 +170,7 @@
 .nz-hero-note {
   margin: 22px 0 0;
   font: 500 14px/1.4 var(--font-inter), system-ui, sans-serif;
-  color: rgba(248, 248, 245, 0.62);
+  color: var(--nz-mute);
 }
 
 /* 3D stage */
@@ -222,7 +223,7 @@
   padding: 9px;
   box-shadow:
     0 0 0 2px #1b5a47,
-    0 60px 90px -30px rgba(0, 0, 0, 0.55),
+    0 60px 80px -34px rgba(12, 46, 36, 0.45),
     inset 0 0 0 2px rgba(255, 255, 255, 0.08);
 }
 .nz-screen {
@@ -402,7 +403,7 @@
   border-radius: 18px;
   padding: 14px 16px;
   font: 600 13px/1.3 var(--font-inter), system-ui, sans-serif;
-  box-shadow: 0 30px 50px -22px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 30px 50px -24px rgba(12, 46, 36, 0.4);
 }
 .nz-fcard-a {
   top: -6%;
@@ -436,8 +437,9 @@
   bottom: 12%;
   left: -66%;
   width: 190px;
-  background: var(--nz-paper);
+  background: #fff;
   color: var(--nz-ink);
+  box-shadow: 0 30px 50px -24px rgba(12, 46, 36, 0.4), 0 0 0 1px var(--nz-line);
   transform: translateZ(80px) rotateZ(-5deg);
 }
 .nz-week {
@@ -470,12 +472,14 @@
   white-space: nowrap;
 }
 .nz-fchip.is-ok {
-  background: #fff;
+  background: var(--nz-forest);
+  color: #fff;
 }
 
 /* ── Section shell ───────────────────────────────────────────────────────── */
 .nz-section {
   padding: 120px 0;
+  border-top: 1px solid var(--nz-line);
 }
 .nz-h2 {
   margin: 0;
@@ -697,7 +701,7 @@
 
 /* ── Voice demo ──────────────────────────────────────────────────────────── */
 .nz-demo-bg {
-  background: var(--nz-sky-2);
+  background: #fff;
 }
 .nz-demo-grid {
   margin-top: 64px;
@@ -781,11 +785,8 @@
 
 /* ── Trust flip cards ────────────────────────────────────────────────────── */
 .nz-trust {
-  background: var(--nz-deep);
-  color: var(--nz-paper);
-}
-.nz-trust .nz-lede {
-  color: rgba(248, 248, 245, 0.7);
+  background: #fff;
+  color: var(--nz-ink);
 }
 .nz-flips {
   margin-top: 72px;
@@ -834,13 +835,14 @@
 }
 .nz-face-front {
   background: var(--nz-forest);
-  box-shadow: inset 0 0 0 2px rgba(248, 248, 245, 0.12);
+  color: var(--nz-paper);
 }
 .nz-flip:nth-child(2) .nz-face-front { background: var(--nz-gold); color: var(--nz-deep); }
 .nz-flip:nth-child(3) .nz-face-front { background: var(--nz-sky); color: #0b2e47; }
 .nz-face-back {
-  background: var(--nz-paper);
+  background: #fff;
   color: var(--nz-ink);
+  box-shadow: inset 0 0 0 3px var(--nz-deep);
   transform: rotateY(180deg);
   justify-content: center;
   gap: 12px;
@@ -990,8 +992,9 @@
 /* ── Closing ─────────────────────────────────────────────────────────────── */
 .nz-final {
   position: relative;
-  background: radial-gradient(900px 500px at 20% 100%, var(--nz-forest-2), var(--nz-forest) 55%, var(--nz-deep));
-  color: var(--nz-paper);
+  background: #fff;
+  color: var(--nz-ink);
+  border-top: 1px solid var(--nz-line);
   padding: 140px 0 120px;
   overflow: clip;
 }
@@ -1003,7 +1006,7 @@
   margin: 32px 0 0;
   max-width: 30em;
   font: 400 clamp(1.05rem, 1.5vw, 1.3rem) / 1.55 var(--font-inter), system-ui, sans-serif;
-  color: rgba(248, 248, 245, 0.8);
+  color: #4b554f;
 }
 .nz-final .nz-btn {
   margin-top: 40px;
@@ -1011,8 +1014,9 @@
   padding: 20px 34px;
 }
 .nz-foot {
-  background: var(--nz-deep);
-  color: rgba(248, 248, 245, 0.6);
+  background: #fff;
+  color: var(--nz-mute);
+  border-top: 1px solid var(--nz-line);
   padding: 28px 0;
   font: 500 14px/1 var(--font-inter), system-ui, sans-serif;
 }
@@ -1028,7 +1032,7 @@
   text-decoration: none;
 }
 .nz-foot a:hover {
-  color: #fff;
+  color: var(--nz-ink);
 }
 .nz-foot-links {
   display: flex;
