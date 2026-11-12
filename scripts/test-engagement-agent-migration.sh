@@ -19,8 +19,8 @@ CREATE TABLE public.profiles(id uuid PRIMARY KEY);
 CREATE TABLE public.workspaces(id uuid PRIMARY KEY, owner_user_id uuid NOT NULL REFERENCES public.profiles(id));
 CREATE TABLE public.agent_jobs(
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), workspace_id uuid NOT NULL REFERENCES public.workspaces(id),
- job_type text NOT NULL, status text NOT NULL, idempotency_key text NOT NULL UNIQUE,
- payload jsonb NOT NULL, scheduled_for timestamptz NOT NULL, attempt_count integer NOT NULL, max_attempts integer NOT NULL
+ job_type text NOT NULL, status text NOT NULL, idempotency_key text NOT NULL,
+ payload jsonb NOT NULL, scheduled_for timestamptz NOT NULL, attempt_count integer NOT NULL, max_attempts integer NOT NULL, UNIQUE(workspace_id,idempotency_key)
 );
 CREATE TABLE public.integration_connections(
  workspace_id uuid NOT NULL REFERENCES public.workspaces(id), provider text NOT NULL,
