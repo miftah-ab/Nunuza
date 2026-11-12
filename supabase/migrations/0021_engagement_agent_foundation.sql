@@ -74,24 +74,25 @@ REVOKE ALL ON public.engagement_settings FROM PUBLIC, anon, authenticated;
 GRANT ALL ON public.engagement_settings TO service_role;
 
 CREATE OR REPLACE FUNCTION public.update_engagement_settings(
+  p_workspace_id UUID,
   p_enabled BOOLEAN,
   p_daily_limit INTEGER
 ) RETURNS public.engagement_settings
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public, auth
-AS $
+AS $$
 DECLARE
   v_user_id UUID := auth.uid();
   v_settings public.engagement_settings;
 BEGIN
-  IF v_user_id IS NULL OR p_enabled IS NULL OR p_daily_limit < 1 OR p_daily_limit > 30 THEN
+  IF v_user_id IS NULL OR p_workspace_id IS NULL OR p_enabled IS NULL OR p_daily_limit < 1 OR p_daily_limit > 30 THEN
     RAISE EXCEPTION 'Invalid engagement settings.';
   END IF;
   INSERT INTO public.engagement_settings(workspace_id, enabled, daily_limit)
   SELECT id, p_enabled, p_daily_limit
     FROM public.workspaces
-   WHERE owner_user_id = v_user_id
+   WHERE id = p_workspace_id AND owner_user_id = v_user_id
   ON CONFLICT (workspace_id) DO UPDATE
     SET enabled = EXCLUDED.enabled,
         daily_limit = EXCLUDED.daily_limit,
@@ -102,9 +103,10 @@ BEGIN
   END IF;
   RETURN v_settings;
 END;
-$;
-REVOKE ALL ON FUNCTION public.update_engagement_settings(BOOLEAN, INTEGER) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.update_engagement_settings(BOOLEAN, INTEGER) TO authenticated;
+$$;
+
+REVOKE ALL ON FUNCTION public.update_engagement_settings(UUID, BOOLEAN, INTEGER) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.update_engagement_settings(UUID, BOOLEAN, INTEGER) TO authenticated;
 
 -- Approval is bound to the exact draft hash. Editing a draft requires a new approval.
 -- Only the workspace owner may approve/reject, and notifications never confer authority.
