@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS public.content_post_media (
   media_type TEXT NOT NULL CHECK (media_type IN ('image', 'document')),
   storage_path TEXT NOT NULL,
   mime_type TEXT NOT NULL CHECK (
-    mime_type IN ('image/jpeg', 'image/png', 'image/webp', 'application/pdf')
+    mime_type IN ('image/jpeg', 'image/png', 'application/pdf')
   ),
   byte_size BIGINT NOT NULL CHECK (byte_size > 0 AND byte_size <= 20971520),
   sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
@@ -67,12 +67,12 @@ VALUES (
   'nunuza-post-media',
   FALSE,
   20971520,
-  ARRAY['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+  ARRAY['image/jpeg', 'image/png', 'application/pdf']
 )
 ON CONFLICT (id) DO UPDATE
 SET public = FALSE,
     file_size_limit = 20971520,
-    allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'application/pdf'];
 
 DROP POLICY IF EXISTS nunuza_post_media_owner_select ON storage.objects;
 CREATE POLICY nunuza_post_media_owner_select
