@@ -25,7 +25,7 @@ describe("phone tab bar navigation", () => {
   });
 
   it("highlights More for pages that live in the sheet", () => {
-    for (const path of ["/app/voice", "/app/strategy", "/app/permissions", "/app/performance", "/app/integrations", "/app/settings", "/app/billing"]) {
+    for (const path of ["/app/voice", "/app/strategy", "/app/permissions", "/app/performance", "/app/engagement", "/app/integrations", "/app/settings", "/app/billing"]) {
       expect(getActiveTabIndex(path)).toBe(4);
     }
   });

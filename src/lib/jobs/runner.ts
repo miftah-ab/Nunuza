@@ -16,6 +16,8 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { executePublishJob } from "./scheduling";
 import { executeAutonomousCycle } from "./intelligence";
 import { executeTelegramContentJob } from "@/lib/integrations/telegram/conversation";
+import { scanOwnPostComments } from "@/lib/integrations/linkedin/engagement";
+import { publishApprovedEngagementAction } from "@/lib/integrations/linkedin/engagement-publisher";
 import {
   JobTransitionError,
   markJobRetryable,
@@ -90,6 +92,21 @@ const handlers: Record<string, JobHandler> = {
   publish_post: (job, supabase) => executePublishJob(job, supabase, { deferJobFinalization: true }),
   agent_cycle: (job, supabase) => executeAutonomousCycle(job, supabase),
   telegram_content_generation: (job, supabase) => executeTelegramContentJob(job, supabase),
+  engagement_scan: async (job, supabase) => {
+    const result = await scanOwnPostComments(job.workspace_id, { supabaseOverride: supabase });
+    if (result.unavailableReason) {
+      return { jobId: job.id, success: true, status: "succeeded", retryable: false };
+    }
+    return { jobId: job.id, success: true, status: "succeeded", retryable: false };
+  },
+  publish_engagement_action: async (job, supabase) => {
+    const actionId = typeof job.payload?.actionId === "string" ? job.payload.actionId : "";
+    if (!actionId) return { jobId: job.id, success: false, status: "failed_terminal", retryable: false, error: "Missing engagement action ID." };
+    const result = await publishApprovedEngagementAction(actionId, supabase);
+    if (result.status === "published") return { jobId: job.id, success: true, status: "succeeded", retryable: false };
+    if (result.status === "needs_reconciliation") return { jobId: job.id, success: false, status: "needs_reconciliation", retryable: false, error: "LinkedIn comment outcome requires reconciliation." };
+    return { jobId: job.id, success: false, status: "failed_terminal", retryable: false, error: result.reason || "Engagement action was blocked." };
+  },
 };
 
 export function registerJobHandler(jobType: string, handler: JobHandler): void {

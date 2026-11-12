@@ -11,6 +11,7 @@
 
 import { claimDueJobs, isClaimedAgentJobEnvelope, processJob, reconcileStaleJobs } from "@/lib/jobs/runner";
 import { enqueueAutonomousCycles } from "@/lib/jobs/intelligence";
+import { enqueueEngagementScans } from "@/lib/integrations/linkedin/engagement";
 import { dispatchPendingNotifications } from "@/lib/notifications/dispatcher";
 import type { AgentJob } from "@/types/database";
 
@@ -109,6 +110,14 @@ export default {
             // Intelligence discovery is additive: a research/eligibility failure
             // must never block existing scheduled posts from being processed.
             console.error("[worker-scheduled] Could not enqueue autonomous cycles:", cycleError);
+          }
+
+          // 2b. Queue official LinkedIn comment scans for workspaces with the restricted read scope.
+          try {
+            const engagementScans = await enqueueEngagementScans();
+            if (engagementScans > 0) console.info(`[worker-scheduled] Queued ${engagementScans} engagement scans.`);
+          } catch (engagementError) {
+            console.error("[worker-scheduled] Could not enqueue engagement scans:", engagementError);
           }
 
           // 3. Claim due jobs from database
