@@ -157,6 +157,7 @@ export function MediaPostComposer({
     setTitle("");
     setCaption("");
     setError(null);
+    setLoadedPostId(null);
     setFormat("text");
     setSource("upload");
     if (editPost) onEditClose?.();
