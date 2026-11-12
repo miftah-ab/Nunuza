@@ -84,10 +84,15 @@ export function NotificationPrompt() {
       }
 
       setPermission(Notification.permission);
-      setVisible(true);
       if (Notification.permission === "granted") {
-        // Keep the reminder visible until permission is also registered to this workspace.
-        void activate().then((ok) => { if (active && ok) setVisible(false); });
+        // Permission is already granted: silently restore/verify the workspace subscription.
+        // Never flash the setup prompt on refresh for an already-authorized browser.
+        void activate().then((ok) => {
+          if (!active) return;
+          setVisible(!ok);
+        });
+      } else {
+        setVisible(true);
       }
     });
     return () => {
