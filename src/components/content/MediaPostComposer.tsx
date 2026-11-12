@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ContentPost, ContentPostMedia } from "@/types/database";
 import { FileImage, FileText, Plus, X, ChevronUp, ChevronDown, Loader2, Sparkles, LayoutTemplate, Upload, WandSparkles } from "lucide-react";
 
@@ -93,9 +93,10 @@ export function MediaPostComposer({
   const [existing, setExisting] = useState<ExistingMedia[]>([]);
   const [stagedAi, setStagedAi] = useState<StagedAiMedia[]>([]);
   const [generatingAi, setGeneratingAi] = useState(false);
-  const [previews, setPreviews] = useState<string[]>([]);
+  const previews = useMemo(() => files.map((file) => URL.createObjectURL(file)), [files]);
   const [busy, setBusy] = useState(false);
-  const [loadingExisting, setLoadingExisting] = useState(false);
+  const [loadedPostId, setLoadedPostId] = useState<string | null>(null);
+  const loadingExisting = Boolean(editPost && loadedPostId !== editPost.id);
   const [error, setError] = useState<string | null>(null);
   const [prompts, setPrompts] = useState<string[]>([
     "A clean editorial visual explaining the first key idea. Professional LinkedIn carousel slide background, strong focal point, generous negative space for text, no words or letters.",
@@ -110,18 +111,11 @@ export function MediaPostComposer({
     "Finish with one practical action they can take.",
   ]);
 
-  useEffect(() => {
-    const urls = files.map((file) => URL.createObjectURL(file));
-    setPreviews(urls);
-    return () => urls.forEach((url) => URL.revokeObjectURL(url));
-  }, [files]);
+  useEffect(() => () => previews.forEach((url) => URL.revokeObjectURL(url)), [previews]);
 
   useEffect(() => {
     if (!editPost) return;
     let active = true;
-    setOpen(true);
-    setLoadingExisting(true);
-    setError(null);
     fetch(`/api/posts/media?postId=${encodeURIComponent(editPost.id)}`)
       .then(async (response) => {
         const json = await response.json() as { error?: string; data?: { post: ContentPost; media: ExistingMedia[] } };
@@ -133,9 +127,10 @@ export function MediaPostComposer({
         setExisting(json.data.media ?? []);
         setFiles([]);
         setSource("upload");
+        setError(null);
       })
       .catch((err) => { if (active) setError(err instanceof Error ? err.message : "Saved slides could not be loaded."); })
-      .finally(() => { if (active) setLoadingExisting(false); });
+      .finally(() => { if (active) setLoadedPostId(editPost.id); });
     return () => { active = false; };
   }, [editPost]);
 
@@ -296,7 +291,7 @@ export function MediaPostComposer({
           <Plus size={14} /> New Post
         </button>
       )}
-      {open && (
+      {(open || Boolean(editPost)) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="media-post-title">
           <div className="w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-xl border border-border bg-surface p-5 shadow-xl">
             <div className="flex items-start justify-between gap-3">
