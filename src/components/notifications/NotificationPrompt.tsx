@@ -14,18 +14,26 @@ function decodeVapidKey(value: string): Uint8Array {
 export function NotificationPrompt() {
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const activate = useCallback(async () => {
     if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return false;
     setBusy(true);
+    setError(null);
     try {
       const permission = Notification.permission === "default"
         ? await Notification.requestPermission()
         : Notification.permission;
-      if (permission !== "granted") return false;
+      if (permission !== "granted") {
+        setError("Notifications are blocked in your browser. Allow them in browser settings and try again.");
+        return false;
+      }
 
       const keyResponse = await fetch("/api/notifications/push-key", { cache: "no-store" });
-      if (!keyResponse.ok) return false;
+      if (!keyResponse.ok) {
+        setError("Notifications aren’t available right now. Please try again later.");
+        return false;
+      }
       const { publicKey } = await keyResponse.json() as { publicKey: string };
       const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
       await navigator.serviceWorker.ready;
@@ -41,12 +49,16 @@ export function NotificationPrompt() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(subscription.toJSON()),
       });
-      if (!response.ok) return false;
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({})) as { error?: string };
+        setError(result.error || "We couldn’t save your notification settings. Please try again.");
+        return false;
+      }
       sessionStorage.removeItem(DISMISSED_KEY);
       setVisible(false);
       return true;
-    } catch (error) {
-      console.error("[notifications] Could not activate browser notifications:", error);
+    } catch {
+      setError("We couldn’t turn on notifications. Check your browser settings and try again.");
       return false;
     } finally {
       setBusy(false);
@@ -93,6 +105,7 @@ export function NotificationPrompt() {
             <p className="mt-1 max-w-xl text-sm leading-6 text-ink-secondary">
               Get important updates about your posts, approvals, and agent activity, even when you&apos;re away.
             </p>
+            {error && <p role="alert" className="mt-2 text-sm text-error">{error}</p>}
           </div>
         </div>
         <button
