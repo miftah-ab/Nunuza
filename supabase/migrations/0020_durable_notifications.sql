@@ -92,7 +92,9 @@ CREATE OR REPLACE FUNCTION public.notify_post_status_change()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE v_category TEXT; v_priority TEXT; v_title TEXT; v_body TEXT;
 BEGIN
-  IF NEW.status IS NOT DISTINCT FROM OLD.status THEN RETURN NEW; END IF;
+  IF TG_OP = 'UPDATE' THEN
+    IF NEW.status IS NOT DISTINCT FROM OLD.status THEN RETURN NEW; END IF;
+  END IF;
   IF NEW.status = 'published' THEN
     v_category := 'publishing'; v_priority := 'high'; v_title := 'Your post was published'; v_body := 'Your LinkedIn post was successfully published.';
   ELSIF NEW.status = 'failed' THEN
