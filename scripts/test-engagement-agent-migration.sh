@@ -97,5 +97,18 @@ BEGIN
  END IF;
 END $$;
 
+-- Telegram approval is bound to the exact displayed draft prefix and linked user/chat.
+SET ROLE service_role;
+DO $
+BEGIN
+ IF NOT public.approve_engagement_action_telegram(
+   '00000000-0000-0000-0000-000000000021',12345,67890,left(repeat('b',64),15)
+ ) THEN RAISE EXCEPTION 'Valid Telegram approval failed'; END IF;
+ IF public.approve_engagement_action_telegram(
+   '00000000-0000-0000-0000-000000000021',12345,67890,left(repeat('b',64),15)
+ ) THEN RAISE EXCEPTION 'Telegram approval replay unexpectedly succeeded'; END IF;
+END $;
+RESET ROLE;
+
 SELECT 'engagement agent migration and approval tests passed' AS result;
 SQL
