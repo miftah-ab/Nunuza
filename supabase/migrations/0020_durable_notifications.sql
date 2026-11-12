@@ -106,7 +106,7 @@ BEGIN
   ELSE RETURN NEW;
   END IF;
   PERFORM public.create_notification_event(
-    NEW.workspace_id, 'post:' || NEW.id::text || ':status:' || NEW.status::text,
+    NEW.workspace_id, 'post:' || NEW.id::text || ':status:' || NEW.status::text || ':' || COALESCE(NEW.updated_at::text,''),
     v_category,v_priority,v_title,v_body,'/app/content?post=' || NEW.id::text
   );
   RETURN NEW;
@@ -240,7 +240,7 @@ BEGIN
   IF NEW.status IN ('past_due','unpaid') THEN
     PERFORM public.create_notification_event(
       NEW.workspace_id,
-      'billing:subscription:' || NEW.id::text || ':status:' || NEW.status,
+      'billing:subscription:' || NEW.id::text || ':status:' || NEW.status || ':' || COALESCE(NEW.updated_at::text,''),
       'billing',
       'high',
       'Your subscription needs attention',
