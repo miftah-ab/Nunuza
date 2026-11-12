@@ -27,7 +27,7 @@ BEGIN
     'engagement-publish-'||p_action_id::text,
     jsonb_build_object('actionId',p_action_id::text,'workspaceId',v_workspace_id::text),
     NOW(),0,1
-  ) ON CONFLICT (idempotency_key) DO NOTHING;
+  ) ON CONFLICT (workspace_id,idempotency_key) DO NOTHING;
   RETURN TRUE;
 END;
 $$;
@@ -69,7 +69,7 @@ BEGIN
     'engagement-publish-'||p_action_id::text,
     jsonb_build_object('actionId',p_action_id::text,'workspaceId',v_workspace_id::text),
     NOW(),0,1
-  ) ON CONFLICT (idempotency_key) DO NOTHING;
+  ) ON CONFLICT (workspace_id,idempotency_key) DO NOTHING;
   RETURN TRUE;
 END;
 $$;
@@ -129,7 +129,7 @@ GRANT EXECUTE ON FUNCTION public.reject_engagement_action_telegram(UUID,BIGINT,B
     'engagement-publish-'||p_action_id::text,
     jsonb_build_object('actionId',p_action_id::text,'workspaceId',v_workspace_id::text),
     NOW(),0,1
-  ) ON CONFLICT (idempotency_key) DO NOTHING;
+  ) ON CONFLICT (workspace_id,idempotency_key) DO NOTHING;
   RETURN TRUE;
 END;
 $$;
@@ -166,7 +166,7 @@ BEGIN
     'engagement-publish-'||p_action_id::text,
     jsonb_build_object('actionId',p_action_id::text,'workspaceId',v_workspace_id::text),
     NOW(),0,1
-  ) ON CONFLICT (idempotency_key) DO NOTHING;
+  ) ON CONFLICT (workspace_id,idempotency_key) DO NOTHING;
   RETURN TRUE;
 END;
 $$;
