@@ -31,6 +31,20 @@ CREATE TABLE IF NOT EXISTS public.content_post_media (
   CONSTRAINT content_post_media_workspace_post_path_unique UNIQUE (workspace_id, post_id, storage_path)
 );
 
+-- Enforce tenant consistency at the database boundary: a media row can only
+-- reference a post belonging to the same workspace, even under service-role code.
+CREATE UNIQUE INDEX IF NOT EXISTS content_posts_workspace_id_id_uidx
+  ON public.content_posts (workspace_id, id);
+
+ALTER TABLE public.content_post_media
+  DROP CONSTRAINT IF EXISTS content_post_media_post_id_fkey;
+
+ALTER TABLE public.content_post_media
+  ADD CONSTRAINT content_post_media_workspace_post_fkey
+  FOREIGN KEY (workspace_id, post_id)
+  REFERENCES public.content_posts (workspace_id, id)
+  ON DELETE CASCADE;
+
 CREATE INDEX IF NOT EXISTS content_post_media_post_order_idx
   ON public.content_post_media (workspace_id, post_id, sort_order, created_at);
 
