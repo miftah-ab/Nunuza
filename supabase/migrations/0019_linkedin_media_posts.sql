@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS public.content_post_media (
   post_id UUID NOT NULL REFERENCES public.content_posts(id) ON DELETE CASCADE,
   media_type TEXT NOT NULL CHECK (media_type IN ('image', 'document')),
   storage_path TEXT NOT NULL,
+  file_name TEXT NOT NULL CHECK (length(file_name) BETWEEN 1 AND 255),
   mime_type TEXT NOT NULL CHECK (
     mime_type IN ('image/jpeg', 'image/png', 'application/pdf')
   ),
