@@ -12,7 +12,7 @@ function retryAt(attempt: number): string {
   return new Date(Date.now() + delay).toISOString();
 }
 function escapeTelegramMarkdown(value: string): string {
-  const special = new Set(["_", "*", "[", "]", "(", ")", "~", "\`", ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"]);
+  const special = new Set(["_", "*", "[", "]", "(", ")", "~", String.fromCharCode(96), ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"]);
   return Array.from(value, (character) => special.has(character) ? "\\" + character : character).join("");
 }
 
