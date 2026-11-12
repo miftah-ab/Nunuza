@@ -165,7 +165,7 @@ export interface ContentPost {
   image_generated_at?: string | null;
   post_format?: ContentPostFormat;
   media?: ContentPostMedia[];
-  text: string | null;
+  text: string;
   internal_title: string | null;
   pillar: string | null;
   source_notes: string | null;
