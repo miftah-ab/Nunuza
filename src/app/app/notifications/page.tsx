@@ -51,11 +51,17 @@ export default function NotificationsPage() {
 
   const markRead = async (id: string) => {
     const response = await fetch("/api/notifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
-    if (response.ok) setData((current) => ({ ...current, unreadCount: Math.max(0, current.unreadCount - 1), notifications: current.notifications.map((item) => item.id === id ? { ...item, read_at: new Date().toISOString() } : item) }));
+    if (response.ok) {
+      setData((current) => ({ ...current, unreadCount: Math.max(0, current.unreadCount - 1), notifications: current.notifications.map((item) => item.id === id ? { ...item, read_at: new Date().toISOString() } : item) }));
+      window.dispatchEvent(new Event("nunuza:notifications-updated"));
+    }
   };
   const markAll = async () => {
     const response = await fetch("/api/notifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ all: true }) });
-    if (response.ok) setData((current) => ({ ...current, unreadCount: 0, notifications: current.notifications.map((item) => ({ ...item, read_at: item.read_at ?? new Date().toISOString() })) }));
+    if (response.ok) {
+      setData((current) => ({ ...current, unreadCount: 0, notifications: current.notifications.map((item) => ({ ...item, read_at: item.read_at ?? new Date().toISOString() })) }));
+      window.dispatchEvent(new Event("nunuza:notifications-updated"));
+    }
   };
   const items = data.notifications.filter((item) => filter === "all" || !item.read_at);
 
