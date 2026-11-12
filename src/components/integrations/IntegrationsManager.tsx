@@ -60,8 +60,8 @@ export interface IntegrationStatusData {
 }
 
 function friendlyActionError(error: unknown, fallback: string): string {
-  if (error instanceof TypeError) return fallback;
-  if (error instanceof Error && /failed to fetch|networkerror|load failed|unexpected token/i.test(error.message)) return fallback;
+  if (error instanceof TypeError || error instanceof SyntaxError) return fallback;
+  if (error instanceof Error && /failed to fetch|networkerror|load failed|unexpected token|unexpected end of json/i.test(error.message)) return fallback;
   return error instanceof Error ? error.message : fallback;
 }
 
@@ -93,7 +93,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
     try {
       const res = await fetch("/api/integrations/linkedin", { method: "DELETE" });
       const json = (await res.json()) as any;
-      if (!res.ok) throw new Error(json.error || "Failed to disconnect");
+      if (!res.ok) throw new Error(json.error || "We couldn’t disconnect LinkedIn. Please try again.");
       setData((prev) => ({
         ...prev,
         linkedin: { connected: false },
@@ -113,7 +113,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
     try {
       const res = await fetch("/api/integrations/telegram/link", { method: "POST" });
       const json = (await res.json()) as any;
-      if (!res.ok) throw new Error(json.error || "Failed to generate pairing link");
+      if (!res.ok) throw new Error(json.error || "We couldn’t create a Telegram connection link. Please try again.");
       const dataPayload = json.data || json;
       const botUrl =
         dataPayload.botUrl ||
@@ -143,7 +143,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
     try {
       const res = await fetch("/api/integrations/telegram/link", { method: "DELETE" });
       const json = (await res.json()) as any;
-      if (!res.ok) throw new Error(json.error || "Failed to unlink Telegram");
+      if (!res.ok) throw new Error(json.error || "We couldn’t disconnect Telegram. Please try again.");
       setData((prev) => ({
         ...prev,
         telegram: { ...prev.telegram, connected: false },
@@ -169,7 +169,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
     try {
       const res = await fetch("/api/integrations/mcp", { method: "POST" });
       const json = (await res.json()) as any;
-      if (!res.ok) throw new Error(json.error || "Failed to generate MCP key");
+      if (!res.ok) throw new Error(json.error || "We couldn’t create the AI tool connection. Please try again.");
       const dataPayload = json.data || json;
       setNewMcpToken(dataPayload.token);
       setData((prev) => ({
@@ -200,7 +200,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
         body: JSON.stringify({ clientId }),
       });
       const json = (await res.json()) as any;
-      if (!res.ok) throw new Error(json.error || "Failed to revoke Claude access");
+      if (!res.ok) throw new Error(json.error || "We couldn’t remove this AI tool’s access. Please try again.");
       setData((prev) => ({
         ...prev,
         mcp: {
@@ -226,7 +226,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
     try {
       const res = await fetch("/api/integrations/mcp", { method: "DELETE" });
       const json = (await res.json()) as any;
-      if (!res.ok) throw new Error(json.error || "Failed to revoke MCP key");
+      if (!res.ok) throw new Error(json.error || "We couldn’t remove the AI tool connection. Please try again.");
       setData((prev) => ({
         ...prev,
         mcp: {
@@ -360,7 +360,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
               <h2 className="text-lg font-semibold text-ink flex items-center gap-2">
                 Telegram Bot
                 {!data.telegram.enabled ? (
-                  <span className="badge-draft-only text-xs px-2 py-0.5 rounded-full">Integration not enabled</span>
+                  <span className="badge-draft-only text-xs px-2 py-0.5 rounded-full">Not available yet</span>
                 ) : data.telegram.connected ? (
                   <span className="badge-active text-xs px-2 py-0.5 rounded-full flex items-center gap-1">
                     <CheckCircle2 className="w-3 h-3 text-success" /> Connected
@@ -494,7 +494,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
                 {!data.mcp.enabled ? (
                   <span className="badge-draft-only text-xs px-2 py-0.5 rounded-full">Integration not enabled</span>
                 ) : (
-                  <span className="badge-active text-xs px-2 py-0.5 rounded-full">OAuth setup</span>
+                  <span className="badge-active text-xs px-2 py-0.5 rounded-full">Sign-in available</span>
                 )}
               </h2>
               <p className="text-xs text-ink-secondary mt-0.5">
@@ -549,7 +549,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
               </div>
               <ol className="list-decimal pl-5 space-y-1.5 text-xs leading-5 text-ink-secondary">
                 <li>Open Claude Connectors using the button above.</li>
-                <li>Choose <strong className="text-ink">Add custom connector</strong>, name it <strong className="text-ink">Nunuza</strong>, and paste the server URL shown above.</li>
+                <li>Choose <strong className="text-ink">Add custom connector</strong>, name it <strong className="text-ink">Nunuza</strong>, and paste the connection address shown above.</li>
                 <li>Choose <strong className="text-ink">Sign in now</strong> or <strong className="text-ink">Sign in when needed</strong>. Choose the sign-in option when Claude asks, then approve the access request.</li>
                 <li>When Claude starts the connection, sign in to Nunuza and review the permissions before approving.</li>
               </ol>
@@ -561,7 +561,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
             {data.mcp.oauthGrants.length > 0 && (
               <div className="rounded-lg border border-border p-4 space-y-3">
                 <div>
-                  <h3 className="text-sm font-semibold text-ink">Authorized Claude connections</h3>
+                  <h3 className="text-sm font-semibold text-ink">Connected AI tools</h3>
                   <p className="mt-1 text-xs text-ink-secondary">Remove access for any AI tool you no longer want connected.</p>
                 </div>
                 {data.mcp.oauthGrants.map((grant) => (
@@ -577,7 +577,7 @@ export function IntegrationsManager({ initialData }: { initialData: IntegrationS
                       disabled={loadingAction === `oauth_revoke:${grant.clientId}`}
                       className="btn-secondary text-xs px-3 py-1.5 text-red-400 hover:text-red-300"
                     >
-                      {loadingAction === `oauth_revoke:${grant.clientId}` ? "Revoking..." : "Revoke access"}
+                      {loadingAction === `oauth_revoke:${grant.clientId}` ? "Revoking..." : "Disconnect"}
                     </button>
                   </div>
                 ))}
