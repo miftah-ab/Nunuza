@@ -77,20 +77,23 @@ export function NotificationPrompt() {
   }, []);
 
   useEffect(() => {
-    if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
-      setVisible(false);
-      return;
-    }
-
     let active = true;
-    setPermission(Notification.permission);
-    setVisible(true);
+    const frame = window.requestAnimationFrame(() => {
+      if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+        return;
+      }
 
-    if (Notification.permission === "granted") {
-      // Keep the reminder visible until permission is also registered to this workspace.
-      void activate().then((ok) => { if (active && ok) setVisible(false); });
-    }
-    return () => { active = false; };
+      setPermission(Notification.permission);
+      setVisible(true);
+      if (Notification.permission === "granted") {
+        // Keep the reminder visible until permission is also registered to this workspace.
+        void activate().then((ok) => { if (active && ok) setVisible(false); });
+      }
+    });
+    return () => {
+      active = false;
+      window.cancelAnimationFrame(frame);
+    };
   }, [activate]);
 
   if (!visible) return null;
