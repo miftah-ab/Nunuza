@@ -205,7 +205,7 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
       if (pendingJob && ["queued", "running", "failed_retryable"].includes(pendingJob.status)) {
         await releaseConversation(input, lockToken, state);
         if (pendingJob.status === "queued") {
-          return { replyText: "Your previous post hasn't started yet. The request is still saved. Send /cancel if you want to clear it and try again." };
+          return { replyText: "Your previous request is saved, but post generation has not started because the background worker has not picked it up yet. Nothing is being generated right now. Send /cancel to clear this request, or wait until the worker is available." };
         }
         if (pendingJob.status === "failed_retryable") {
           return { replyText: "Your previous post hit a temporary issue and is waiting to retry. I'll update you when it finishes." };
@@ -291,8 +291,8 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
 
     return {
       replyText:
-        "⏳ I'm working on your LinkedIn post now. I'll send the draft here when it's ready.\n\n" +
-        "You can keep using /status and /drafts. Wait for my reply before sending another content request.\n\n" +
+        "📥 Your LinkedIn post request is saved in the queue. Generation has not started yet; the background worker must pick it up first.\n\n" +
+        "I'll send the draft here after generation actually starts and finishes. You can use /status and /drafts while you wait. Send /cancel if you want to clear a request that has not started.\n\n" +
         "Nothing is published by this request.",
     };
   } catch (error) {
