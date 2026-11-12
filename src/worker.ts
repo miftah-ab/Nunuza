@@ -75,14 +75,16 @@ export default {
     env: CloudflareBindings,
     ctx: ExecutionContext
   ): Promise<void> {
+    // Keep notification delivery on its one-minute cadence, but do not
+    // return early: every cron tick must also poll and dispatch due agent jobs.
     if (controller.cron === "* * * * *") {
       ctx.waitUntil(
         dispatchPendingNotifications(50).catch((error) => {
           console.error("[worker-notifications] Delivery pass failed:", error);
         })
       );
-      return;
     }
+
     ctx.waitUntil(
       (async () => {
         try {
@@ -98,28 +100,34 @@ export default {
             console.error("[worker-scheduled] Could not reconcile stale jobs:", reconcileError);
           }
 
-          // 2. Enqueue one idempotent autonomous operating cycle per eligible
-          // workspace/day. The existing job runner remains the only executor.
-          try {
-            const cycles = await enqueueAutonomousCycles();
-            if (cycles.queued > 0) {
-              console.info(`[worker-scheduled] Enqueued ${cycles.queued} autonomous workspace cycles.`);
+          // Autonomous discovery is heavier and remains on the five-minute
+          // cadence. Ordinary due jobs are polled on every cron tick.
+          if (controller.cron === "*/5 * * * *") {
+            try {
+              const cycles = await enqueueAutonomousCycles();
+              if (cycles.queued > 0) {
+                console.info(`[worker-scheduled] Enqueued ${cycles.queued} autonomous workspace cycles.`);
+              }
+            } catch (cycleError) {
+              console.error("[worker-scheduled] Could not enqueue autonomous cycles:", cycleError);
             }
-          } catch (cycleError) {
-            // Intelligence discovery is additive: a research/eligibility failure
-            // must never block existing scheduled posts from being processed.
-            console.error("[worker-scheduled] Could not enqueue autonomous cycles:", cycleError);
           }
 
-          // 3. Claim due jobs from database
-          const dueJobs = await claimDueJobs({ limit: 10, leaseMinutes: 5 });
+          // Claim due jobs every minute. The database RPC uses SKIP LOCKED, so
+          // overlapping cron invocations cannot claim the same job.
+          const dueJobs = await claimDueJobs({ limit: 10, leaseMinutes: 15 });
 
-          // 4. Dispatch jobs to queue if bound, or process inline
+          // Dispatch each claimed job independently. A single queue outage must
+          // not prevent later jobs in this batch from being attempted.
           for (const job of dueJobs) {
-            if (env?.AGENT_JOBS_QUEUE?.send) {
-              await env.AGENT_JOBS_QUEUE.send(job);
-            } else {
-              await processJob(job);
+            try {
+              if (env?.AGENT_JOBS_QUEUE?.send) {
+                await env.AGENT_JOBS_QUEUE.send(job);
+              } else {
+                await processJob(job);
+              }
+            } catch (dispatchError) {
+              console.error(`[worker-scheduled] Could not dispatch job ${job.id}:`, dispatchError);
             }
           }
         } catch (err) {

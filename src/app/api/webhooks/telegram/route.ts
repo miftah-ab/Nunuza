@@ -9,6 +9,7 @@ import {
   sendTelegramMessage,
   registerBotCommands,
 } from "@/lib/integrations/telegram/service";
+import { withTelegramTyping } from "@/lib/integrations/telegram/typing";
 
 export async function POST(req: NextRequest) {
   if (!verifyTelegramSecret(req.headers.get("x-telegram-bot-api-secret-token"))) {
@@ -46,38 +47,47 @@ export async function POST(req: NextRequest) {
     }
     claimed = true;
 
-    // Nunuza is a private workspace control plane. Group and channel updates
-    // are acknowledged but never allowed to read or mutate workspace data.
-    if (update.callback_query?.from && update.callback_query?.message) {
-      const cq = update.callback_query;
-      if (cq.message.chat?.type === "private") {
-        await handleCallbackQuery({
-          callbackQueryId: cq.id,
-          telegramUserId: cq.from.id,
-          chatId: cq.message.chat.id,
-          messageId: cq.message.message_id,
-          data: cq.data || "",
-          chatType: cq.message.chat.type,
-        });
-      }
-    } else if (update.message?.from && update.message?.chat?.type === "private" && typeof update.message.text === "string") {
-      const message = update.message;
-      const result = await handleTelegramMessage({
-        telegramUserId: message.from.id,
-        chatId: message.chat.id,
-        chatType: message.chat.type,
-        updateId,
-        text: message.text,
-      });
+    // Keep Telegram's native typing indicator visible during webhook work,
+    // including database-backed commands and callback responses. Long-running
+    // draft generation starts its own typing heartbeat in the queue consumer.
+    const privateChat =
+      update.callback_query?.message?.chat?.type === "private" ||
+      update.message?.chat?.type === "private";
+    const chatId = update.callback_query?.message?.chat?.id ?? update.message?.chat?.id;
+    if (privateChat && Number.isSafeInteger(chatId)) {
+      await withTelegramTyping(Number(chatId), async () => {
+        // Nunuza is a private workspace control plane. Group and channel updates
+        // are acknowledged but never allowed to read or mutate workspace data.
+        if (update.callback_query?.from && update.callback_query?.message) {
+          const cq = update.callback_query;
+          if (cq.message.chat?.type === "private") {
+            await handleCallbackQuery({
+              callbackQueryId: cq.id,
+              telegramUserId: cq.from.id,
+              chatId: cq.message.chat.id,
+              messageId: cq.message.message_id,
+              data: cq.data || "",
+              chatType: cq.message.chat.type,
+            });
+          }
+        } else if (update.message?.from && update.message?.chat?.type === "private" && typeof update.message.text === "string") {
+          const message = update.message;
+          const result = await handleTelegramMessage({
+            telegramUserId: message.from.id,
+            chatId: message.chat.id,
+            chatType: message.chat.type,
+            updateId,
+            text: message.text,
+          });
 
-      if (result.replyText) {
-        const delivery = await sendTelegramMessage(message.chat.id, result.replyText, result.replyMarkup);
-        if (!delivery.ok) {
-          // The command's database effects have already committed. Do not replay
-          // them just because Telegram could not deliver the response.
-          console.error("[telegram-webhook] Reply delivery failed for update", updateId, delivery.error || "unknown_error");
+          if (result.replyText) {
+            const delivery = await sendTelegramMessage(message.chat.id, result.replyText, result.replyMarkup);
+            if (!delivery.ok) {
+              console.error("[telegram-webhook] Reply delivery failed for update", updateId, delivery.error || "unknown_error");
+            }
+          }
         }
-      }
+      });
     }
 
     await completeTelegramWebhookUpdate(updateId);
