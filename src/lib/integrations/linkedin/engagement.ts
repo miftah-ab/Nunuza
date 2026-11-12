@@ -247,8 +247,8 @@ export async function scanOwnPostComments(
         text: "A LinkedIn comment deserves a reply. Nunuza drafted a response. Nothing will be posted until you approve it.",
         replyMarkup: {
           inline_keyboard: [[
-            { text: "Approve reply", callback_data: "eng:approve:" + action.id },
-            { text: "Reject", callback_data: "eng:reject:" + action.id },
+            { text: "Approve reply", callback_data: "eng:approve:" + action.id + ":" + draftHash.slice(0, 15) },
+            { text: "Reject", callback_data: "eng:reject:" + action.id + ":" + draftHash.slice(0, 15) },
           ]],
         },
       }, db);
