@@ -16,6 +16,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { executePublishJob } from "./scheduling";
 import { executeAutonomousCycle } from "./intelligence";
 import { executeTelegramContentJob } from "@/lib/integrations/telegram/conversation";
+import { withTelegramTyping } from "@/lib/integrations/telegram/typing";
 import {
   JobTransitionError,
   markJobRetryable,
@@ -236,7 +237,11 @@ export async function processJob(
         error: `Unrecognized job type: ${liveJob.job_type}`,
       };
     } else {
-      result = await handler(liveJob, supabase);
+      const execute = () => handler(liveJob, supabase);
+      const telegramChatId = (liveJob.payload as Record<string, unknown> | null)?.chatId;
+      result = Number.isSafeInteger(telegramChatId)
+        ? await withTelegramTyping(Number(telegramChatId), execute)
+        : await execute();
     }
   } catch (err: any) {
     console.error("[runner] Job handler failed:", { jobId: liveJob.id, error: err });
