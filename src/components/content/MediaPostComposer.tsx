@@ -304,7 +304,7 @@ export function MediaPostComposer({
                 <h2 id="media-post-title" className="text-lg font-bold text-ink">{editPost ? "Edit media post" : "Create a post"}</h2>
                 <p className="mt-1 text-xs text-ink-secondary">Text-only, media-only, or a caption with slides. Choose how to create your media.</p>
               </div>
-              <button onClick={close} className="rounded p-1 text-ink-secondary hover:bg-surface-muted" aria-label="Close"><X size={18} /></button>
+              <button onClick={() => close()} className="rounded p-1 text-ink-secondary hover:bg-surface-muted" aria-label="Close"><X size={18} /></button>
             </div>
 
             {loadingExisting ? (
@@ -467,7 +467,7 @@ export function MediaPostComposer({
 
             {error && <p role="alert" className="mt-3 rounded-lg bg-error/10 p-3 text-xs text-error">{error}</p>}
             <div className="mt-5 flex justify-end gap-2">
-              <button onClick={close} disabled={busy} className="btn-ghost text-xs">Cancel</button>
+              <button onClick={() => close()} disabled={busy} className="btn-ghost text-xs">Cancel</button>
               <button onClick={submit} disabled={busy || generatingAi || loadingExisting || !canSubmit} className="btn-primary flex items-center gap-2 text-xs disabled:opacity-50">
                 {busy ? <><Loader2 size={13} className="animate-spin" /> Saving...</> : editPost ? "Save changes" : "Save as draft"}
               </button>
