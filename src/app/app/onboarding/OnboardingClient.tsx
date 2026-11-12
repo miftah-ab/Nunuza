@@ -125,7 +125,7 @@ export function OnboardingClient({
       };
 
       if (!res.ok || json.error) {
-        setError(json.error || "Failed to complete setup. Please try again.");
+        setError(json.error || "We couldn’t finish setting up your workspace. Please try again.");
         setIsSubmitting(false);
         return;
       }
@@ -134,12 +134,12 @@ export function OnboardingClient({
         router.push("/app/overview");
         router.refresh();
       } else {
-        setError("Setup response indicated incomplete state. Please retry.");
+        setError("Your setup wasn’t completed. Please try again.");
         setIsSubmitting(false);
       }
     } catch (err: unknown) {
       setError(
-        err instanceof Error ? err.message : "Network error completing setup."
+        "We couldn’t save your setup. Check your connection and try again."
       );
       setIsSubmitting(false);
     }
@@ -200,7 +200,7 @@ export function OnboardingClient({
             <div className="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800 flex items-start gap-2.5">
               <AlertCircle size={18} className="text-red-600 flex-shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold">Setup Error</p>
+                <p className="font-semibold">We couldn’t finish setup</p>
                 <p className="mt-0.5">{error}</p>
               </div>
             </div>
