@@ -68,7 +68,7 @@ CREATE OR REPLACE FUNCTION public.create_notification_event(
 ) RETURNS UUID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public
 AS $$
 DECLARE v_user_id UUID; v_id UUID;
 BEGIN
@@ -89,7 +89,7 @@ REVOKE ALL ON FUNCTION public.create_notification_event(UUID,TEXT,TEXT,TEXT,TEXT
 GRANT EXECUTE ON FUNCTION public.create_notification_event(UUID,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.notify_post_status_change()
-RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE v_category TEXT; v_priority TEXT; v_title TEXT; v_body TEXT;
 BEGIN
   IF TG_OP = 'UPDATE' THEN
@@ -117,7 +117,7 @@ AFTER INSERT OR UPDATE ON public.content_posts
 FOR EACH ROW EXECUTE FUNCTION public.notify_post_status_change();
 
 CREATE OR REPLACE FUNCTION public.notify_agent_job_status_change()
-RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE v_title TEXT; v_body TEXT;
 BEGIN
   IF NEW.status IS NOT DISTINCT FROM OLD.status THEN RETURN NEW; END IF;
@@ -143,7 +143,7 @@ AFTER UPDATE OF status ON public.agent_jobs
 FOR EACH ROW EXECUTE FUNCTION public.notify_agent_job_status_change();
 
 CREATE OR REPLACE FUNCTION public.notify_approval_event()
-RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
   IF NEW.action IN ('approved','rejected','revised') THEN
     PERFORM public.create_notification_event(
@@ -161,7 +161,7 @@ AFTER INSERT ON public.approval_events
 FOR EACH ROW EXECUTE FUNCTION public.notify_approval_event();
 
 CREATE OR REPLACE FUNCTION public.notify_integration_status_change()
-RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
   IF NEW.status IN ('expired','error') AND OLD.status IS DISTINCT FROM NEW.status THEN
     PERFORM public.create_notification_event(
@@ -181,7 +181,7 @@ FOR EACH ROW EXECUTE FUNCTION public.notify_integration_status_change();
 
 CREATE OR REPLACE FUNCTION public.claim_pending_notification_deliveries(p_limit INTEGER DEFAULT 50)
 RETURNS SETOF public.notification_events
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
   RETURN QUERY
   WITH candidates AS (
@@ -203,7 +203,7 @@ GRANT EXECUTE ON FUNCTION public.claim_pending_notification_deliveries(INTEGER) 
 
 
 CREATE OR REPLACE FUNCTION public.notify_workspace_state_change()
-RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
   IF NEW.state IS NOT DISTINCT FROM OLD.state THEN RETURN NEW; END IF;
   IF NEW.state IN ('paused','blocked_integration','attention_required') THEN
@@ -234,7 +234,7 @@ FOR EACH ROW EXECUTE FUNCTION public.notify_workspace_state_change();
 
 
 CREATE OR REPLACE FUNCTION public.notify_subscription_status_change()
-RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
   IF NEW.status IS NOT DISTINCT FROM OLD.status THEN RETURN NEW; END IF;
   IF NEW.status IN ('past_due','unpaid') THEN
