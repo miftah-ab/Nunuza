@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     const body = await request.json() as { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown }; expirationTime?: unknown };
     if (!validEndpoint(body.endpoint) || typeof body.keys?.p256dh !== "string" || typeof body.keys?.auth !== "string"
       || body.keys.p256dh.length > 256 || body.keys.auth.length > 256) {
-      return NextResponse.json({ error: "Invalid notification subscription." }, { status: 400 });
+      return NextResponse.json({ error: "We couldn’t set up notifications for this device. Please try again." }, { status: 400 });
     }
     const db = createServiceClient();
     const endpointHash = await hashSubscriptionEndpoint(body.endpoint);
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
       .select("id,workspace_id").eq("endpoint_hash", endpointHash).maybeSingle();
     if (lookupError) throw lookupError;
     if (existing && existing.workspace_id !== workspace.id) {
-      return NextResponse.json({ error: "This device is already linked to another workspace." }, { status: 409 });
+      return NextResponse.json({ error: "This browser is already connected to a different Nunuza workspace. Disconnect it there first." }, { status: 409 });
     }
     const values = {
       workspace_id: workspace.id,
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("[notifications] Subscription registration failed:", error);
-    return NextResponse.json({ error: "Could not enable notifications." }, { status: 500 });
+    return NextResponse.json({ error: "We couldn’t turn on notifications on this device. Please try again." }, { status: 500 });
   }
 }
 
@@ -56,7 +56,7 @@ export async function DELETE(request: Request) {
   try {
     const workspace = await requireWorkspace();
     const body = await request.json() as { endpoint?: unknown };
-    if (!validEndpoint(body.endpoint)) return NextResponse.json({ error: "Invalid subscription." }, { status: 400 });
+    if (!validEndpoint(body.endpoint)) return NextResponse.json({ error: "We couldn’t identify notifications for this device. Refresh and try again." }, { status: 400 });
     const db = createServiceClient();
     const endpointHash = await hashSubscriptionEndpoint(body.endpoint);
     const { error } = await db.from("web_push_subscriptions").delete()
