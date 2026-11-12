@@ -202,7 +202,7 @@ export async function scanOwnPostComments(
         continue;
       }
       try {
-        assertVoiceConstraints(draft, voice ?? undefined);
+        assertVoiceConstraints(draft, { phrasesAvoid: voice?.phrases_avoid, exclusions: voice?.exclusions });
         assertNoExcludedPhrase(draft, [
           ...(Array.isArray(strategy?.exclusions) ? strategy.exclusions : []),
           ...(Array.isArray(voice?.exclusions) ? voice.exclusions : []),
