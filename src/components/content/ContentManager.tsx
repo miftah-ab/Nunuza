@@ -56,6 +56,7 @@ export function ContentManager({
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [editingPost, setEditingPost] = useState<ContentPost | null>(null);
+  const [editingMediaPost, setEditingMediaPost] = useState<ContentPost | null>(null);
 
   // AI Generation Form State
   const [aiTopic, setAiTopic] = useState("");
@@ -496,7 +497,11 @@ export function ContentManager({
             <Download size={14} /> Export
           </button>
 
-          <MediaPostComposer onCreated={(post) => setPosts((prev) => [post, ...prev])} />
+          <MediaPostComposer
+            editPost={editingMediaPost}
+            onEditClose={() => setEditingMediaPost(null)}
+            onCreated={(post) => setPosts((prev) => prev.some((item) => item.id === post.id) ? prev.map((item) => item.id === post.id ? post : item) : [post, ...prev])}
+          />
           <button
             onClick={() => setIsAiModalOpen(true)}
             className="btn-primary flex items-center gap-1.5 text-xs"
@@ -627,6 +632,16 @@ export function ContentManager({
                   >
                     <Edit3 size={15} />
                   </button>
+                  {post.post_format && post.post_format !== "text" && (
+                    <button
+                      onClick={() => setEditingMediaPost(post)}
+                      className="p-1.5 text-ink-secondary hover:text-forest rounded hover:bg-forest-light"
+                      title="Edit slides or document"
+                      aria-label="Edit slides or document"
+                    >
+                      <FileImage size={15} />
+                    </button>
+                  )}
                   <button
                     onClick={() => handleDeletePost(post.id)}
                     className="p-1.5 text-ink-secondary hover:text-error rounded hover:bg-error-light transition-colors"
