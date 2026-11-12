@@ -97,6 +97,25 @@ export async function scanOwnPostComments(
     return { scannedPosts: 0, newComments: 0, draftsCreated: 0, ignored: 0, unavailableReason: "linkedin_connection_expired" };
   }
 
+  const { data: engagementSettings } = await db.from("engagement_settings")
+    .select("enabled,daily_limit").eq("workspace_id", workspaceId).maybeSingle();
+  if (!engagementSettings?.enabled) {
+    return { scannedPosts: 0, newComments: 0, draftsCreated: 0, ignored: 0, unavailableReason: "engagement_agent_disabled" };
+  }
+  const startOfUtcDay = new Date();
+  startOfUtcDay.setUTCHours(0, 0, 0, 0);
+  const { count: draftsToday, error: usageError } = await db.from("engagement_actions")
+    .select("id", { count: "exact", head: true })
+    .eq("workspace_id", workspaceId)
+    .in("status", ["awaiting_approval", "approved", "publishing", "published", "needs_reconciliation"])
+    .gte("created_at", startOfUtcDay.toISOString());
+  if (usageError) throw new Error("Could not check the engagement daily limit.");
+  const dailyLimit = Math.max(1, Math.min(30, Number(engagementSettings.daily_limit) || 5));
+  let draftedToday = draftsToday ?? 0;
+  if (draftedToday >= dailyLimit) {
+    return { scannedPosts: 0, newComments: 0, draftsCreated: 0, ignored: 0, unavailableReason: "engagement_daily_limit_reached" };
+  }
+
   const token = decryptToken(connection.encrypted_token_ref);
   const memberUrn = connection.external_account_id;
   if (typeof memberUrn !== "string" || !memberUrn.startsWith("urn:li:person:")) {
@@ -143,6 +162,7 @@ export async function scanOwnPostComments(
     scannedPosts++;
 
     for (const comment of comments) {
+      if (draftedToday >= dailyLimit) break;
       const text = textFromComment(comment);
       const urn = commentUrn(comment, post.linkedin_post_id);
       const actor = typeof comment?.actor === "string" ? comment.actor : null;
@@ -234,6 +254,7 @@ export async function scanOwnPostComments(
         throw new Error("Could not persist engagement reply draft.");
       }
       draftsCreated++;
+      draftedToday++;
       const title = "A LinkedIn comment deserves a reply";
       const body = "Nunuza drafted a response to a comment on your post. Review it before anything is published.";
       const { error: notificationError } = await db.rpc("create_notification_event", {
@@ -268,7 +289,12 @@ export async function enqueueEngagementScans(dbOverride?: any): Promise<number> 
     .select("workspace_id,granted_scopes,status,expires_at")
     .eq("provider", "linkedin").eq("status", "connected");
   if (error) throw new Error("Could not inspect LinkedIn connections for engagement scans.");
+  const { data: enabledSettings, error: settingsError } = await db.from("engagement_settings")
+    .select("workspace_id").eq("enabled", true);
+  if (settingsError) throw new Error("Could not load engagement agent settings.");
+  const enabledWorkspaceIds = new Set((enabledSettings ?? []).map((item: any) => item.workspace_id));
   const eligible = (connections ?? []).filter((c: any) =>
+    enabledWorkspaceIds.has(c.workspace_id) &&
     Array.isArray(c.granted_scopes) && c.granted_scopes.includes(ENGAGEMENT_READ_SCOPE) &&
     (!c.expires_at || Date.parse(c.expires_at) > Date.now())
   );
