@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  Bell, Check, CheckCheck, AlertTriangle, CircleCheck, Clock3, Bot, FileText, ShieldCheck, RefreshCw, Inbox,
+  Bell, Check, CheckCheck, AlertTriangle, Clock3, Bot, FileText, ShieldCheck, RefreshCw, Inbox,
 } from "lucide-react";
 
 type Notification = {
