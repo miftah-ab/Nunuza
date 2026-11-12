@@ -140,29 +140,25 @@ class MockMcpDb {
             else if (table === "workspaces") targetRows = db.workspaces;
             else if (table === "content_posts") targetRows = db.contentPosts;
 
-            let filterCol: string | null = null;
-            let filterVal: any = null;
-            let isCol: string | null = null;
-            let isVal: any = null;
+            const filters: Array<(row: any) => boolean> = [];
 
             const chain = {
               eq(col: string, val: any) {
-                filterCol = col;
-                filterVal = val;
+                filters.push((row) => row[col] === val);
                 return chain;
               },
-              in(_col: string, _vals: any[]) {
+              in(col: string, values: any[]) {
+                filters.push((row) => values.includes(row[col]));
                 return chain;
               },
               is(col: string, val: any) {
-                isCol = col;
-                isVal = val;
+                filters.push((row) => val === null ? row[col] === null || row[col] === undefined : row[col] === val);
                 return chain;
               },
               select() {
                 return {
                   async single() {
-                    const r = targetRows.find((item) => (!filterCol || item[filterCol] === filterVal));
+                    const r = targetRows.find((item) => filters.every((filter) => filter(item)));
                     if (r) Object.assign(r, updates);
                     return { data: r || null, error: null };
                   },
@@ -170,10 +166,7 @@ class MockMcpDb {
               },
               then(resolve: any) {
                 targetRows.forEach((r) => {
-                  let match = true;
-                  if (filterCol && r[filterCol] !== filterVal) match = false;
-                  if (isCol && (isVal === null ? r[isCol] !== null && r[isCol] !== undefined : r[isCol] !== isVal)) match = false;
-                  if (match) {
+                  if (filters.every((filter) => filter(r))) {
                     Object.assign(r, updates);
                   }
                 });
