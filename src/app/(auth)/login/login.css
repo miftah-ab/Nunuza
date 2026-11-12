@@ -1,0 +1,196 @@
+/* Sign-in page. Scoped with the nzl- prefix; brand tokens come from globals with fallbacks. */
+
+.nzl {
+  --nzl-forest: var(--color-forest, #174c3c);
+  --nzl-deep: #0c2e24;
+  --nzl-ink: var(--color-ink, #202522);
+  --nzl-mute: var(--color-ink-secondary, #68716c);
+  --nzl-line: var(--color-border, #e4e8e3);
+
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  color: var(--nzl-ink);
+}
+
+.nzl *,
+.nzl *::before,
+.nzl *::after {
+  box-sizing: border-box;
+}
+
+.nzl-header {
+  display: flex;
+  align-items: center;
+  height: 72px;
+  padding: 0 24px;
+}
+.nzl-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px 8px 10px;
+  border-radius: 999px;
+  color: var(--nzl-mute);
+  text-decoration: none;
+  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+.nzl-back:hover {
+  background: #f1f3ef;
+  color: var(--nzl-ink);
+}
+.nzl-back:hover svg {
+  transform: translateX(-2px);
+}
+.nzl-back svg {
+  transition: transform 0.2s ease;
+}
+.nzl-back:focus-visible,
+.nzl-google:focus-visible,
+.nzl-legal a:focus-visible {
+  outline: 3px solid var(--nzl-forest);
+  outline-offset: 3px;
+}
+
+.nzl-main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  align-content: center;
+  padding: 24px 20px 72px;
+}
+
+.nzl-card {
+  width: 100%;
+  max-width: 440px;
+  padding: 44px 32px 32px;
+  border: 1px solid var(--nzl-line);
+  border-radius: 32px;
+  background: #fff;
+  box-shadow: 0 40px 70px -46px rgba(23, 76, 60, 0.55), 0 2px 6px rgba(23, 76, 60, 0.05);
+  animation: nzl-in 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.nzl-title {
+  margin: 0;
+  font: 800 clamp(1.9rem, 6vw, 2.4rem) / 1.05 var(--font-inter), system-ui, sans-serif;
+  letter-spacing: -0.04em;
+  color: var(--nzl-deep);
+}
+.nzl-sub {
+  margin: 14px 0 32px;
+  font: 400 16px/1.55 var(--font-inter), system-ui, sans-serif;
+  color: var(--nzl-mute);
+}
+
+.nzl-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 20px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--color-error-light, #fef3f2);
+  border: 1px solid rgba(180, 35, 24, 0.22);
+  color: var(--color-error, #b42318);
+  font: 500 14px/1.5 var(--font-inter), system-ui, sans-serif;
+}
+.nzl-error svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.nzl-error p {
+  margin: 0;
+}
+
+.nzl-google {
+  width: 100%;
+  height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border: 2px solid var(--nzl-ink);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--nzl-ink);
+  font: 700 16px/1 var(--font-inter), system-ui, sans-serif;
+  cursor: pointer;
+  box-shadow: 0 4px 0 var(--nzl-ink);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.nzl-google:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: var(--nzl-forest);
+  box-shadow: 0 6px 0 var(--nzl-forest);
+}
+.nzl-google:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow: 0 0 0 var(--nzl-ink);
+}
+.nzl-google:disabled {
+  cursor: progress;
+  border-color: var(--nzl-line);
+  box-shadow: none;
+  transform: translateY(4px);
+  color: var(--nzl-mute);
+}
+
+.nzl-spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 3px solid #dfe5e0;
+  border-top-color: var(--nzl-forest);
+  animation: nzl-spin 0.7s linear infinite;
+}
+
+.nzl-legal {
+  margin: 26px 4px 0;
+  text-align: center;
+  font: 400 13px/1.6 var(--font-inter), system-ui, sans-serif;
+  color: var(--nzl-mute);
+}
+.nzl-legal a {
+  color: var(--nzl-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: rgba(32, 37, 34, 0.35);
+}
+.nzl-legal a:hover {
+  text-decoration-color: var(--nzl-forest);
+  color: var(--nzl-forest);
+}
+
+@keyframes nzl-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes nzl-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 520px) {
+  .nzl-header {
+    padding: 0 12px;
+  }
+  .nzl-card {
+    padding: 36px 24px 28px;
+    border-radius: 28px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nzl-card,
+  .nzl-google,
+  .nzl-back,
+  .nzl-back svg {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+  .nzl-spinner {
+    animation-duration: 2s;
+  }
+}
