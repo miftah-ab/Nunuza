@@ -248,7 +248,7 @@ export function MediaPostComposer({
                     <div className="mt-5 flex flex-wrap gap-2">
                       <button type="button" onClick={() => setSource("upload")} className={source === "upload" ? "btn-primary text-xs" : "btn-secondary text-xs"}><Upload size={13} className="mr-1 inline" /> Upload images</button>
                       <button type="button" onClick={() => setSource("template")} className={source === "template" ? "btn-primary text-xs" : "btn-secondary text-xs"}><LayoutTemplate size={13} className="mr-1 inline" /> Templates</button>
-                      <button type="button" onClick={() => setSource("ai")} className={source === "ai" ? "btn-primary text-xs" : "btn-secondary text-xs"}><Sparkles size={13} className="mr-1 inline" /> AI slide visuals</button>
+                      <button type="button" onClick={() => { setSource("ai"); setFiles([]); }} className={source === "ai" ? "btn-primary text-xs" : "btn-secondary text-xs"}><Sparkles size={13} className="mr-1 inline" /> AI slide visuals</button>
                     </div>
 
                     {source === "upload" && (
@@ -327,6 +327,8 @@ export function MediaPostComposer({
                         <img src={previews[index]} alt={file.name} className="aspect-square w-full object-cover" />
                         <div className="flex items-center justify-between p-1.5">
                           <span className="max-w-[70px] truncate text-[10px]">{file.name}</span>
+                          <button type="button" onClick={() => moveNew(index, -1)} disabled={index === 0} className="p-1 disabled:opacity-30" aria-label="Move new slide up"><ChevronUp size={13} /></button>
+                          <button type="button" onClick={() => moveNew(index, 1)} disabled={index === files.length - 1} className="p-1 disabled:opacity-30" aria-label="Move new slide down"><ChevronDown size={13} /></button>
                           <button type="button" onClick={() => setFiles((current) => current.filter((_, i) => i !== index))} className="p-1 text-error" aria-label="Remove new slide"><X size={13} /></button>
                         </div>
                       </div>
