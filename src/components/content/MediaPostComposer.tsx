@@ -6,6 +6,7 @@ import { FileImage, FileText, Plus, X, ChevronUp, ChevronDown, Loader2, Sparkles
 
 type PostFormat = "text" | "image_carousel" | "document";
 type ExistingMedia = ContentPostMedia & { preview_url: string };
+type StagedAiMedia = { path: string; preview_url: string };
 type Source = "upload" | "template" | "ai";
 
 const TEMPLATE_THEMES = [
@@ -76,6 +77,8 @@ export function MediaPostComposer({
   const [caption, setCaption] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [existing, setExisting] = useState<ExistingMedia[]>([]);
+  const [stagedAi, setStagedAi] = useState<StagedAiMedia[]>([]);
+  const [generatingAi, setGeneratingAi] = useState(false);
   const [previews, setPreviews] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [loadingExisting, setLoadingExisting] = useState(false);
@@ -122,8 +125,23 @@ export function MediaPostComposer({
     return () => { active = false; };
   }, [editPost]);
 
+  const deleteStaged = async (paths: string[]) => {
+    if (!paths.length) return;
+    await fetch("/api/posts/media/generate", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paths }),
+    }).catch(() => {});
+  };
+  const clearStaged = () => {
+    const paths = stagedAi.map((item) => item.path);
+    setStagedAi([]);
+    void deleteStaged(paths);
+  };
+
   const close = () => {
-    if (busy) return;
+    if (busy || generatingAi) return;
+    clearStaged();
     setOpen(false);
     setFiles([]);
     setExisting([]);
@@ -149,6 +167,33 @@ export function MediaPostComposer({
     [next[index], next[target]] = [next[target], next[index]];
     setExisting(next);
   };
+  const moveStaged = (index: number, direction: -1 | 1) => {
+    const next = [...stagedAi];
+    const target = index + direction;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    setStagedAi(next);
+  };
+
+  const generateAiSlides = async () => {
+    setGeneratingAi(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/posts/media/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompts }),
+      });
+      const json = await response.json() as { error?: string; data?: { slides: StagedAiMedia[] } };
+      if (!response.ok || !json.data?.slides) throw new Error(json.error ?? "AI slides could not be generated.");
+      await deleteStaged(stagedAi.map((item) => item.path));
+      setStagedAi(json.data.slides);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "AI slides could not be generated.");
+    } finally {
+      setGeneratingAi(false);
+    }
+  };
 
   const createTemplateSlides = async () => {
     setBusy(true);
@@ -157,6 +202,7 @@ export function MediaPostComposer({
       const generated = await Promise.all(templateBodies.map((body, index) =>
         renderTemplateSlide(templateTitle.trim() || title.trim() || "A useful idea", body, index, templateTheme)
       ));
+      clearStaged();
       setFiles(generated);
       setExisting([]);
       setSource("template");
@@ -180,10 +226,11 @@ export function MediaPostComposer({
       if (editPost) form.set("postId", editPost.id);
       form.set("existingMediaIds", JSON.stringify(existing.map((item) => item.id)));
       files.forEach((file) => form.append("files", file));
-      if (source === "ai") form.set("prompts", JSON.stringify(prompts));
+      if (source === "ai") form.set("stagedMedia", JSON.stringify(stagedAi.map((item) => item.path)));
       const response = await fetch("/api/posts/media", { method: "POST", body: form });
       const json = await response.json() as { error?: string; data?: { post: ContentPost } };
       if (!response.ok || !json.data?.post) throw new Error(json.error ?? "Your post could not be saved.");
+      setStagedAi([]);
       onCreated(json.data.post);
       close();
     } catch (err) {
@@ -193,12 +240,12 @@ export function MediaPostComposer({
     }
   };
 
-  const pendingAiSlides = source === "ai" ? prompts.length : 0;
+  const pendingAiSlides = source === "ai" ? stagedAi.length : 0;
   const totalSlides = existing.length + files.length + pendingAiSlides;
   const canSubmit = format === "text"
     ? caption.trim().length > 0 && existing.length + files.length === 0
     : format === "image_carousel"
-      ? totalSlides >= 2 && totalSlides <= 20 && (source !== "ai" || (prompts.length >= 2 && prompts.length <= 5 && prompts.every((item) => item.trim())))
+      ? totalSlides >= 2 && totalSlides <= 20 && (source !== "ai" || (stagedAi.length >= 2 && stagedAi.length <= 5))
       : existing.length + files.length === 1;
 
   return (
@@ -229,7 +276,7 @@ export function MediaPostComposer({
                     ["image_carousel", "Image carousel", "2–20 slides"],
                     ["document", "PDF document", "One PDF"],
                   ] as const).map(([value, label, description]) => (
-                    <button key={value} type="button" onClick={() => { setFormat(value); setFiles([]); setExisting([]); setSource("upload"); }}
+                    <button key={value} type="button" onClick={() => { clearStaged(); setFormat(value); setFiles([]); setExisting([]); setSource("upload"); }}
                       className={format === value ? "rounded-lg border border-forest bg-forest-light p-3 text-left" : "rounded-lg border border-border p-3 text-left"}>
                       {value === "image_carousel" ? <FileImage size={18} className="mb-2" /> : <FileText size={18} className="mb-2" />}
                       <span className="block text-sm font-semibold">{label}</span>
@@ -246,8 +293,8 @@ export function MediaPostComposer({
                 {format === "image_carousel" && (
                   <>
                     <div className="mt-5 flex flex-wrap gap-2">
-                      <button type="button" onClick={() => setSource("upload")} className={source === "upload" ? "btn-primary text-xs" : "btn-secondary text-xs"}><Upload size={13} className="mr-1 inline" /> Upload images</button>
-                      <button type="button" onClick={() => setSource("template")} className={source === "template" ? "btn-primary text-xs" : "btn-secondary text-xs"}><LayoutTemplate size={13} className="mr-1 inline" /> Templates</button>
+                      <button type="button" onClick={() => { setSource("upload"); }} className={source === "upload" ? "btn-primary text-xs" : "btn-secondary text-xs"}><Upload size={13} className="mr-1 inline" /> Upload images</button>
+                      <button type="button" onClick={() => { setSource("template"); }} className={source === "template" ? "btn-primary text-xs" : "btn-secondary text-xs"}><LayoutTemplate size={13} className="mr-1 inline" /> Templates</button>
                       <button type="button" onClick={() => { setSource("ai"); setFiles([]); }} className={source === "ai" ? "btn-primary text-xs" : "btn-secondary text-xs"}><Sparkles size={13} className="mr-1 inline" /> AI slide visuals</button>
                     </div>
 
@@ -294,7 +341,10 @@ export function MediaPostComposer({
                           </div>
                         ))}
                         {prompts.length < 5 && <button type="button" onClick={() => setPrompts((current) => [...current, "A distinct professional editorial visual for this slide, with negative space for text and no words or letters."])} className="btn-ghost mt-2 text-xs"><Plus size={13} className="mr-1 inline" /> Add slide</button>}
-                        <p className="mt-2 text-xs text-ink-muted">AI generation uses your workspace image allowance (maximum 5 images per hour).</p>
+                        <button type="button" onClick={generateAiSlides} disabled={generatingAi || prompts.length < 2 || prompts.length > 5 || prompts.some((item) => !item.trim())} className="btn-secondary mt-3 text-xs disabled:opacity-50">
+                          {generatingAi ? <><Loader2 size={13} className="mr-1 inline animate-spin" /> Generating previews...</> : <><Sparkles size={13} className="mr-1 inline" /> Generate preview slides</>}
+                        </button>
+                        <p className="mt-2 text-xs text-ink-muted">Review, remove, and reorder the generated slides before saving. Maximum 5 images per hour.</p>
                       </div>
                     )}
                   </>
@@ -307,7 +357,7 @@ export function MediaPostComposer({
                   </>
                 )}
 
-                {(existing.length > 0 || files.length > 0) && format === "image_carousel" && (
+                {(existing.length > 0 || files.length > 0 || stagedAi.length > 0) && format === "image_carousel" && (
                   <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {existing.map((item, index) => (
                       <div key={item.id} className="overflow-hidden rounded-lg border border-border">
@@ -318,6 +368,19 @@ export function MediaPostComposer({
                             <button type="button" onClick={() => moveExisting(index, -1)} disabled={index === 0} className="p-1 disabled:opacity-30" aria-label="Move saved slide up"><ChevronUp size={13} /></button>
                             <button type="button" onClick={() => moveExisting(index, 1)} disabled={index === existing.length - 1} className="p-1 disabled:opacity-30" aria-label="Move saved slide down"><ChevronDown size={13} /></button>
                             <button type="button" onClick={() => setExisting((current) => current.filter((_, i) => i !== index))} className="p-1 text-error" aria-label="Remove saved slide"><X size={13} /></button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {stagedAi.map((item, index) => (
+                      <div key={item.path} className="overflow-hidden rounded-lg border border-border">
+                        <img src={item.preview_url} alt={`Generated slide ${index + 1}`} className="aspect-square w-full object-cover" />
+                        <div className="flex items-center justify-between p-1.5">
+                          <span className="text-[10px]">AI slide {index + 1}</span>
+                          <div className="flex">
+                            <button type="button" onClick={() => moveStaged(index, -1)} disabled={index === 0} className="p-1 disabled:opacity-30" aria-label="Move AI slide up"><ChevronUp size={13} /></button>
+                            <button type="button" onClick={() => moveStaged(index, 1)} disabled={index === stagedAi.length - 1} className="p-1 disabled:opacity-30" aria-label="Move AI slide down"><ChevronDown size={13} /></button>
+                            <button type="button" onClick={() => { const removed = stagedAi[index]; setStagedAi((current) => current.filter((_, i) => i !== index)); void deleteStaged([removed.path]); }} className="p-1 text-error" aria-label="Remove AI slide"><X size={13} /></button>
                           </div>
                         </div>
                       </div>
@@ -348,7 +411,7 @@ export function MediaPostComposer({
             {error && <p role="alert" className="mt-3 rounded-lg bg-error/10 p-3 text-xs text-error">{error}</p>}
             <div className="mt-5 flex justify-end gap-2">
               <button onClick={close} disabled={busy} className="btn-ghost text-xs">Cancel</button>
-              <button onClick={submit} disabled={busy || loadingExisting || !canSubmit} className="btn-primary flex items-center gap-2 text-xs disabled:opacity-50">
+              <button onClick={submit} disabled={busy || generatingAi || loadingExisting || !canSubmit} className="btn-primary flex items-center gap-2 text-xs disabled:opacity-50">
                 {busy ? <><Loader2 size={13} className="animate-spin" /> Saving...</> : editPost ? "Save changes" : "Save as draft"}
               </button>
             </div>
