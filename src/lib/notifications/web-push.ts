@@ -101,7 +101,7 @@ export async function sendWebPush(
   const response = await fetch(subscription.endpoint, {
     method: "POST",
     headers: {
-      Authorization: \`vapid t=\${vapid.token}, k=\${vapid.publicKey}\`,
+      Authorization: "vapid t=" + vapid.token + ", k=" + vapid.publicKey,
       "Content-Encoding": "aes128gcm",
       "Content-Type": "application/octet-stream",
       TTL: "86400",
