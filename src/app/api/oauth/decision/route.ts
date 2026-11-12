@@ -5,7 +5,7 @@ export async function POST(request: NextRequest) {
   // A browser form must originate from this exact app origin.
   const origin = request.headers.get("origin");
   if (!origin || origin !== request.nextUrl.origin) {
-    return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
+    return NextResponse.json({ error: "We couldn’t verify this connection request. Please return to Claude and try again." }, { status: 403 });
   }
 
   const form = await request.formData();
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     authorizationId.length > 200 ||
     (decision !== "approve" && decision !== "deny")
   ) {
-    return NextResponse.json({ error: "Invalid authorization decision." }, { status: 400 });
+    return NextResponse.json({ error: "Choose whether to allow or deny this connection." }, { status: 400 });
   }
 
   const supabase = await createClient();
