@@ -50,8 +50,11 @@ export async function POST(req: NextRequest) {
     // Keep Telegram's native typing indicator visible during webhook work,
     // including database-backed commands and callback responses. Long-running
     // draft generation starts its own typing heartbeat in the queue consumer.
+    const privateChat =
+      update.callback_query?.message?.chat?.type === "private" ||
+      update.message?.chat?.type === "private";
     const chatId = update.callback_query?.message?.chat?.id ?? update.message?.chat?.id;
-    if (Number.isSafeInteger(chatId)) {
+    if (privateChat && Number.isSafeInteger(chatId)) {
       await withTelegramTyping(Number(chatId), async () => {
         // Nunuza is a private workspace control plane. Group and channel updates
         // are acknowledged but never allowed to read or mutate workspace data.
