@@ -55,15 +55,17 @@ export function NotificationPrompt() {
 
   useEffect(() => {
     let active = true;
-    const dismissed = sessionStorage.getItem(DISMISSED_KEY) === "1";
-    if (!dismissed) setVisible(true);
-    if ("Notification" in window && Notification.permission === "granted") {
-      // Keep the prompt visible until an existing browser permission is
-      // successfully registered with this workspace.
-      setVisible(true);
-      void activate().then((ok) => { if (active && ok) setVisible(false); });
-    }
-    return () => { active = false; };
+    const frame = window.requestAnimationFrame(() => {
+      const dismissed = sessionStorage.getItem(DISMISSED_KEY) === "1";
+      const permissionGranted = "Notification" in window && Notification.permission === "granted";
+      if (!dismissed || permissionGranted) setVisible(true);
+      if (permissionGranted) {
+        // Keep the prompt visible until an existing browser permission is
+        // successfully registered with this workspace.
+        void activate().then((ok) => { if (active && ok) setVisible(false); });
+      }
+    });
+    return () => { active = false; window.cancelAnimationFrame(frame); };
   }, [activate]);
 
   if (!visible) return null;
