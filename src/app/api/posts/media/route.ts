@@ -50,9 +50,9 @@ export async function POST(request: Request) {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const mime = detectMime(bytes);
       if (!mime || (format === "image_carousel" && !mime.startsWith("image/")) || (format === "document" && mime !== "application/pdf")) {
-        return NextResponse.json({ error: "One of your files has an unsupported format. Use JPG, PNG, WebP, or PDF as appropriate." }, { status: 415 });
+        return NextResponse.json({ error: "One of your files has an unsupported format. Use JPG, PNG, or PDF as appropriate." }, { status: 415 });
       }
-      validated.push({ file, bytes, mime, ext: mime === "image/jpeg" ? "jpg" : mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "pdf" });
+      validated.push({ file, bytes, mime, ext: mime === "image/jpeg" ? "jpg" : mime === "image/png" ? "png" : "pdf" });
     }
 
     service = createServiceClient();
