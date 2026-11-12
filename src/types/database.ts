@@ -138,6 +138,22 @@ export interface ContentStrategy {
   updated_at: string;
 }
 
+export type ContentPostFormat = "text" | "image_carousel" | "document";
+
+export interface ContentPostMedia {
+  id: string;
+  workspace_id: string;
+  post_id: string;
+  media_type: "image" | "document";
+  storage_path: string;
+  file_name: string;
+  mime_type: "image/jpeg" | "image/png" | "application/pdf";
+  byte_size: number;
+  sort_order: number;
+  alt_text: string | null;
+  created_at: string;
+}
+
 export interface ContentPost {
   id: string;
   workspace_id: string;
@@ -148,6 +164,8 @@ export interface ContentPost {
   image_prompt?: string | null;
   image_model?: string | null;
   image_generated_at?: string | null;
+  post_format?: ContentPostFormat;
+  media?: ContentPostMedia[];
   text: string;
   internal_title: string | null;
   pillar: string | null;
