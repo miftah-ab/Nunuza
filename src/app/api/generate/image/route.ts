@@ -19,13 +19,12 @@ import {
   type ImageDimensions,
 } from "@/lib/ai/cloudflare-image";
 import { buildImagePrompt, type ImageStyle, type ImageSubject } from "@/lib/ai/image-prompt";
+import { getHourlyImageLimit, hasReachedHourlyImageLimit } from "@/lib/ai/image-limits";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const BUCKET = "nunuza-generated-images";
-const STANDARD_HOURLY_IMAGE_LIMIT = 5;
-const PRIVATE_BETA_HOURLY_IMAGE_LIMIT = 100;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const IMAGE_STYLE_VALUES: ImageStyle[] = ["editorial", "cinematic", "illustration", "3d", "minimalist"];
@@ -120,10 +119,8 @@ export async function POST(request: Request) {
       p_period_end: periodStart,
     });
     if (usageError) throw new Error("Image generation usage could not be verified.");
-    const hourlyImageLimit = workspace.entitlement_type === "internal_beta"
-      ? PRIVATE_BETA_HOURLY_IMAGE_LIMIT
-      : STANDARD_HOURLY_IMAGE_LIMIT;
-    if (Number(usageCount) > hourlyImageLimit) {
+    const hourlyImageLimit = getHourlyImageLimit(workspace.entitlement_type);
+    if (hasReachedHourlyImageLimit(Number(usageCount), hourlyImageLimit)) {
       return NextResponse.json(
         { error: `You’ve used all ${hourlyImageLimit} image generations for this hour. You can create more next hour.` },
         { status: 429 }
