@@ -13,7 +13,7 @@ export function LandingNav() {
           <Link href="/login" className="nz-nav-link">
             Log in
           </Link>
-          <Link href="/login" className="nz-btn nz-btn-primary nz-btn-sm">
+          <Link href="/early-access" className="nz-btn nz-btn-primary nz-btn-sm">
             Early access
           </Link>
         </nav>
