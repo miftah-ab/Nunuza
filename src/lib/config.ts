@@ -53,7 +53,7 @@ function buildConfig() {
       redirectUri:     requireEnv("LINKEDIN_REDIRECT_URI"),
       encryptionKey:   requireEnv("LINKEDIN_TOKEN_ENCRYPTION_KEY"),
       /** Current supported LinkedIn API version. Change here to update globally. */
-      apiVersion:      optionalEnv("LINKEDIN_API_VERSION", "202410"),
+      apiVersion:      optionalEnv("LINKEDIN_API_VERSION", "202610"),
     },
 
     // ─── Telegram ──────────────────────────────────────────────────────────
@@ -67,7 +67,9 @@ function buildConfig() {
       accessToken:    requireEnv("POLAR_ACCESS_TOKEN"),
       webhookSecret:  requireEnv("POLAR_WEBHOOK_SECRET"),
       productId:      requireEnv("POLAR_PRODUCT_ID"),
-      priceId:        requireEnv("POLAR_PRICE_ID"),
+      // Polar's current product checkout API resolves the product's configured price.
+      // Keep an explicit price override optional for accounts that use one.
+      priceId:        optionalEnv("POLAR_PRICE_ID"),
     },
 
     // ─── App ───────────────────────────────────────────────────────────────
@@ -80,8 +82,7 @@ function buildConfig() {
 }
 
 /**
- * Returns the validated server-side configuration.
- * Cached after first call. Throws if any required variable is missing.
+ * Returns the validated config object, cached after first call.
  */
 export function getServerConfig() {
   if (!_config) {
@@ -97,6 +98,6 @@ export const publicConfig = {
   supabaseUrl:          process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
   supabasePublishableKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "",
   appEnv:               process.env.NEXT_PUBLIC_APP_ENV ?? "development",
-  appUrl:               process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
-  isDev:                process.env.NEXT_PUBLIC_APP_ENV === "development",
+  appUrl:                process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+  isDev:                 process.env.NEXT_PUBLIC_APP_ENV === "development",
 } as const;
