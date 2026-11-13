@@ -582,7 +582,7 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
         await markJobTerminal(
           supabase,
           job.id,
-          "Job lease expired and max attempts reached.",
+          "This task was interrupted repeatedly and could not be completed. Any saved draft is preserved.",
           "LEASE_EXPIRED_MAX_ATTEMPTS",
           "running",
           { attemptCount: job.attempt_count, leaseUntil: job.lease_until ?? undefined }
