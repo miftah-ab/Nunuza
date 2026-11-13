@@ -9,6 +9,7 @@ vi.mock("@/lib/ai/service", () => ({
 }));
 vi.mock("./service", () => ({
   sendTelegramMessage: vi.fn().mockResolvedValue({ ok: true }),
+  sendTelegramDraftPreview: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 class FakeQuery {
