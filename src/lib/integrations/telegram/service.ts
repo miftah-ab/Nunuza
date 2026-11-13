@@ -1565,7 +1565,7 @@ export async function sendTelegramDraftPreview(
     form.append("reply_markup", JSON.stringify({
       inline_keyboard: [
         [
-          { text: "✅ Approve", callback_data: `draft:approve:${post.id}` },
+          { text: "✅ Approve & Publish", callback_data: `draft:approve:${post.id}` },
           { text: "❌ Reject", callback_data: `draft:reject:${post.id}` },
         ],
         [{ text: "✏️ Request Changes", callback_data: `draft:revise:${post.id}` }],
