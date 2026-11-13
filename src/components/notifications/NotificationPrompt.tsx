@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Bell } from "lucide-react";
 
 function decodeVapidKey(value: string): Uint8Array {
@@ -142,7 +142,7 @@ export function NotificationPrompt() {
           </div>
           <div className="min-w-0">
             <h2 className="text-base font-semibold tracking-tight text-ink">
-              "Stay informed with Nunuza"
+              Stay informed with Nunuza
             </h2>
             <p className="mt-1 max-w-xl text-sm leading-6 text-ink-secondary">
               {permission === "denied"
@@ -164,7 +164,6 @@ export function NotificationPrompt() {
               {busy ? "Connecting..." : permission === "denied" ? "Check again" : "Enable notifications"}
             </button>
           )}
-}
         </div>
       </div>
     </section>
