@@ -79,6 +79,8 @@ export async function dispatchPendingNotifications(limit = 50): Promise<{ proces
       } else {
         let delivered = false;
         let transientFailure = false;
+        let providerAuthFailure: number | null = null;
+        let lastFailureCode = "push_delivery_failed";
         for (const subscription of subscriptions) {
           try {
             const decrypted = {
@@ -92,27 +94,45 @@ export async function dispatchPendingNotifications(limit = 50): Promise<{ proces
             });
             if (result.expired) {
               await db.from("web_push_subscriptions").delete().eq("id", subscription.id);
+              lastFailureCode = "push_subscription_expired";
             } else if (result.ok) {
               delivered = true;
               await db.from("web_push_subscriptions")
                 .update({ last_success_at: new Date().toISOString() }).eq("id", subscription.id);
-            } else transientFailure = true;
-          } catch {
+            } else {
+              lastFailureCode = result.status ? "push_provider_http_" + result.status : "push_provider_rejected";
+              if (result.status === 401 || result.status === 403) providerAuthFailure = result.status;
+              else transientFailure = true;
+            }
+          } catch (error) {
+            // Keep endpoint/key material and provider response bodies out of logs.
+            lastFailureCode = error instanceof Error && error.message.includes("not configured")
+              ? "push_server_keys_not_configured"
+              : "push_crypto_or_network_error";
             transientFailure = true;
+            console.error("[notifications] Web Push attempt failed:", lastFailureCode);
           }
         }
-        if (delivered && transientFailure && event.push_attempts < 5) {
-          // Retry failed devices. Repeated pushes use the same notification tag,
-          // so successful devices replace rather than stack duplicate alerts.
+        if (delivered) {
+          updates.push_status = "sent";
+          if (transientFailure || providerAuthFailure) {
+            updates.last_delivery_error = providerAuthFailure
+              ? "push_partial_provider_auth_rejected_" + providerAuthFailure
+              : lastFailureCode;
+          }
+        } else if (providerAuthFailure) {
+          // VAPID 401/403 responses are configuration/key-pair failures, not
+          // transient network errors. Retrying the same credentials cannot help.
+          updates.push_status = "failed";
+          updates.last_delivery_error = "push_provider_auth_rejected_" + providerAuthFailure;
+        } else if (transientFailure && event.push_attempts < 5) {
           updates.push_attempts = event.push_attempts + 1;
           retryAttempts.push(event.push_attempts + 1);
-          updates.last_delivery_error = "push_delivery_partial";
-        } else if (delivered) updates.push_status = "sent";
-        else if (transientFailure && event.push_attempts < 5) {
-          updates.push_attempts = event.push_attempts + 1;
-          retryAttempts.push(event.push_attempts + 1);
-          updates.last_delivery_error = "push_delivery_failed";
-        } else updates.push_status = "failed";
+          updates.last_delivery_error = lastFailureCode;
+        } else {
+          updates.push_status = "failed";
+          updates.last_delivery_error = lastFailureCode;
+        }
       }
     }
 
