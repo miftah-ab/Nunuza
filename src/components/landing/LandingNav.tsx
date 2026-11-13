@@ -14,7 +14,7 @@ export function LandingNav() {
             Log in
           </Link>
           <Link href="/login" className="nz-btn nz-btn-primary nz-btn-sm">
-            Get started
+            Early access
           </Link>
         </nav>
       </div>
