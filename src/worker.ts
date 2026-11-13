@@ -30,7 +30,12 @@ interface CloudflareBindings {
   BROWSER: {
     quickAction(
       action: "screenshot",
-      options: { url: string; viewport?: { width: number; height: number } }
+      options: {
+        url: string;
+        viewport?: { width: number; height: number };
+        screenshotOptions?: { fullPage?: boolean };
+        gotoOptions?: { waitUntil?: "load" | "domcontentloaded" | "networkidle0" | "networkidle2"; timeout?: number };
+      }
     ): Promise<Response>;
   };
 }
