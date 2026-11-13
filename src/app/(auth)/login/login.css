@@ -194,3 +194,41 @@
     animation-duration: 2s;
   }
 }
+
+
+.nzl-access-notice {
+  background: #f0f7f2;
+  border-color: rgba(23, 76, 60, 0.2);
+  color: #174c3c;
+}
+.nzl-error-content {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+.nzl-error-content strong {
+  color: #123b2e;
+  font: 700 14px/1.4 var(--font-inter), system-ui, sans-serif;
+}
+.nzl-access-link {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  margin-top: 4px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: #174c3c;
+  color: #fff;
+  font: 700 13px/1 var(--font-inter), system-ui, sans-serif;
+  text-decoration: none;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.nzl-access-link:hover {
+  background: #0c2e24;
+  transform: translateY(-1px);
+}
+.nzl-access-link:focus-visible {
+  outline: 3px solid #174c3c;
+  outline-offset: 3px;
+}
