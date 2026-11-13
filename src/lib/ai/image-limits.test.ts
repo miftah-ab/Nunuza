@@ -6,6 +6,7 @@ describe("image generation limits", () => {
     expect(getHourlyImageLimit("internal_beta")).toBe(100);
     expect(hasReachedHourlyImageLimit(100, getHourlyImageLimit("internal_beta"))).toBe(false);
     expect(hasReachedHourlyImageLimit(101, getHourlyImageLimit("internal_beta"))).toBe(true);
+    expect(hasReachedHourlyImageLimit(Number.NaN, getHourlyImageLimit("internal_beta"))).toBe(true);
   });
 
   it("keeps standard and paid workspaces at the standard hourly limit", () => {
