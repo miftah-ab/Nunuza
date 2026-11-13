@@ -113,6 +113,23 @@ export async function editTelegramMessage(
   };
   if (replyMarkup) payload.reply_markup = replyMarkup;
   const result = await tgPost("editMessageText", payload);
+  if (!result.ok && result.error?.toLowerCase().includes("there is no text in the message to edit")) {
+    // Draft previews are photo messages, so Telegram requires editMessageCaption.
+    const captionPayload: any = {
+      chat_id: chatId,
+      message_id: messageId,
+      caption: text.slice(0, 1024),
+      parse_mode: "MarkdownV2",
+    };
+    if (replyMarkup) captionPayload.reply_markup = replyMarkup;
+    const captionResult = await tgPost("editMessageCaption", captionPayload);
+    if (!captionResult.ok && captionResult.error?.includes("can't parse entities")) {
+      delete captionPayload.parse_mode;
+      captionPayload.caption = text.replace(/\\/g, "").slice(0, 1024);
+      await tgPost("editMessageCaption", captionPayload);
+    }
+    return;
+  }
   if (!result.ok && result.error?.includes("can't parse entities")) {
     // Fallback: try without parse_mode
     const plainPayload: any = { chat_id: chatId, message_id: messageId, text: text.replace(/\\/g, "") };
@@ -825,6 +842,35 @@ export async function handleCallbackQuery(
     return;
   }
 
+  // ── Request changes to the active draft ──
+  if (data.startsWith("draft:revise:")) {
+    const postId = data.slice("draft:revise:".length);
+    const { data: post, error: postError } = await supabase
+      .from("content_posts")
+      .select("id, status")
+      .eq("id", postId)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+
+    if (postError || !post || post.status !== "draft") {
+      await editTelegramMessage(
+        ctx.chatId,
+        ctx.messageId,
+        "This draft is no longer available for revision. Use /drafts to review your current drafts.",
+        { inline_keyboard: [[{ text: "📝 My Drafts", callback_data: "menu:drafts" }]] }
+      );
+      return;
+    }
+
+    await editTelegramMessage(
+      ctx.chatId,
+      ctx.messageId,
+      "✏️ *What should I change?*\n\nSend your revision request as a normal message\. For example: _make the opening stronger_ or _add a practical example_\. I'll update this draft and send a fresh image preview\. Nothing is published.",
+      { inline_keyboard: [[{ text: "📝 My Drafts", callback_data: "menu:drafts" }]] }
+    );
+    return;
+  }
+
   // ── Approve (confirm step) ──
   if (data.startsWith("draft:approve:") && !data.startsWith("draft:approve_confirm:")) {
     const postId = data.replace("draft:approve:", "");
@@ -1448,6 +1494,58 @@ export async function sendTelegramMessage(
   } catch (err: any) {
     console.error("[telegram] sendMessage request failed:", err?.name || "UnknownError");
     return { ok: false, error: "Telegram API request failed." };
+  }
+}
+
+export async function sendTelegramDraftPreview(
+  chatId: number,
+  post: { id: string; internal_title?: string | null; text?: string | null },
+  revised = false
+): Promise<{ ok: boolean; error?: string }> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || token.trim() === "") {
+    return { ok: false, error: "Telegram bot is not configured." };
+  }
+
+  try {
+    const { renderTelegramDraftPreview } = await import("./draft-preview");
+    const image = await renderTelegramDraftPreview({
+      title: post.internal_title || "LinkedIn post",
+      text: post.text || "",
+      revised,
+    });
+    const form = new FormData();
+    form.set("chat_id", String(chatId));
+    const imageBuffer = new ArrayBuffer(image.byteLength);
+    new Uint8Array(imageBuffer).set(image);
+    form.set("photo", new Blob([imageBuffer], { type: "image/png" }), "nunuza-linkedin-draft.png");
+    form.set(
+      "caption",
+      revised ? "✏️ Revised LinkedIn draft · Not published" : "📝 Your LinkedIn draft · Not published"
+    );
+    form.set("reply_markup", JSON.stringify({
+      inline_keyboard: [
+        [
+          { text: "✅ Approve", callback_data: `draft:approve:${post.id}` },
+          { text: "❌ Reject", callback_data: `draft:reject:${post.id}` },
+        ],
+        [{ text: "✏️ Request Changes", callback_data: `draft:revise:${post.id}` }],
+      ],
+    }));
+
+    const response = await fetch(TG_API(token, "sendPhoto"), {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(20_000),
+    });
+    const result: any = await response.json();
+    if (!response.ok || !result?.ok) {
+      return { ok: false, error: result?.description || `Telegram sendPhoto returned HTTP ${response.status}.` };
+    }
+    return { ok: true };
+  } catch (error) {
+    console.error("[telegram] Draft preview send failed:", error instanceof Error ? error.message : "unknown_error");
+    return { ok: false, error: "Could not render or send the LinkedIn draft preview." };
   }
 }
 
