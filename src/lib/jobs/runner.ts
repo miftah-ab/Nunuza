@@ -561,6 +561,32 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
         }
       }
 
+      if (job.job_type === "telegram_content_generation" && job.attempt_count >= job.max_attempts) {
+        // A claim that never produced an attempt record means the worker died
+        // before completing a durable execution. Give it exactly one grace
+        // attempt instead of exhausting the user's generation retries.
+        const { data: recordedAttempt, error: attemptLookupError } = await supabase
+          .from("agent_job_attempts")
+          .select("id")
+          .eq("job_id", job.id)
+          .eq("attempt_number", job.attempt_count)
+          .maybeSingle();
+        if (attemptLookupError) {
+          throw new Error(`Could not verify Telegram job attempt history: ${attemptLookupError.message}`);
+        }
+        if (!recordedAttempt) {
+          await transitionJob(supabase, job.id, "running", "failed_retryable", {
+            max_attempts: job.attempt_count + 1,
+            scheduled_for: nowIso,
+            lease_until: null,
+            last_error_code: "WORKER_INTERRUPTED_BEFORE_ATTEMPT_RECORD",
+            safe_error_message: "The previous worker stopped before finishing. Nunuza will retry your request once more.",
+          }, { attemptCount: job.attempt_count, leaseUntil: job.lease_until ?? undefined });
+          reconciledCount++;
+          continue;
+        }
+      }
+
       if (job.attempt_count >= job.max_attempts) {
         await markJobTerminal(
           supabase,
