@@ -405,7 +405,21 @@ function draftReply(post: any, revised: boolean): { text: string; markup?: any }
   };
 }
 
-export async function executeTelegramContentJob(job: AgentJob, supabase: any): Promise<JobExecutionResult> {
+export async function executeTelegramContentJob(
+  job: AgentJob,
+  supabase: any,
+  browserBinding?: {
+    quickAction(
+      action: "screenshot",
+      options: {
+        url: string;
+        viewport?: { width: number; height: number };
+        screenshotOptions?: { fullPage?: boolean };
+        gotoOptions?: { waitUntil?: "load" | "domcontentloaded" | "networkidle0" | "networkidle2"; timeout?: number };
+      }
+    ): Promise<Response>;
+  }
+): Promise<JobExecutionResult> {
   const payload = job.payload as unknown as TelegramContentJobPayload;
   if (!payload || !Number.isSafeInteger(payload.telegramUserId) || !Number.isSafeInteger(payload.chatId) ||
       typeof payload.ownerUserId !== "string" || typeof payload.text !== "string" ||
@@ -556,7 +570,8 @@ export async function executeTelegramContentJob(job: AgentJob, supabase: any): P
     const previewDelivery = await sendTelegramDraftPreview(
       payload.chatId,
       post,
-      Boolean(existingPost)
+      Boolean(existingPost),
+      browserBinding
     );
     if (!previewDelivery.ok) {
       throw new Error("Telegram draft image delivery failed.");
