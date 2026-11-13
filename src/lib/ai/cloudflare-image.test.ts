@@ -19,7 +19,7 @@ describe("Cloudflare Workers AI image generation", () => {
     });
   });
 
-  it("calls FLUX.2 Klein 9B using multipart form data and decodes the returned JPEG", async () => {
+  it("calls Leonardo Lucid Origin with JSON, prompt guidance, and decodes the returned JPEG", async () => {
     vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "account-id");
     vi.stubEnv("CLOUDFLARE_API_TOKEN", "secret-token");
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({
@@ -29,23 +29,40 @@ describe("Cloudflare Workers AI image generation", () => {
 
     const result = await generateCloudflareImage("A premium editorial image", { width: 1280, height: 720 }, fetcher);
     const [, request] = fetcher.mock.calls[0] as [string, RequestInit];
-    const form = request.body as FormData;
+    const body = JSON.parse(String(request.body));
 
     expect(fetcher).toHaveBeenCalledWith(
       `https://api.cloudflare.com/client/v4/accounts/account-id/ai/run/${CLOUDFLARE_IMAGE_MODEL}`,
       expect.objectContaining({
         method: "POST",
-        headers: { Authorization: "Bearer secret-token" },
+        headers: {
+          Authorization: "Bearer secret-token",
+          "Content-Type": "application/json",
+        },
       })
     );
-    expect(form).toBeInstanceOf(FormData);
-    expect(form.get("prompt")).toBe("A premium editorial image");
-    expect(form.get("width")).toBe("1280");
-    expect(form.get("height")).toBe("720");
-    expect(form.get("guidance")).toBe("3.5");
+    expect(body).toEqual({
+      prompt: "A premium editorial image",
+      width: 1280,
+      height: 720,
+      guidance: 7,
+      num_steps: 28,
+    });
     expect(result.contentType).toBe("image/jpeg");
     expect(result.bytes[0]).toBe(0xff);
     expect(result.bytes[1]).toBe(0xd8);
+  });
+
+  it("accepts the model's top-level image response", async () => {
+    vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "account-id");
+    vi.stubEnv("CLOUDFLARE_API_TOKEN", "secret-token");
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      image: jpegBase64,
+    }), { status: 200 }));
+    await expect(generateCloudflareImage("valid prompt", undefined, fetcher)).resolves.toMatchObject({
+      contentType: "image/jpeg",
+      model: CLOUDFLARE_IMAGE_MODEL,
+    });
   });
 
   it("rejects malformed image responses", async () => {
