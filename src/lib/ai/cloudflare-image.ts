@@ -1,23 +1,18 @@
 /**
  * Cloudflare Workers AI image generation client.
  *
- * Server-only: Cloudflare credentials must never reach browser code.
- * Uses the documented Workers AI REST endpoint so the same implementation
- * works on both Vercel-hosted Next.js and the Cloudflare OpenNext Worker.
+ * Server-only: credentials never reach browser code. Uses the documented
+ * multipart REST API for FLUX.2 Klein 9B on both Vercel and OpenNext.
  */
 
-export const CLOUDFLARE_IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell";
+export const CLOUDFLARE_IMAGE_MODEL = "@cf/black-forest-labs/flux-2-klein-9b";
 export const MAX_GENERATED_IMAGE_BYTES = 5 * 1024 * 1024;
 
 export class CloudflareImageError extends Error {
   readonly code: "not_configured" | "invalid_prompt" | "provider_error" | "invalid_image";
   readonly status: number;
 
-  constructor(
-    code: CloudflareImageError["code"],
-    message: string,
-    status = 502
-  ) {
+  constructor(code: CloudflareImageError["code"], message: string, status = 502) {
     super(message);
     this.name = "CloudflareImageError";
     this.code = code;
@@ -37,17 +32,28 @@ interface CloudflareImageResponse {
   image?: string;
 }
 
+export interface ImageDimensions {
+  width: number;
+  height: number;
+}
+
 export async function generateCloudflareImage(
   prompt: string,
+  dimensions: ImageDimensions = { width: 1024, height: 1280 },
   fetcher: typeof fetch = fetch
 ): Promise<GeneratedImage> {
   const normalizedPrompt = prompt.trim();
-  if (!normalizedPrompt || normalizedPrompt.length > 2048) {
+  if (!normalizedPrompt || normalizedPrompt.length > 6000) {
     throw new CloudflareImageError(
       "invalid_prompt",
-      "Please keep your image description between 1 and 2,048 characters.",
+      "Please keep your image description between 1 and 6,000 characters.",
       400
     );
+  }
+
+  const allowedDimensions = new Set(["1024x1280", "1280x720", "1024x1024"]);
+  if (!allowedDimensions.has(`${dimensions.width}x${dimensions.height}`)) {
+    throw new CloudflareImageError("invalid_prompt", "Choose a supported image size.", 400);
   }
 
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
@@ -61,17 +67,20 @@ export async function generateCloudflareImage(
     );
   }
 
+  const form = new FormData();
+  form.set("prompt", normalizedPrompt);
+  form.set("width", String(dimensions.width));
+  form.set("height", String(dimensions.height));
+  form.set("guidance", "3.5");
+
   let response: Response;
   try {
     response = await fetcher(
       `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/run/${CLOUDFLARE_IMAGE_MODEL}`,
       {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ prompt: normalizedPrompt, steps: 4 }),
+        headers: { Authorization: `Bearer ${apiToken}` },
+        body: form,
         signal: AbortSignal.timeout(55_000),
       }
     );
@@ -85,7 +94,6 @@ export async function generateCloudflareImage(
   }
 
   if (!response.ok) {
-    // Do not return upstream response bodies; they may contain provider details.
     throw new CloudflareImageError(
       "provider_error",
       response.status === 429
@@ -99,18 +107,12 @@ export async function generateCloudflareImage(
   try {
     payload = (await response.json()) as CloudflareImageResponse;
   } catch {
-    throw new CloudflareImageError(
-      "invalid_image",
-      "We couldn’t process the image response. Please try again."
-    );
+    throw new CloudflareImageError("invalid_image", "We couldn’t process the image response. Please try again.");
   }
 
   const base64 = payload.result?.image ?? payload.image;
   if (payload.success === false || typeof base64 !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
-    throw new CloudflareImageError(
-      "invalid_image",
-      "We couldn’t create a usable image. Please try again."
-    );
+    throw new CloudflareImageError("invalid_image", "We couldn’t create a usable image. Please try again.");
   }
 
   let bytes: Uint8Array;
@@ -127,7 +129,6 @@ export async function generateCloudflareImage(
     );
   }
 
-  // FLUX.1 Schnell returns JPEG. Reject unexpected formats before storage.
   if (bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) {
     throw new CloudflareImageError(
       "invalid_image",
