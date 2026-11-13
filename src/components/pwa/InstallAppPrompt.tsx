@@ -11,23 +11,27 @@ interface InstallPromptEvent extends Event {
 const DISMISSED_UNTIL_KEY = "nunuza:pwa-install-dismissed-until:v1";
 const REMINDER_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000;
 
+type DeviceKind = "ios" | "android" | "desktop" | "installed";
+
 const subscribeToNothing = () => () => {};
 
-function getDeviceState() {
-  if (typeof window === "undefined") return { ios: false, mobile: false, installed: false };
+function getDeviceKind(): DeviceKind {
+  if (typeof window === "undefined") return "desktop";
 
   const ua = window.navigator.userAgent;
   const iosDevice = /iPad|iPhone|iPod/.test(ua) ||
     (window.navigator.platform === "MacIntel" && window.navigator.maxTouchPoints > 1);
-  const mobile = iosDevice || /Android/i.test(ua);
   const installed = window.matchMedia("(display-mode: standalone)").matches ||
     ("standalone" in window.navigator &&
       Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone));
 
-  return { ios: iosDevice && !installed, mobile, installed };
+  if (installed) return "installed";
+  if (iosDevice) return "ios";
+  if (/Android/i.test(ua)) return "android";
+  return "desktop";
 }
 
-const getServerDeviceState = () => ({ ios: false, mobile: false, installed: false });
+const getServerDeviceKind = (): DeviceKind => "desktop";
 
 function canShowReminder() {
   try {
@@ -50,25 +54,25 @@ function snoozeReminder() {
 }
 
 export function InstallAppPrompt() {
-  const device = useSyncExternalStore(subscribeToNothing, getDeviceState, getServerDeviceState);
+  const device = useSyncExternalStore(subscribeToNothing, getDeviceKind, getServerDeviceKind);
   const [installEvent, setInstallEvent] = useState<InstallPromptEvent | null>(null);
   const [visible, setVisible] = useState(false);
   const [showIosHelp, setShowIosHelp] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (device.installed || !device.mobile || !canShowReminder()) return;
-    if (device.ios) setVisible(true);
-  }, [device.installed, device.ios, device.mobile]);
+    if (device === "installed" || device === "desktop" || !canShowReminder()) return;
+    if (device === "ios") setVisible(true);
+  }, [device]);
 
   useEffect(() => {
     const onBeforeInstall = (event: Event) => {
-      const currentDevice = getDeviceState();
-      if (!currentDevice.mobile || currentDevice.installed) return;
+      const currentDevice = getDeviceKind();
+      if ((currentDevice !== "ios" && currentDevice !== "android") || !canShowReminder()) return;
 
       event.preventDefault();
       setInstallEvent(event as InstallPromptEvent);
-      if (canShowReminder()) setVisible(true);
+      setVisible(true);
     };
 
     const onInstalled = () => {
@@ -112,7 +116,7 @@ export function InstallAppPrompt() {
     }
   }
 
-  if (!visible || device.installed || !device.mobile) return null;
+  if (!visible || device === "installed" || device === "desktop") return null;
 
   return (
     <div className="fixed inset-0 z-[110] flex items-end justify-center bg-ink/45 p-4 sm:items-center">
