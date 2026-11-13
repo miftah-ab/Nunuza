@@ -18,11 +18,11 @@ import EarlyAccessPage from "./early-access/page";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Nunuza — Talk it out. Post it right.",
+  title: "Nunuza: Talk it out. Post it right.",
   description:
     "Nunuza is the content agent for your LinkedIn. Send a rough thought, get a draft in your voice, approve it, and it publishes.",
   openGraph: {
-    title: "Nunuza — Talk it out. Post it right.",
+    title: "Nunuza: Talk it out. Post it right.",
     description:
       "Send a rough thought. Nunuza drafts in your voice, you approve, and it publishes through LinkedIn's official connection.",
     type: "website",
