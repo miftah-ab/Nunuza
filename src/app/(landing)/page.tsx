@@ -8,6 +8,14 @@ import { BeforeAfter } from "@/components/landing/BeforeAfter";
 import { LandingNav } from "@/components/landing/LandingNav";
 import { LandingFooter } from "@/components/landing/LandingFooter";
 import { StickyCta } from "@/components/landing/StickyCta";
+import EarlyAccessPage from "./early-access/page";
+
+/**
+ * Keep the public entry point aligned with the signup state.
+ * During private testing, visitors land directly on the early-access page.
+ * Once public signup is enabled, the normal product landing page returns.
+ */
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Nunuza — Talk it out. Post it right.",
@@ -22,6 +30,10 @@ export const metadata: Metadata = {
 };
 
 export default function LandingPage() {
+  if (process.env.PUBLIC_SIGNUP_ENABLED !== "true") {
+    return <EarlyAccessPage />;
+  }
+
   return (
     <>
       <LandingNav />
