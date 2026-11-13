@@ -53,7 +53,6 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 .avatar{width:52px;height:52px;flex:0 0 52px;border-radius:50%;display:grid;place-items:center;background:#dce6f1;color:#245078;font-size:17px;font-weight:700}
 .identity{min-width:0}.name{font-size:16px;font-weight:700;line-height:1.35}.meta{font-size:13px;color:#666;margin-top:3px}
 .state{margin-left:auto;align-self:flex-start;border:1px solid #c8d9ed;background:#f2f7fc;color:#245078;border-radius:20px;padding:6px 9px;font-size:11px;font-weight:700;white-space:nowrap}
-.preview-label{padding:0 22px 16px;color:#0a66c2;font-size:13px;font-weight:700}
 .post-title{padding:0 22px 12px;font-size:21px;line-height:1.35;font-weight:700;overflow-wrap:anywhere}
 .post-body{padding:0 22px 22px;font-size:16px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
 .divider{height:1px;background:#e6e6e6;margin:0 22px}
@@ -62,11 +61,10 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 .actions{border-top:1px solid #e6e6e6;padding:13px 12px;display:flex;justify-content:space-around;gap:8px;color:#666;font-size:14px;font-weight:700}
 .actions span{padding:8px 10px;white-space:nowrap}
 .notice{margin:14px 4px 0;text-align:center;color:#6b6b6b;font-size:12px}
-@media(max-width:520px){body{padding:18px 10px}.head{padding:17px 16px 14px}.preview-label{padding:0 16px 14px}.post-title{padding:0 16px 10px;font-size:19px}.post-body{padding:0 16px 18px;font-size:15px}.divider{margin:0 16px}.reactions{padding:12px 16px}.actions{font-size:12px}.actions span{padding:7px 4px}.state{font-size:10px;padding:5px 7px}}
+@media(max-width:520px){body{padding:18px 10px}.head{padding:17px 16px 14px}.post-title{padding:0 16px 10px;font-size:19px}.post-body{padding:0 16px 18px;font-size:15px}.divider{margin:0 16px}.reactions{padding:12px 16px}.actions{font-size:12px}.actions span{padding:7px 4px}.state{font-size:10px;padding:5px 7px}}
 </style></head><body><main class="shell">
 <article class="card">
 <header class="head"><div class="avatar">XYZ</div><div class="identity"><div class="name">XYZ</div><div class="meta">LinkedIn post preview · Just now</div></div><div class="state">Ready for review</div></header>
-<div class="preview-label">LinkedIn post preview</div>
 <div class="post-title">${title}</div>
 <div class="post-body">${body}</div>
 <div class="divider"></div>
