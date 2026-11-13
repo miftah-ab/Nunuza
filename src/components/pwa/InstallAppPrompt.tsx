@@ -11,9 +11,18 @@ interface InstallPromptEvent extends Event {
 const DISMISSED_UNTIL_KEY = "nunuza:pwa-install-dismissed-until:v1";
 const REMINDER_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000;
 
-type DeviceKind = "ios" | "android" | "desktop" | "installed";
+type DeviceKind = "ios" | "android" | "desktop" | "installed" | "snoozed";
 
 const subscribeToNothing = () => () => {};
+
+function canShowReminder() {
+  try {
+    const dismissedUntil = Number(window.localStorage.getItem(DISMISSED_UNTIL_KEY) || 0);
+    return !Number.isFinite(dismissedUntil) || Date.now() >= dismissedUntil;
+  } catch {
+    return true;
+  }
+}
 
 function getDeviceKind(): DeviceKind {
   if (typeof window === "undefined") return "desktop";
@@ -26,21 +35,12 @@ function getDeviceKind(): DeviceKind {
       Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone));
 
   if (installed) return "installed";
-  if (iosDevice) return "ios";
-  if (/Android/i.test(ua)) return "android";
-  return "desktop";
+  if (!iosDevice && !/Android/i.test(ua)) return "desktop";
+  if (!canShowReminder()) return "snoozed";
+  return iosDevice ? "ios" : "android";
 }
 
 const getServerDeviceKind = (): DeviceKind => "desktop";
-
-function canShowReminder() {
-  try {
-    const dismissedUntil = Number(window.localStorage.getItem(DISMISSED_UNTIL_KEY) || 0);
-    return !Number.isFinite(dismissedUntil) || Date.now() >= dismissedUntil;
-  } catch {
-    return true;
-  }
-}
 
 function snoozeReminder() {
   try {
@@ -56,27 +56,21 @@ function snoozeReminder() {
 export function InstallAppPrompt() {
   const device = useSyncExternalStore(subscribeToNothing, getDeviceKind, getServerDeviceKind);
   const [installEvent, setInstallEvent] = useState<InstallPromptEvent | null>(null);
-  const [visible, setVisible] = useState(false);
+  const [dismissedThisVisit, setDismissedThisVisit] = useState(false);
   const [showIosHelp, setShowIosHelp] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (device === "installed" || device === "desktop" || !canShowReminder()) return;
-    if (device === "ios") setVisible(true);
-  }, [device]);
-
-  useEffect(() => {
     const onBeforeInstall = (event: Event) => {
       const currentDevice = getDeviceKind();
-      if ((currentDevice !== "ios" && currentDevice !== "android") || !canShowReminder()) return;
+      if (currentDevice !== "android" && currentDevice !== "ios") return;
 
       event.preventDefault();
       setInstallEvent(event as InstallPromptEvent);
-      setVisible(true);
     };
 
     const onInstalled = () => {
-      setVisible(false);
+      setDismissedThisVisit(true);
       setShowIosHelp(false);
       setInstallEvent(null);
     };
@@ -91,7 +85,7 @@ export function InstallAppPrompt() {
 
   function dismiss() {
     snoozeReminder();
-    setVisible(false);
+    setDismissedThisVisit(true);
     setShowIosHelp(false);
   }
 
@@ -107,7 +101,7 @@ export function InstallAppPrompt() {
       const choice = await installEvent.userChoice;
       setInstallEvent(null);
       if (choice.outcome === "accepted") {
-        setVisible(false);
+        setDismissedThisVisit(true);
       } else {
         dismiss();
       }
@@ -116,7 +110,10 @@ export function InstallAppPrompt() {
     }
   }
 
-  if (!visible || device === "installed" || device === "desktop") return null;
+  const visible = !dismissedThisVisit &&
+    (device === "ios" || (device === "android" && installEvent !== null));
+
+  if (!visible || device === "installed" || device === "desktop" || device === "snoozed") return null;
 
   return (
     <div className="fixed inset-0 z-[110] flex items-end justify-center bg-ink/45 p-4 sm:items-center">
