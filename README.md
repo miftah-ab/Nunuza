@@ -31,7 +31,7 @@ Rename-Item "$env:USERPROFILE\node-v$ver-win-x64" "$env:USERPROFILE\node" -Force
 
 ```powershell
 Copy-Item .env.example .env.local
-# Edit .env.local — fill in Supabase, Google OAuth, and other values
+# Edit .env.local: fill in Supabase, Google OAuth, and other values
 ```
 
 ### 4. Run locally
