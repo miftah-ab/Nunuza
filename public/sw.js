@@ -79,7 +79,8 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-// Existing Web Push delivery and click-through behavior.
+// Resolve only after the browser accepts the notification display request.
+// A message to open app clients gives the in-page test UI an end-to-end ack.
 self.addEventListener("push", (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch { data = {}; }
@@ -94,7 +95,18 @@ self.addEventListener("push", (event) => {
       url: typeof data.url === "string" && data.url.startsWith("/app/") ? data.url : "/app/notifications",
     },
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil((async () => {
+    await self.registration.showNotification(title, options);
+    if (typeof data.notificationId === "string") {
+      const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const client of clients) {
+        client.postMessage({
+          type: "NUNUZA_PUSH_DISPLAYED",
+          notificationId: data.notificationId,
+        });
+      }
+    }
+  })());
 });
 
 self.addEventListener("notificationclick", (event) => {
