@@ -1506,7 +1506,7 @@ export async function sendTelegramDraftPreview(
       action: "screenshot",
       options: {
         url: string;
-        viewport?: { width: number; height: number };
+        viewport?: { width: number; height: number; deviceScaleFactor?: number };
         screenshotOptions?: { fullPage?: boolean };
         gotoOptions?: { waitUntil?: "load" | "domcontentloaded" | "networkidle0" | "networkidle2"; timeout?: number };
       }
@@ -1579,7 +1579,8 @@ export async function sendTelegramDraftPreview(
     const imageResponse = await withTimeout(
       browserBinding.quickAction("screenshot", {
         url: previewUrl.toString(),
-        viewport: { width: 1080, height: 1200 },
+        // Phone-width card; 2x keeps text sharp when Telegram shows it full screen.
+        viewport: { width: 390, height: 200, deviceScaleFactor: 2 },
         screenshotOptions: { fullPage: true },
         gotoOptions: { waitUntil: "networkidle0", timeout: 45_000 },
       }),
