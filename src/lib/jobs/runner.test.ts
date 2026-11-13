@@ -443,6 +443,7 @@ describe("reconcileStaleJobs", () => {
     expect(db.jobs[0].attempt_count).toBe(3);
     expect(db.jobs[0].max_attempts).toBe(4);
     expect(db.jobs[0].last_error_code).toBe("WORKER_INTERRUPTED_BEFORE_ATTEMPT_RECORD");
+    expect(db.jobs[0].payload.leaseGraceRetryUsed).toBe(true);
   });
 
   it("clears a failed Telegram conversation and sends a user-safe recovery message", async () => {
