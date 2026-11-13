@@ -19,7 +19,7 @@ describe("Cloudflare Workers AI image generation", () => {
     });
   });
 
-  it("calls FLUX.2 Klein 9B using multipart form data and decodes the returned JPEG", async () => {
+  it("calls free-allocation FLUX.2 Klein 4B using multipart form data and decodes the returned JPEG", async () => {
     vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "account-id");
     vi.stubEnv("CLOUDFLARE_API_TOKEN", "secret-token");
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({
