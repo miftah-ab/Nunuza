@@ -556,9 +556,15 @@ export async function executeTelegramContentJob(
     }
 
     const nextState = safeStateFromPayload(payload, post.id, post.pillar);
-    const completed = await completeConversationJob(supabase, payload, job.workspace_id, job.id, nextState);
-    if (!completed) {
-      console.warn("[telegram-conversation] Draft image was delivered but the conversation state had already changed.");
+    try {
+      const completed = await completeConversationJob(supabase, payload, job.workspace_id, job.id, nextState);
+      if (!completed) {
+        console.warn("[telegram-conversation] Draft image was delivered but the conversation state had already changed.");
+      }
+    } catch (stateError) {
+      // Telegram has confirmed delivery. Do not retry the whole job and send a
+      // duplicate photo solely because conversation cleanup had a DB hiccup.
+      console.error("[telegram-conversation] Photo delivered; conversation cleanup needs repair:", stateError instanceof Error ? stateError.message : "database_error");
     }
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
   } catch (error) {
