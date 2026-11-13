@@ -29,6 +29,7 @@ export class MockSupabase {
     content_posts: [],
     workspaces: [],
     audit_events: [],
+    telegram_links: [],
   };
   opts: MockDbOptions;
   /** Every update attempted, as "table:status" strings, for assertions. */
@@ -64,6 +65,16 @@ export class MockSupabase {
         target.lease_until = args.p_new_lease_until;
       }
       return Promise.resolve({ data: valid, error: null });
+    }
+    if (name === "complete_telegram_conversation_job") {
+      const link = (this.tables.telegram_links ?? []).find((candidate) =>
+        candidate.telegram_user_id === args.p_telegram_user_id &&
+        candidate.chat_id === args.p_chat_id &&
+        candidate.workspace_id === args.p_workspace_id &&
+        candidate.conversation_state?.pendingJobId === args.p_job_id
+      );
+      if (link) link.conversation_state = args.p_state;
+      return Promise.resolve({ data: Boolean(link), error: null });
     }
     if (name === "renew_agent_job_execution") {
       const target = this.jobs.find((candidate) => candidate.id === args.p_job_id);
@@ -190,6 +201,10 @@ export class MockSupabase {
         },
         neq(c: string, v: any) {
           filters.push((r) => r[c] !== v);
+          return chain;
+        },
+        is(c: string, v: any) {
+          filters.push((r) => v === null ? r[c] == null : r[c] === v);
           return chain;
         },
         in(c: string, vs: any[]) {
