@@ -842,6 +842,35 @@ export async function handleCallbackQuery(
     return;
   }
 
+  // ── Request changes to the active draft ──
+  if (data.startsWith("draft:revise:")) {
+    const postId = data.slice("draft:revise:".length);
+    const { data: post, error: postError } = await supabase
+      .from("content_posts")
+      .select("id, status")
+      .eq("id", postId)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+
+    if (postError || !post || post.status !== "draft") {
+      await editTelegramMessage(
+        ctx.chatId,
+        ctx.messageId,
+        "This draft is no longer available for revision. Use /drafts to review your current drafts.",
+        { inline_keyboard: [[{ text: "📝 My Drafts", callback_data: "menu:drafts" }]] }
+      );
+      return;
+    }
+
+    await editTelegramMessage(
+      ctx.chatId,
+      ctx.messageId,
+      "✏️ *What should I change?*\n\nSend your revision request as a normal message\. For example: _make the opening stronger_ or _add a practical example_\. I'll update this draft and send a fresh image preview\. Nothing is published.",
+      { inline_keyboard: [[{ text: "📝 My Drafts", callback_data: "menu:drafts" }]] }
+    );
+    return;
+  }
+
   // ── Approve (confirm step) ──
   if (data.startsWith("draft:approve:") && !data.startsWith("draft:approve_confirm:")) {
     const postId = data.replace("draft:approve:", "");
