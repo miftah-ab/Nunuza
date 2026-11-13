@@ -3,6 +3,7 @@ import { aiService } from "@/lib/ai/service";
 import { buildDraftPrompt } from "@/lib/ai/prompts";
 import type { AgentJob } from "@/types/database";
 import { executeTelegramContentJob, handleTelegramConversation, isRevisionRequest } from "./conversation";
+import { sendTelegramMessage } from "./service";
 
 vi.mock("@/lib/ai/service", () => ({
   aiService: { generateDraft: vi.fn() },
@@ -314,6 +315,7 @@ describe("Telegram conversational content", () => {
     expect(result.status).toBe("failed_terminal");
     expect(db.rpcCalls).toContain("reserve_draft_usage");
     expect(db.rpcCalls).toContain("release_draft_usage");
+    expect(sendTelegramMessage).not.toHaveBeenCalled();
   });
 
 
