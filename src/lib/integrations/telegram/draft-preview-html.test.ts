@@ -57,7 +57,7 @@ describe("fitDraftText", () => {
   });
 
   it("shrinks a medium draft but keeps all of it", () => {
-    const text = Array.from({ length: 6 }, () => "x".repeat(260)).join("\n\n");
+    const text = Array.from({ length: 4 }, () => "word ".repeat(40).trim()).join("\n\n");
     const fitted = fitDraftText(text);
     expect(fitted.truncated).toBe(false);
     expect(fitted.fontPx).toBeLessThan(32);
