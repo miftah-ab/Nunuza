@@ -65,7 +65,7 @@ describe("Cloudflare Workers AI image generation", () => {
     await expect(generateCloudflareImage("valid prompt", undefined, fetcher)).rejects.toMatchObject({
       code: "provider_error",
       status: 429,
-      message: "Image creation is busy right now. Please try again in a little while.",
+      message: "The free image-generation allowance or service capacity has been reached. Please try again after it resets.",
     });
   });
 
