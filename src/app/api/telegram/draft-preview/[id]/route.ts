@@ -45,22 +45,36 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const body = escapeHtml(post.text || "");
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
-<title>${title} · Nunuza Draft Preview</title><style>
-:root{color-scheme:light;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f3f5f7;color:#191919}
-*{box-sizing:border-box}body{margin:0;padding:32px 16px}.shell{max-width:720px;margin:0 auto}
-.brand{display:flex;align-items:center;gap:12px;margin:0 0 18px;color:#536171;font-size:13px;font-weight:700;letter-spacing:.08em}
-.mark{display:grid;place-items:center;width:36px;height:36px;border-radius:11px;background:#14263d;color:#fff;font-size:18px}
-.card{background:#fff;border:1px solid #e4e8ed;border-radius:18px;box-shadow:0 12px 36px #14263d12;overflow:hidden}
-.head{padding:24px 28px 18px;border-bottom:1px solid #edf0f3}.eyebrow{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#0a66c2}
-h1{font-size:22px;line-height:1.3;margin:10px 0 0;overflow-wrap:anywhere}
-.content{padding:26px 28px 30px;font-size:16px;line-height:1.75;white-space:pre-wrap;overflow-wrap:anywhere}
-.footer{border-top:1px solid #edf0f3;padding:16px 28px;color:#687586;font-size:12px;display:flex;justify-content:space-between;gap:12px}
-.notice{margin:16px 4px 0;text-align:center;color:#687586;font-size:13px}
-@media(max-width:520px){body{padding:16px 10px}.head{padding:20px}.content{padding:20px;font-size:15px}.footer{padding:14px 20px}h1{font-size:20px}}
-</style></head><body><main class="shell"><div class="brand"><span class="mark">N</span><span>NUNUZA · LINKEDIN DRAFT</span></div>
-<article class="card"><header class="head"><div class="eyebrow">Draft preview · Not published</div><h1>${title}</h1></header>
-<div class="content">${body}</div><footer class="footer"><span>Saved in Nunuza</span><span>Approval required before publishing</span></footer></article>
-<p class="notice">This is a private, time-limited preview link. Nothing on this page publishes your post.</p></main></body></html>`;
+<title>${title} · LinkedIn post preview</title><style>
+:root{color-scheme:light;font-family:Arial,Helvetica,sans-serif;background:#f3f2ef;color:#191919}
+*{box-sizing:border-box}body{margin:0;padding:34px 20px;background:#f3f2ef}.shell{max-width:680px;margin:0 auto}
+.card{background:#fff;border:1px solid #d9d9d9;border-radius:12px;overflow:hidden}
+.head{display:flex;align-items:center;gap:12px;padding:20px 22px 16px}
+.avatar{width:52px;height:52px;flex:0 0 52px;border-radius:50%;display:grid;place-items:center;background:#dce6f1;color:#245078;font-size:17px;font-weight:700}
+.identity{min-width:0}.name{font-size:16px;font-weight:700;line-height:1.35}.meta{font-size:13px;color:#666;margin-top:3px}
+.state{margin-left:auto;align-self:flex-start;border:1px solid #c8d9ed;background:#f2f7fc;color:#245078;border-radius:20px;padding:6px 9px;font-size:11px;font-weight:700;white-space:nowrap}
+.preview-label{padding:0 22px 16px;color:#0a66c2;font-size:13px;font-weight:700}
+.post-title{padding:0 22px 12px;font-size:21px;line-height:1.35;font-weight:700;overflow-wrap:anywhere}
+.post-body{padding:0 22px 22px;font-size:16px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
+.divider{height:1px;background:#e6e6e6;margin:0 22px}
+.reactions{padding:13px 22px;color:#666;font-size:13px;display:flex;justify-content:space-between;gap:10px}
+.reaction-icons{color:#326fa8;letter-spacing:1px}.preview-only{font-weight:600;color:#707070}
+.actions{border-top:1px solid #e6e6e6;padding:13px 12px;display:flex;justify-content:space-around;gap:8px;color:#666;font-size:14px;font-weight:700}
+.actions span{padding:8px 10px;white-space:nowrap}
+.notice{margin:14px 4px 0;text-align:center;color:#6b6b6b;font-size:12px}
+@media(max-width:520px){body{padding:18px 10px}.head{padding:17px 16px 14px}.preview-label{padding:0 16px 14px}.post-title{padding:0 16px 10px;font-size:19px}.post-body{padding:0 16px 18px;font-size:15px}.divider{margin:0 16px}.reactions{padding:12px 16px}.actions{font-size:12px}.actions span{padding:7px 4px}.state{font-size:10px;padding:5px 7px}}
+</style></head><body><main class="shell">
+<article class="card">
+<header class="head"><div class="avatar">XYZ</div><div class="identity"><div class="name">XYZ</div><div class="meta">LinkedIn post preview · Just now</div></div><div class="state">Ready for review</div></header>
+<div class="preview-label">LinkedIn post preview</div>
+<div class="post-title">${title}</div>
+<div class="post-body">${body}</div>
+<div class="divider"></div>
+<div class="reactions"><span><span class="reaction-icons">👍 ❤️ 👏</span> 123</span><span class="preview-only">Preview only</span></div>
+<div class="actions"><span>Like</span><span>Comment</span><span>Repost</span><span>Send</span></div>
+</article>
+<p class="notice">Saved as a draft. Nothing has been published.</p>
+</main></body></html>`;
   return new Response(html, { headers: {
     "Content-Type": "text/html; charset=utf-8", "Cache-Control": "private, no-store, max-age=0",
     "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
