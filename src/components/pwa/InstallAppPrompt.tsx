@@ -113,7 +113,7 @@ export function InstallAppPrompt() {
   const visible = !dismissedThisVisit &&
     (device === "ios" || (device === "android" && installEvent !== null));
 
-  if (!visible || device === "installed" || device === "desktop" || device === "snoozed") return null;
+  if (!visible) return null;
 
   return (
     <div className="fixed inset-0 z-[110] flex items-end justify-center bg-ink/45 p-4 sm:items-center">
