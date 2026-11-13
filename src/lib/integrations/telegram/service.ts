@@ -1500,7 +1500,18 @@ export async function sendTelegramMessage(
 export async function sendTelegramDraftPreview(
   chatId: number,
   post: { id: string; internal_title?: string | null; text?: string | null },
-  revised = false
+  revised = false,
+  browserBinding?: {
+    quickAction(
+      action: "screenshot",
+      options: {
+        url: string;
+        viewport?: { width: number; height: number };
+        screenshotOptions?: { fullPage?: boolean };
+        gotoOptions?: { waitUntil?: "load" | "domcontentloaded" | "networkidle0" | "networkidle2"; timeout?: number };
+      }
+    ): Promise<Response>;
+  }
 ): Promise<{ ok: boolean; error?: string }> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const signingSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
@@ -1518,20 +1529,11 @@ export async function sendTelegramDraftPreview(
 
     // Render the same secured HTML/CSS preview in Cloudflare Browser Run, then
     // upload the resulting real PNG to Telegram. Telegram does not render CSS.
-    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
-    const cloudflare = getCloudflareContext() as unknown as {
-      env: { BROWSER?: { quickAction: (action: "screenshot", options: {
-        url: string;
-        viewport?: { width: number; height: number };
-        screenshotOptions?: { fullPage?: boolean };
-        gotoOptions?: { waitUntil?: "load" | "domcontentloaded" | "networkidle0" | "networkidle2"; timeout?: number };
-      }) => Promise<Response> } };
-    };
-    if (!cloudflare.env.BROWSER) {
-      return { ok: false, error: "Telegram image rendering is not available in this deployment." };
+    if (!browserBinding) {
+      return { ok: false, error: "Telegram image rendering is not available in this worker." };
     }
 
-    const imageResponse = await cloudflare.env.BROWSER.quickAction("screenshot", {
+    const imageResponse = await browserBinding.quickAction("screenshot", {
       url: previewUrl.toString(),
       viewport: { width: 1080, height: 1200 },
       screenshotOptions: { fullPage: true },
