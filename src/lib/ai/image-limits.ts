@@ -8,5 +8,5 @@ export function getHourlyImageLimit(entitlementType: string): number {
 }
 
 export function hasReachedHourlyImageLimit(usageCount: number, limit: number): boolean {
-  return Number.isFinite(usageCount) && usageCount > limit;
+  return !Number.isFinite(usageCount) || usageCount < 0 || usageCount > limit;
 }
