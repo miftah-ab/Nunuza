@@ -1,63 +1,68 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+const EARLY_ACCESS_MESSAGE =
+  "Nunuza is currently available to approved users only. Join the waitlist to request access.";
+
+function isEarlyAccessRejection(message: string, errorCode?: string | null): boolean {
+  const code = (errorCode ?? "").toLowerCase();
+  if (["signup_disabled", "hook_rejected", "hook_timeout"].includes(code)) return true;
+
+  const normalized = message.toLowerCase();
+  return [
+    "private testing period",
+    "request early access",
+    "database error saving new user",
+    "signup is disabled",
+    "signups are disabled",
+    "signups not allowed",
+    "not allowed to sign up",
+    "before-user-created",
+    "before user created",
+    "new user creation",
+  ].some((pattern) => normalized.includes(pattern));
+}
+
+function loginRedirect(origin: string, error: string) {
+  const url = new URL("/login", origin);
+  url.searchParams.set("error", error);
+  return NextResponse.redirect(url.toString(), { status: 303 });
+}
+
 /**
  * GET /auth/callback
  *
- * Handles the OAuth code exchange after Google redirects back.
- * Phase 2: Real implementation using Supabase PKCE code exchange.
- *
- * Flow:
- * 1. Exchange `code` param for session (Supabase handles PKCE internally)
- * 2. Session is written to cookies by the server client
- * 3. The handle_new_user() DB trigger (migration 0003) creates profile + workspace
- * 4. Redirect to /app/overview (or the saved redirect param)
- *
- * Error cases:
- * - Provider returns error param → redirect to login with error message
- * - Missing code → redirect to login with error message
- * - Supabase exchange fails → redirect to login with safe error message
+ * Exchanges Supabase's PKCE code and routes provider/hook errors to safe,
+ * user-facing messages. A rejected new-user signup is not a failed sign-in.
  */
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
   const error = searchParams.get("error");
-  const errorDescription = searchParams.get("error_description");
+  const errorCode = searchParams.get("error_code");
+  const errorDescription = searchParams.get("error_description") ?? "";
   const redirectTo = searchParams.get("redirect") ?? "/app/overview";
 
-  // Provider returned an error (e.g. user cancelled OAuth)
   if (error) {
-    const loginUrl = new URL("/login", origin);
-    const providerMessage = (errorDescription ?? "").toLowerCase();
-    const signupWasBlocked = providerMessage.includes("private testing period") || providerMessage.includes("request early access");
-    const message = signupWasBlocked
-      ? "Nunuza is currently in a private testing period. Request early access to be notified when it opens."
-      : error === "access_denied"
-        ? "Sign-in was cancelled."
-        : "Sign-in failed. Please try again.";
-    loginUrl.searchParams.set("error", message);
-    return NextResponse.redirect(loginUrl.toString(), { status: 303 });
+    if (isEarlyAccessRejection(errorDescription, errorCode)) {
+      return loginRedirect(origin, "early_access_required");
+    }
+    return loginRedirect(origin, error === "access_denied" ? "sign_in_cancelled" : "sign_in_failed");
   }
 
-  if (!code) {
-    const loginUrl = new URL("/login", origin);
-    loginUrl.searchParams.set("error", "Invalid sign-in link. Please try again.");
-    return NextResponse.redirect(loginUrl.toString(), { status: 303 });
-  }
+  if (!code) return loginRedirect(origin, "invalid_sign_in_link");
 
   const supabase = await createClient();
-
   const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
 
   if (exchangeError) {
-    const loginUrl = new URL("/login", origin);
-    loginUrl.searchParams.set("error", "Sign-in failed. Please try again.");
-    // Log sanitized error server-side (not sent to client)
+    const blocked = isEarlyAccessRejection(exchangeError.message, exchangeError.code);
+    if (blocked) return loginRedirect(origin, "early_access_required");
+
     console.error("[auth/callback] Code exchange error:", exchangeError.message);
-    return NextResponse.redirect(loginUrl.toString(), { status: 303 });
+    return loginRedirect(origin, "sign_in_failed");
   }
 
-  // Validate redirect destination (prevent open redirect)
   const safeRedirect =
     redirectTo.startsWith("/") && !redirectTo.startsWith("//")
       ? redirectTo
