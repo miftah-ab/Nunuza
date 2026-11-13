@@ -49,12 +49,14 @@ CREATE TABLE public.content_posts (
   workspace_id uuid NOT NULL REFERENCES public.workspaces(id),
   status public.post_status NOT NULL,
   internal_title text,
+  telegram_job_id uuid,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE TABLE public.agent_jobs (
   id uuid PRIMARY KEY,
   workspace_id uuid NOT NULL REFERENCES public.workspaces(id),
   status public.job_status NOT NULL,
+  job_type text NOT NULL DEFAULT 'other',
   safe_error_message text
 );
 CREATE TABLE public.approval_events (
@@ -79,6 +81,7 @@ CREATE TABLE public.subscriptions (
 SQL
 
 psql -v ON_ERROR_STOP=1 -f supabase/migrations/0020_durable_notifications.sql
+psql -v ON_ERROR_STOP=1 -f supabase/migrations/0021_telegram_job_failure_notifications.sql
 
 psql -v ON_ERROR_STOP=1 <<'SQL'
 INSERT INTO public.profiles(id) VALUES ('00000000-0000-0000-0000-000000000001');
@@ -89,9 +92,21 @@ INSERT INTO public.content_posts(id,workspace_id,status,internal_title)
 VALUES ('00000000-0000-0000-0000-000000000020','00000000-0000-0000-0000-000000000010','needs_review','Test review');
 UPDATE public.content_posts SET status='published' WHERE id='00000000-0000-0000-0000-000000000020';
 
-INSERT INTO public.agent_jobs(id,workspace_id,status)
-VALUES ('00000000-0000-0000-0000-000000000030','00000000-0000-0000-0000-000000000010','queued');
+INSERT INTO public.agent_jobs(id,workspace_id,status,job_type)
+VALUES ('00000000-0000-0000-0000-000000000030','00000000-0000-0000-0000-000000000010','queued','other');
 UPDATE public.agent_jobs SET status='failed_terminal', safe_error_message='A test task failed.' WHERE id='00000000-0000-0000-0000-000000000030';
+
+-- A Telegram job that saved its draft must not be reported as if the draft failed.
+INSERT INTO public.agent_jobs(id,workspace_id,status,job_type)
+VALUES ('00000000-0000-0000-0000-000000000031','00000000-0000-0000-0000-000000000010','queued','telegram_content_generation');
+INSERT INTO public.content_posts(id,workspace_id,status,internal_title,telegram_job_id)
+VALUES ('00000000-0000-0000-0000-000000000021','00000000-0000-0000-0000-000000000010','draft','Saved Telegram draft','00000000-0000-0000-0000-000000000031');
+UPDATE public.agent_jobs SET status='failed_terminal', safe_error_message='Internal lease failure' WHERE id='00000000-0000-0000-0000-000000000031';
+
+-- A Telegram job that never saved a draft gets a distinct recovery message.
+INSERT INTO public.agent_jobs(id,workspace_id,status,job_type)
+VALUES ('00000000-0000-0000-0000-000000000032','00000000-0000-0000-0000-000000000010','queued','telegram_content_generation');
+UPDATE public.agent_jobs SET status='failed_terminal', safe_error_message='Internal lease failure' WHERE id='00000000-0000-0000-0000-000000000032';
 
 INSERT INTO public.approval_events(id,workspace_id,post_id,action)
 VALUES ('00000000-0000-0000-0000-000000000040','00000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-000000000020','approved');
@@ -106,15 +121,35 @@ INSERT INTO public.subscriptions(id,workspace_id,status)
 VALUES ('00000000-0000-0000-0000-000000000060','00000000-0000-0000-0000-000000000010','active');
 UPDATE public.subscriptions SET status='past_due' WHERE id='00000000-0000-0000-0000-000000000060';
 
-DO $$
+DO $telegram_notification_test$
+DECLARE v_title text; v_body text;
+BEGIN
+  SELECT title, body INTO v_title, v_body
+    FROM public.notification_events
+   WHERE event_key = 'job:00000000-0000-0000-0000-000000000031:status:failed_terminal';
+  IF v_title <> 'Your draft is saved' OR v_body NOT LIKE '%preview image%' OR (v_body ILIKE '%job lease%' OR v_body ILIKE '%lease expired%') THEN
+    RAISE EXCEPTION 'Saved Telegram draft notification is not user-safe: %, %', v_title, v_body;
+  END IF;
+
+  SELECT title, body INTO v_title, v_body
+    FROM public.notification_events
+   WHERE event_key = 'job:00000000-0000-0000-0000-000000000032:status:failed_terminal';
+  IF v_title <> 'Your draft could not be created' OR v_body NOT LIKE '%No draft was saved%' OR v_body ILIKE '%job lease%' OR v_body ILIKE '%lease expired%' THEN
+    RAISE EXCEPTION 'Uncreated Telegram draft notification is not user-safe: %, %', v_title, v_body;
+  END IF;
+END;
+$telegram_notification_test$;
+
+
+DO $notification_count_test$
 DECLARE v_count integer;
 BEGIN
   SELECT count(*) INTO v_count FROM public.notification_events;
-  IF v_count <> 7 THEN
-    RAISE EXCEPTION 'Expected 7 notification events, got %', v_count;
+  IF v_count <> 9 THEN
+    RAISE EXCEPTION 'Expected 9 notification events, got %', v_count;
   END IF;
 END;
-$$;
+$notification_count_test$;
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
@@ -122,7 +157,7 @@ DO $$
 DECLARE v_count integer;
 BEGIN
   SELECT count(*) INTO v_count FROM public.notification_events;
-  IF v_count <> 7 THEN RAISE EXCEPTION 'Owner cannot read all workspace notifications'; END IF;
+  IF v_count <> 9 THEN RAISE EXCEPTION 'Owner cannot read all workspace notifications'; END IF;
   UPDATE public.notification_events SET read_at=now()
   WHERE workspace_id='00000000-0000-0000-0000-000000000010' AND read_at IS NULL;
 END;
@@ -134,7 +169,7 @@ DECLARE v_count integer;
 BEGIN
   SELECT count(*) INTO v_count
   FROM public.claim_pending_notification_deliveries(50);
-  IF v_count <> 7 THEN RAISE EXCEPTION 'Expected to claim 7 delivery records, got %', v_count; END IF;
+  IF v_count <> 9 THEN RAISE EXCEPTION 'Expected to claim 9 delivery records, got %', v_count; END IF;
 END;
 $$;
 

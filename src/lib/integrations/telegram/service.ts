@@ -1500,46 +1500,91 @@ export async function sendTelegramMessage(
 export async function sendTelegramDraftPreview(
   chatId: number,
   post: { id: string; internal_title?: string | null; text?: string | null },
-  revised = false
+  revised = false,
+  browserBinding?: {
+    quickAction(
+      action: "screenshot",
+      options: {
+        url: string;
+        viewport?: { width: number; height: number };
+        screenshotOptions?: { fullPage?: boolean };
+        gotoOptions?: { waitUntil?: "load" | "domcontentloaded" | "networkidle0" | "networkidle2"; timeout?: number };
+      }
+    ): Promise<Response>;
+  }
 ): Promise<{ ok: boolean; error?: string }> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const signingSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
   if (!token?.trim() || !signingSecret?.trim() || !appUrl?.trim()) {
-    return { ok: false, error: "Telegram preview configuration is incomplete." };
+    return { ok: false, error: "Telegram image preview configuration is incomplete." };
   }
+
   try {
     const expires = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
     const signature = crypto.createHmac("sha256", signingSecret).update(`${post.id}.${expires}`).digest("hex");
     const previewUrl = new URL(`/api/telegram/draft-preview/${encodeURIComponent(post.id)}`, appUrl);
     previewUrl.searchParams.set("expires", String(expires));
     previewUrl.searchParams.set("signature", signature);
-    const text = [
-      revised ? "✏️ <b>Your LinkedIn draft has been revised</b>" : "📝 <b>Your LinkedIn draft is ready</b>",
-      "",
-      "Open the formatted HTML/CSS preview to read the complete post.",
-      "<i>Saved as a draft. Nothing has been published.</i>",
-    ].join("\n");
-    const result = await tgPost("sendMessage", {
-      chat_id: chatId,
-      text,
-      parse_mode: "HTML",
-      link_preview_options: { is_disabled: true },
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "👀 Open draft preview", url: previewUrl.toString() }],
-          [
-            { text: "✅ Approve", callback_data: `draft:approve:${post.id}` },
-            { text: "❌ Reject", callback_data: `draft:reject:${post.id}` },
-          ],
-          [{ text: "✏️ Request Changes", callback_data: `draft:revise:${post.id}` }],
-        ],
-      },
+
+    // Render the same secured HTML/CSS preview in Cloudflare Browser Run, then
+    // upload the resulting real PNG to Telegram. Telegram does not render CSS.
+    if (!browserBinding) {
+      return { ok: false, error: "Telegram image rendering is not available in this worker." };
+    }
+
+    const imageResponse = await browserBinding.quickAction("screenshot", {
+      url: previewUrl.toString(),
+      viewport: { width: 1080, height: 1200 },
+      screenshotOptions: { fullPage: true },
+      gotoOptions: { waitUntil: "networkidle0", timeout: 45_000 },
     });
-    return result.ok ? { ok: true } : { ok: false, error: result.error || "Telegram could not deliver the draft preview." };
+    if (!imageResponse.ok) {
+      console.error("[telegram] Browser Run screenshot failed:", imageResponse.status);
+      return { ok: false, error: "Could not render the draft image." };
+    }
+
+    const imageType = imageResponse.headers.get("content-type") || "";
+    if (!imageType.includes("image/")) {
+      return { ok: false, error: "The draft renderer did not return an image." };
+    }
+    const image = await imageResponse.arrayBuffer();
+    if (image.byteLength === 0 || image.byteLength > 10 * 1024 * 1024) {
+      return { ok: false, error: "The rendered draft image has an invalid size." };
+    }
+
+    const form = new FormData();
+    form.append("chat_id", String(chatId));
+    form.append("photo", new Blob([image], { type: imageType }), "nunuza-draft.png");
+    form.append(
+      "caption",
+      revised
+        ? "✏️ Your LinkedIn draft has been revised.\nSaved as a draft. Nothing has been published."
+        : "📝 Your LinkedIn draft is ready.\nSaved as a draft. Nothing has been published."
+    );
+    form.append("reply_markup", JSON.stringify({
+      inline_keyboard: [
+        [
+          { text: "✅ Approve & Publish", callback_data: `draft:approve:${post.id}` },
+          { text: "❌ Reject", callback_data: `draft:reject:${post.id}` },
+        ],
+        [{ text: "✏️ Request Changes", callback_data: `draft:revise:${post.id}` }],
+      ],
+    }));
+
+    const response = await fetch(TG_API(token, "sendPhoto"), {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(20_000),
+    });
+    const result: any = await response.json();
+    if (!response.ok || !result?.ok) {
+      return { ok: false, error: result?.description || `Telegram photo upload failed (HTTP ${response.status}).` };
+    }
+    return { ok: true };
   } catch (error) {
-    console.error("[telegram] HTML/CSS draft preview delivery failed:", error instanceof Error ? error.message : "unknown_error");
-    return { ok: false, error: "Could not create or send the draft preview link." };
+    console.error("[telegram] Draft image delivery failed:", error instanceof Error ? error.message : "unknown_error");
+    return { ok: false, error: "Could not render or deliver the draft image." };
   }
 }
 

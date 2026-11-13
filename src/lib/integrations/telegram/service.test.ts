@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import {
   generateTelegramPairingToken,
   linkTelegramAccount,
@@ -6,6 +6,7 @@ import {
   getTelegramLinkStatus,
   handleTelegramMessage,
   verifyTelegramSecret,
+  sendTelegramDraftPreview,
 } from "./service";
 import crypto from "crypto";
 
@@ -194,6 +195,71 @@ class MockTelegramDb {
     };
   }
 }
+
+describe("Telegram photo draft delivery", () => {
+  const originalEnv = {
+    token: process.env.TELEGRAM_BOT_TOKEN,
+    secret: process.env.TELEGRAM_WEBHOOK_SECRET,
+    appUrl: process.env.NEXT_PUBLIC_APP_URL,
+  };
+
+  beforeEach(() => {
+    process.env.TELEGRAM_BOT_TOKEN = "test-bot-token";
+    process.env.TELEGRAM_WEBHOOK_SECRET = "test-webhook-secret";
+    process.env.NEXT_PUBLIC_APP_URL = "https://nunuza.example";
+  });
+
+  it("renders the signed preview and uploads a real PNG with approval actions", async () => {
+    const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+    const quickAction = vi.fn().mockResolvedValue(new Response(png, {
+      status: 200,
+      headers: { "content-type": "image/png" },
+    }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      result: { message_id: 42 },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await sendTelegramDraftPreview(
+      12345,
+      { id: "post-123", internal_title: "AI in finance", text: "A complete post" },
+      false,
+      { quickAction }
+    );
+
+    expect(result.ok).toBe(true);
+    expect(quickAction).toHaveBeenCalledWith("screenshot", expect.objectContaining({
+      url: expect.stringContaining("/api/telegram/draft-preview/post-123"),
+      screenshotOptions: { fullPage: true },
+    }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/sendPhoto");
+    const form = fetchMock.mock.calls[0][1].body as FormData;
+    expect(form.get("chat_id")).toBe("12345");
+    expect(form.get("photo")).toBeInstanceOf(Blob);
+    expect(form.get("caption")).toContain("Nothing has been published");
+    expect(String(form.get("reply_markup"))).toContain("draft:approve:post-123");
+  });
+
+  it("does not fall back to a text or preview link when the browser binding is missing", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await sendTelegramDraftPreview(12345, { id: "post-123" });
+    expect(result.ok).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  afterAll(() => {
+    if (originalEnv.token === undefined) delete process.env.TELEGRAM_BOT_TOKEN;
+    else process.env.TELEGRAM_BOT_TOKEN = originalEnv.token;
+    if (originalEnv.secret === undefined) delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    else process.env.TELEGRAM_WEBHOOK_SECRET = originalEnv.secret;
+    if (originalEnv.appUrl === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
+    else process.env.NEXT_PUBLIC_APP_URL = originalEnv.appUrl;
+    vi.unstubAllGlobals();
+  });
+});
 
 describe("Telegram Service", () => {
   let mockDb: MockTelegramDb;

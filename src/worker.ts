@@ -27,6 +27,17 @@ export { DOQueueHandler, DOShardedTagCache };
 
 interface CloudflareBindings {
   AGENT_JOBS_QUEUE: Queue<AgentJob>;
+  BROWSER: {
+    quickAction(
+      action: "screenshot",
+      options: {
+        url: string;
+        viewport?: { width: number; height: number };
+        screenshotOptions?: { fullPage?: boolean };
+        gotoOptions?: { waitUntil?: "load" | "domcontentloaded" | "networkidle0" | "networkidle2"; timeout?: number };
+      }
+    ): Promise<Response>;
+  };
 }
 
 export default {
@@ -46,7 +57,7 @@ export default {
   /** Queue consumer: process only valid, atomically claimed job envelopes. */
   async queue(
     batch: MessageBatch<unknown>,
-    _env: CloudflareBindings
+    env: CloudflareBindings
   ): Promise<void> {
     for (const message of batch.messages) {
       if (!isClaimedAgentJobEnvelope(message.body)) {
@@ -57,7 +68,7 @@ export default {
 
       const job: AgentJob = message.body;
       try {
-        const result = await processJob(job);
+        const result = await processJob(job, undefined, { browser: env.BROWSER });
         if (result.success || !result.retryable) {
           message.ack();
         } else {

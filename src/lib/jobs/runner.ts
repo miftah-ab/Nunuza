@@ -33,7 +33,21 @@ export interface ClaimJobsOptions {
   jobTypes?: string[];
 }
 
-export type JobHandler = (job: AgentJob, supabase: any) => Promise<JobExecutionResult>;
+export interface JobRuntimeBindings {
+  browser?: {
+    quickAction(
+      action: "screenshot",
+      options: {
+        url: string;
+        viewport?: { width: number; height: number };
+        screenshotOptions?: { fullPage?: boolean };
+        gotoOptions?: { waitUntil?: "load" | "domcontentloaded" | "networkidle0" | "networkidle2"; timeout?: number };
+      }
+    ): Promise<Response>;
+  };
+}
+
+export type JobHandler = (job: AgentJob, supabase: any, runtime?: JobRuntimeBindings) => Promise<JobExecutionResult>;
 
 /** Renew only the exact active attempt and lease; stale workers are fenced out. */
 export async function renewAgentJobLease(
@@ -91,11 +105,64 @@ export function isClaimedAgentJobEnvelope(value: unknown): value is AgentJob {
 const handlers: Record<string, JobHandler> = {
   publish_post: (job, supabase) => executePublishJob(job, supabase, { deferJobFinalization: true }),
   agent_cycle: (job, supabase) => executeAutonomousCycle(job, supabase),
-  telegram_content_generation: (job, supabase) => executeTelegramContentJob(job, supabase),
+  telegram_content_generation: (job, supabase, runtime) => executeTelegramContentJob(job, supabase, runtime?.browser),
 };
 
 export function registerJobHandler(jobType: string, handler: JobHandler): void {
   handlers[jobType] = handler;
+}
+
+/**
+ * A stale Telegram generation job bypasses executeTelegramContentJob(), so
+ * its normal conversation cleanup and user notification never run. Recover
+ * that state only after the job has been terminalized by the stale-job
+ * reconciler. Preserve any already-saved draft and never expose worker errors.
+ */
+async function recoverTerminalTelegramContentJob(job: AgentJob, supabase: any): Promise<void> {
+  const payload = job.payload as Record<string, unknown> | null;
+  if (
+    job.job_type !== "telegram_content_generation" ||
+    !payload ||
+    !Number.isSafeInteger(payload.telegramUserId) ||
+    !Number.isSafeInteger(payload.chatId)
+  ) return;
+
+  const telegramUserId = Number(payload.telegramUserId);
+  const chatId = Number(payload.chatId);
+  const { data: link, error: linkError } = await supabase
+    .from("telegram_links")
+    .select("conversation_state")
+    .eq("telegram_user_id", telegramUserId)
+    .eq("chat_id", chatId)
+    .eq("workspace_id", job.workspace_id)
+    .is("revoked_at", null)
+    .maybeSingle();
+
+  if (linkError) throw new Error("Could not recover the Telegram conversation after a failed job.");
+  const currentState = link?.conversation_state && typeof link.conversation_state === "object"
+    ? link.conversation_state as Record<string, unknown>
+    : {};
+  if (!link || currentState.pendingJobId !== job.id) return;
+
+  const nextState: Record<string, unknown> = {
+    ...(typeof currentState.activePostId === "string" ? { activePostId: currentState.activePostId } : {}),
+    ...(typeof currentState.topic === "string" ? { topic: currentState.topic } : {}),
+    ...(typeof currentState.pillar === "string" ? { pillar: currentState.pillar } : {}),
+    updatedAt: new Date().toISOString(),
+  };
+  const { data: cleared, error: clearError } = await supabase.rpc("complete_telegram_conversation_job", {
+    p_telegram_user_id: telegramUserId,
+    p_chat_id: chatId,
+    p_workspace_id: job.workspace_id,
+    p_job_id: job.id,
+    p_state: nextState,
+  });
+  if (clearError) throw new Error("Could not clear the failed Telegram conversation state.");
+  if (cleared !== true) return;
+
+  // The database status trigger creates a durable, user-safe notification
+  // for this terminal Telegram job. Do not send a second direct Telegram
+  // message here; the notification dispatcher owns push + Telegram delivery.
 }
 
 /**
@@ -128,7 +195,8 @@ export async function claimDueJobs(
  */
 export async function processJob(
   job: AgentJob,
-  supabaseOverride?: any
+  supabaseOverride?: any,
+  runtimeBindings?: JobRuntimeBindings
 ): Promise<JobExecutionResult> {
   const supabase = supabaseOverride || createServiceClient();
   const startTime = new Date();
@@ -224,7 +292,7 @@ export async function processJob(
     }).finally(() => {
       heartbeatInFlight = null;
     });
-  }, 4 * 60 * 1000);
+  }, 60 * 1000);
 
   try {
     const handler = handlers[liveJob.job_type];
@@ -237,7 +305,7 @@ export async function processJob(
         error: `Unrecognized job type: ${liveJob.job_type}`,
       };
     } else {
-      const execute = () => handler(liveJob, supabase);
+      const execute = () => handler(liveJob, supabase, runtimeBindings);
       const telegramChatId = (liveJob.payload as Record<string, unknown> | null)?.chatId;
       result = typeof telegramChatId === "number" && Number.isSafeInteger(telegramChatId)
         ? await withTelegramTyping(telegramChatId, execute)
@@ -493,15 +561,54 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
         }
       }
 
+      if (
+        job.job_type === "telegram_content_generation" &&
+        job.attempt_count >= job.max_attempts &&
+        (job.payload as Record<string, unknown> | null)?.leaseGraceRetryUsed !== true
+      ) {
+        // A claim that never produced an attempt record means the worker died
+        // before completing a durable execution. Give it exactly one grace
+        // attempt instead of exhausting the user's generation retries.
+        const { data: recordedAttempt, error: attemptLookupError } = await supabase
+          .from("agent_job_attempts")
+          .select("id")
+          .eq("job_id", job.id)
+          .eq("attempt_number", job.attempt_count)
+          .maybeSingle();
+        if (attemptLookupError) {
+          throw new Error(`Could not verify Telegram job attempt history: ${attemptLookupError.message}`);
+        }
+        if (!recordedAttempt) {
+          await transitionJob(supabase, job.id, "running", "failed_retryable", {
+            max_attempts: job.attempt_count + 1,
+            payload: {
+              ...((job.payload && typeof job.payload === "object" && !Array.isArray(job.payload))
+                ? job.payload as Record<string, unknown>
+                : {}),
+              leaseGraceRetryUsed: true,
+            },
+            scheduled_for: nowIso,
+            lease_until: null,
+            last_error_code: "WORKER_INTERRUPTED_BEFORE_ATTEMPT_RECORD",
+            safe_error_message: "The previous worker stopped before finishing. Nunuza will retry your request once more.",
+          }, { attemptCount: job.attempt_count, leaseUntil: job.lease_until ?? undefined });
+          reconciledCount++;
+          continue;
+        }
+      }
+
       if (job.attempt_count >= job.max_attempts) {
         await markJobTerminal(
           supabase,
           job.id,
-          "Job lease expired and max attempts reached.",
+          "This task was interrupted repeatedly and could not be completed. Any saved draft is preserved.",
           "LEASE_EXPIRED_MAX_ATTEMPTS",
           "running",
           { attemptCount: job.attempt_count, leaseUntil: job.lease_until ?? undefined }
         );
+        if (job.job_type === "telegram_content_generation") {
+          await recoverTerminalTelegramContentJob(job, supabase);
+        }
       } else {
         await transitionJob(supabase, job.id, "running", "failed_retryable", {
           scheduled_for: nowIso,

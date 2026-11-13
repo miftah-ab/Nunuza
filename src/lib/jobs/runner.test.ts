@@ -427,6 +427,62 @@ describe("reconcileStaleJobs", () => {
     expect(db.jobs[0].status).toBe("failed_terminal");
   });
 
+  it("gives a Telegram job one grace retry if the worker died before recording its attempt", async () => {
+    const job = makeJob({
+      job_type: "telegram_content_generation",
+      status: "running",
+      attempt_count: 3,
+      max_attempts: 3,
+      lease_until: expired(),
+      payload: { telegramUserId: 55, chatId: 66 },
+    });
+    db.jobs.push(job);
+
+    expect(await reconcileStaleJobs(db)).toBe(1);
+    expect(db.jobs[0].status).toBe("failed_retryable");
+    expect(db.jobs[0].attempt_count).toBe(3);
+    expect(db.jobs[0].max_attempts).toBe(4);
+    expect(db.jobs[0].last_error_code).toBe("WORKER_INTERRUPTED_BEFORE_ATTEMPT_RECORD");
+    expect(db.jobs[0].payload.leaseGraceRetryUsed).toBe(true);
+
+    // A second unrecorded interruption must terminate instead of extending forever.
+    db.jobs[0].status = "running";
+    db.jobs[0].attempt_count = 4;
+    db.jobs[0].lease_until = expired();
+    expect(await reconcileStaleJobs(db)).toBe(1);
+    expect(db.jobs[0].status).toBe("failed_terminal");
+    expect(db.jobs[0].max_attempts).toBe(4);
+  });
+
+  it("clears a failed Telegram conversation and sends a user-safe recovery message", async () => {
+    const job = makeJob({
+      job_type: "telegram_content_generation",
+      status: "running",
+      attempt_count: 3,
+      max_attempts: 3,
+      lease_until: expired(),
+      payload: { telegramUserId: 55, chatId: 66 },
+    });
+    db.jobs.push(job);
+    db.tables.telegram_links.push({
+      telegram_user_id: 55,
+      chat_id: 66,
+      workspace_id: "ws-test",
+      revoked_at: null,
+      conversation_state: { pendingJobId: job.id, topic: "AI in finance" },
+    });
+    db.tables.agent_job_attempts.push({
+      id: "attempt-3",
+      job_id: job.id,
+      attempt_number: 3,
+    });
+
+    expect(await reconcileStaleJobs(db)).toBe(1);
+    expect(db.jobs[0].status).toBe("failed_terminal");
+    expect(db.tables.telegram_links[0].conversation_state.pendingJobId).toBeUndefined();
+    expect(db.jobs[0].safe_error_message).not.toContain("lease expired");
+  });
+
   it("does NOT retry a publish job whose post was already 'publishing' (could double-post)", async () => {
     db.jobs.push(makeJob({ status: "running", attempt_count: 1, lease_until: expired(), payload: { postId: "p1" } }));
     db.posts.push({ id: "p1", workspace_id: "ws-test", status: "publishing" });

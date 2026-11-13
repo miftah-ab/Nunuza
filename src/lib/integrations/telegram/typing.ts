@@ -38,24 +38,24 @@ export async function withTelegramTyping<T>(
   let active = true;
   let inFlight: Promise<void> | null = null;
 
-  const pulse = (): Promise<void> => {
-    if (!active || inFlight) return inFlight ?? Promise.resolve();
+  const pulse = (): void => {
+    if (!active || inFlight) return;
+    // Typing is best-effort UI only. Never make the actual job wait for
+    // Telegram's chat-action endpoint to respond.
     inFlight = sendTypingAction(chatId).finally(() => {
       inFlight = null;
     });
-    return inFlight;
   };
 
-  await pulse();
-  const timer = setInterval(() => {
-    void pulse();
-  }, TYPING_REFRESH_MS);
+  pulse();
+  const timer = setInterval(pulse, TYPING_REFRESH_MS);
 
   try {
     return await work();
   } finally {
     active = false;
     clearInterval(timer);
-    if (inFlight) await inFlight;
+    // Do not await the final typing request; a slow Telegram API must not
+    // delay job completion or prevent its durable attempt record from saving.
   }
 }
