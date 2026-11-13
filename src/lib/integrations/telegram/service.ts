@@ -1516,9 +1516,55 @@ export async function sendTelegramDraftPreview(
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const signingSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  if (!token?.trim() || !signingSecret?.trim() || !appUrl?.trim()) {
-    return { ok: false, error: "Telegram image preview configuration is incomplete." };
+  if (!token?.trim()) {
+    return { ok: false, error: "Telegram bot is not configured." };
   }
+
+  const replyMarkup = {
+    inline_keyboard: [
+      [
+        { text: "✅ Approve & Publish", callback_data: `draft:approve:${post.id}` },
+        { text: "❌ Reject", callback_data: `draft:reject:${post.id}` },
+      ],
+      [{ text: "✏️ Request Changes", callback_data: `draft:revise:${post.id}` }],
+    ],
+  };
+
+  // A saved draft must not be held hostage by image rendering. If Browser
+  // Rendering is unavailable or slow, deliver the actual draft as text and
+  // complete the generation job instead of retrying AI generation.
+  const sendTextFallback = async (reason: string): Promise<{ ok: boolean; error?: string }> => {
+    console.warn("[telegram] Draft image preview unavailable; sending text fallback:", reason);
+    const title = (post.internal_title || "Your LinkedIn draft").slice(0, 120);
+    const draftText = (post.text || "").slice(0, 3000);
+    const message =
+      (revised ? "✏️ Your LinkedIn draft has been revised." : "📝 Your LinkedIn draft is ready.") +
+      "\n\n" + title + "\n\n" + draftText +
+      "\n\nSaved in Nunuza. Nothing has been published. The image preview could not be generated, but your draft is safe.";
+    const delivery = await sendTelegramMessage(chatId, message, replyMarkup);
+    return delivery.ok ? { ok: true } : { ok: false, error: delivery.error || "Could not deliver the saved draft in Telegram." };
+  };
+
+  if (!signingSecret?.trim() || !appUrl?.trim()) {
+    return sendTextFallback("preview configuration is incomplete");
+  }
+  if (!browserBinding) {
+    return sendTextFallback("Browser Rendering binding is unavailable");
+  }
+
+  const withTimeout = async <T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        operation,
+        new Promise<T>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(label)), timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
 
   try {
     const expires = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
@@ -1527,30 +1573,34 @@ export async function sendTelegramDraftPreview(
     previewUrl.searchParams.set("expires", String(expires));
     previewUrl.searchParams.set("signature", signature);
 
-    // Render the same secured HTML/CSS preview in Cloudflare Browser Run, then
-    // upload the resulting real PNG to Telegram. Telegram does not render CSS.
-    if (!browserBinding) {
-      return { ok: false, error: "Telegram image rendering is not available in this worker." };
-    }
-
-    const imageResponse = await browserBinding.quickAction("screenshot", {
-      url: previewUrl.toString(),
-      viewport: { width: 1080, height: 1200 },
-      screenshotOptions: { fullPage: true },
-      gotoOptions: { waitUntil: "networkidle0", timeout: 45_000 },
-    });
+    // The browser navigation timeout does not bound the full Browser Binding
+    // request. Add an outer deadline so a stalled binding cannot hold a Queue
+    // message and its database lease indefinitely.
+    const imageResponse = await withTimeout(
+      browserBinding.quickAction("screenshot", {
+        url: previewUrl.toString(),
+        viewport: { width: 1080, height: 1200 },
+        screenshotOptions: { fullPage: true },
+        gotoOptions: { waitUntil: "networkidle0", timeout: 45_000 },
+      }),
+      60_000,
+      "Browser Rendering request timed out"
+    );
     if (!imageResponse.ok) {
-      console.error("[telegram] Browser Run screenshot failed:", imageResponse.status);
-      return { ok: false, error: "Could not render the draft image." };
+      return sendTextFallback(`Browser Rendering returned HTTP ${imageResponse.status}`);
     }
 
     const imageType = imageResponse.headers.get("content-type") || "";
     if (!imageType.includes("image/")) {
-      return { ok: false, error: "The draft renderer did not return an image." };
+      return sendTextFallback("Browser Rendering did not return an image");
     }
-    const image = await imageResponse.arrayBuffer();
+    const image = await withTimeout(
+      imageResponse.arrayBuffer(),
+      15_000,
+      "Reading the rendered image timed out"
+    );
     if (image.byteLength === 0 || image.byteLength > 10 * 1024 * 1024) {
-      return { ok: false, error: "The rendered draft image has an invalid size." };
+      return sendTextFallback("The rendered image size was invalid");
     }
 
     const form = new FormData();
@@ -1562,15 +1612,7 @@ export async function sendTelegramDraftPreview(
         ? "✏️ Your LinkedIn draft has been revised.\nSaved as a draft. Nothing has been published."
         : "📝 Your LinkedIn draft is ready.\nSaved as a draft. Nothing has been published."
     );
-    form.append("reply_markup", JSON.stringify({
-      inline_keyboard: [
-        [
-          { text: "✅ Approve & Publish", callback_data: `draft:approve:${post.id}` },
-          { text: "❌ Reject", callback_data: `draft:reject:${post.id}` },
-        ],
-        [{ text: "✏️ Request Changes", callback_data: `draft:revise:${post.id}` }],
-      ],
-    }));
+    form.append("reply_markup", JSON.stringify(replyMarkup));
 
     const response = await fetch(TG_API(token, "sendPhoto"), {
       method: "POST",
@@ -1579,12 +1621,11 @@ export async function sendTelegramDraftPreview(
     });
     const result: any = await response.json();
     if (!response.ok || !result?.ok) {
-      return { ok: false, error: result?.description || `Telegram photo upload failed (HTTP ${response.status}).` };
+      return sendTextFallback(result?.description || `Telegram photo upload failed (HTTP ${response.status})`);
     }
     return { ok: true };
   } catch (error) {
-    console.error("[telegram] Draft image delivery failed:", error instanceof Error ? error.message : "unknown_error");
-    return { ok: false, error: "Could not render or deliver the draft image." };
+    return sendTextFallback(error instanceof Error ? error.message : "Unknown preview delivery error");
   }
 }
 
