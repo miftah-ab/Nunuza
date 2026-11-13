@@ -50,7 +50,7 @@ const IMAGE_DIMENSIONS: Record<ImageFormat, ImageDimensions> = {
   square: { width: 1024, height: 1024 },
 };
 
-export function buildImagePrompt(
+function buildImagePrompt(
   post: { internal_title: string | null; text: string },
   direction?: string,
   style: ImageStyle = "editorial"
