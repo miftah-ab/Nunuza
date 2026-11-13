@@ -127,7 +127,7 @@ BEGIN
   SELECT title, body INTO v_title, v_body
     FROM public.notification_events
    WHERE event_key = 'job:00000000-0000-0000-0000-000000000031:status:failed_terminal';
-  IF v_title <> 'Your draft is saved' OR v_body NOT LIKE '%preview image%' OR v_body LIKE '%lease%' THEN
+  IF v_title <> 'Your draft is saved' OR v_body NOT LIKE '%preview image%' OR (v_body ILIKE '%job lease%' OR v_body ILIKE '%lease expired%') THEN
     RAISE EXCEPTION 'Saved Telegram draft notification is not user-safe: %, %', v_title, v_body;
   END IF;
 
