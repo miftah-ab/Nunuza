@@ -30,11 +30,11 @@ describe("draft preview sample engagement", () => {
 describe("renderDraftPreviewHtml", () => {
   const base = { name: "Ada", headline: null, avatarUrl: null, text: "Hello", seed: "post-1" };
 
-  it("labels every image as sample", () => {
+  it("shows only the draft and LinkedIn-style chrome, with no extra notes", () => {
     for (const seed of ["a", "b", "c", "d"]) {
       const html = renderDraftPreviewHtml({ ...base, seed });
-      expect(html).toContain('<span class="tag">Sample</span>');
-      expect(html).not.toContain("Nothing is published");
+      expect(html).not.toMatch(/sample|nothing is published/i);
+      expect(html).toContain("Like");
     }
   });
 
