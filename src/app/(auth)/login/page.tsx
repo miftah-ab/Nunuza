@@ -56,6 +56,12 @@ export default async function LoginPage({
             <GoogleSignInButton />
           </form>
 
+          {process.env.PUBLIC_SIGNUP_ENABLED !== "true" && (
+            <p className="nzl-legal">
+              New to Nunuza? <Link href="/early-access">Request early access</Link>.
+            </p>
+          )}
+
           <p className="nzl-legal">
             By signing in, you agree to Nunuza&apos;s{" "}
             <Link href="/terms">Terms of Service</Link> and{" "}

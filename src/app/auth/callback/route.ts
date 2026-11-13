@@ -28,12 +28,14 @@ export async function GET(request: Request) {
   // Provider returned an error (e.g. user cancelled OAuth)
   if (error) {
     const loginUrl = new URL("/login", origin);
-    loginUrl.searchParams.set(
-      "error",
-      errorDescription ?? error === "access_denied"
+    const providerMessage = (errorDescription ?? "").toLowerCase();
+    const signupWasBlocked = providerMessage.includes("private testing period") || providerMessage.includes("request early access");
+    const message = signupWasBlocked
+      ? "Nunuza is currently in a private testing period. Request early access to be notified when it opens."
+      : error === "access_denied"
         ? "Sign-in was cancelled."
-        : "Sign-in failed. Please try again."
-    );
+        : "Sign-in failed. Please try again.";
+    loginUrl.searchParams.set("error", message);
     return NextResponse.redirect(loginUrl.toString(), { status: 303 });
   }
 
