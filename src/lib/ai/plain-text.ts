@@ -19,8 +19,8 @@ export function normalizeLinkedInPostText(input: string): string {
     .replace(/^\s{0,3}#{1,6}\s+/gm, "")
     .replace(/^\s{0,3}>\s?/gm, "")
     // Remove orphaned emphasis markers left by malformed model output.
-    .replace(/\*{1,3}(?=\s|$)|(?<=\s)\*{1,3}/g, "")
-    .replace(/_{1,2}(?=\s|$)|(?<=\s)_{1,2}/g, "")
+    .replace(/\*{2,3}/g, "")
+    .replace(/_{2}/g, "")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n[ \t]+/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
