@@ -1,7 +1,6 @@
-import { createHmac, timingSafeEqual } from "crypto";
 import { createServiceClient } from "@/lib/supabase/server";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -22,11 +21,21 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       !/^[a-f0-9]{64}$/i.test(supplied) || !secret) {
     return new Response("This draft preview link is invalid or expired.", { status: 401 });
   }
-  const expected = createHmac("sha256", secret).update(`${id}.${expires}`).digest();
-  const actual = Buffer.from(supplied, "hex");
-  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
-    return new Response("This draft preview link is invalid or expired.", { status: 401 });
-  }
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["verify"]
+  );
+  const signatureBytes = new Uint8Array(supplied.match(/.{2}/g)!.map((byte) => Number.parseInt(byte, 16)));
+  const valid = await crypto.subtle.verify(
+    "HMAC",
+    key,
+    signatureBytes,
+    new TextEncoder().encode(`${id}.${expires}`)
+  );
+  if (!valid) return new Response("This draft preview link is invalid or expired.", { status: 401 });
   const supabase = createServiceClient();
   const { data: post, error } = await supabase.from("content_posts")
     .select("id, internal_title, text, status").eq("id", id).maybeSingle();
