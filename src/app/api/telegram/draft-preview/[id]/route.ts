@@ -1,6 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/server";
 
-export const runtime = "edge";
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
