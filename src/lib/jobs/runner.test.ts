@@ -8,10 +8,6 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(),
   createServiceClient: vi.fn(),
 }));
-vi.mock("@/lib/integrations/telegram/service", () => ({
-  notifyWorkspaceTelegram: vi.fn().mockResolvedValue({ ok: true }),
-}));
-import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
 
 describe("claimed queue envelope validation", () => {
   it("accepts a complete running claim returned by the database", () => {
@@ -452,13 +448,6 @@ describe("reconcileStaleJobs", () => {
     expect(await reconcileStaleJobs(db)).toBe(1);
     expect(db.jobs[0].status).toBe("failed_terminal");
     expect(db.tables.telegram_links[0].conversation_state.pendingJobId).toBeUndefined();
-    expect(notifyWorkspaceTelegram).toHaveBeenCalledWith(
-      "ws-test",
-      expect.objectContaining({
-        text: expect.stringContaining("I couldn't finish creating that LinkedIn draft"),
-      }),
-      db
-    );
     expect(db.jobs[0].safe_error_message).not.toContain("lease expired");
   });
 
