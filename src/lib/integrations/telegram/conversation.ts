@@ -554,19 +554,14 @@ export async function executeTelegramContentJob(job: AgentJob, supabase: any): P
     if (!completed) return { jobId: job.id, success: true, status: "succeeded", retryable: false };
 
     const reply = draftReply(post, Boolean(existingPost));
-    try {
-      const { sendTelegramDraftPreview } = await import("./service");
-      const previewDelivery = await sendTelegramDraftPreview(
-        payload.chatId,
-        post,
-        Boolean(existingPost)
-      );
-      if (!previewDelivery.ok) {
-        console.error("[telegram-conversation] Draft image preview delivery failed:", previewDelivery.error || "telegram_preview_delivery_error");
-        await sendConversationReply(payload.chatId, reply.text, reply.markup);
-      }
-    } catch (previewError) {
-      console.error("[telegram-conversation] Draft image preview rendering failed:", previewError instanceof Error ? previewError.message : "unknown_error");
+    const { sendTelegramDraftPreview } = await import("./service");
+    const previewDelivery = await sendTelegramDraftPreview(
+      payload.chatId,
+      post,
+      Boolean(existingPost)
+    );
+    if (!previewDelivery.ok) {
+      console.error("[telegram-conversation] HTML/CSS draft preview delivery failed:", previewDelivery.error || "telegram_preview_delivery_error");
       await sendConversationReply(payload.chatId, reply.text, reply.markup);
     }
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
