@@ -47,10 +47,7 @@ export function PostImageGenerator({ postId, imagePath, onImageUpdated }: PostIm
 
   useEffect(() => {
     let active = true;
-    if (!imagePath) {
-      setPreviewUrl(null);
-      return;
-    }
+    if (!imagePath) return;
 
     fetch(`/api/generate/image?postId=${encodeURIComponent(postId)}`)
       .then(async (response) => {
