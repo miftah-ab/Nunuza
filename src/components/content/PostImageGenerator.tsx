@@ -137,17 +137,17 @@ export function PostImageGenerator({ postId, imagePath, onImageUpdated }: PostIm
       </div>
 
       <div>
-        <label htmlFor="image-direction" className="mb-1.5 block text-xs font-medium text-ink">Your creative direction <span className="font-normal text-ink-muted">(optional)</span></label>
+        <label htmlFor="image-direction" className="mb-1.5 block text-xs font-medium text-ink">What should the image show? <span className="font-normal text-ink-muted">(optional)</span></label>
         <textarea
           id="image-direction"
           rows={3}
           maxLength={1200}
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
-          placeholder="Describe the scene, subject, mood, colors, or visual idea you want..."
+          placeholder="Example: “A matte-black electric car on a mountain road at sunrise” or “A clean diagram of a secure payment flow”"
           className="input-field w-full resize-y text-sm"
         />
-        <p className="mt-1 text-[11px] text-ink-muted">Nunuza uses your post as context and follows this direction where it fits.</p>
+        <p className="mt-1 text-[11px] text-ink-muted">Your requested subject takes priority. People are excluded unless you explicitly ask for them.</p>
       </div>
 
       {error && <p role="alert" className="rounded-md bg-error/10 p-2.5 text-xs text-error">{error}</p>}
