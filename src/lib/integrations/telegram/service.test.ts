@@ -242,12 +242,25 @@ describe("Telegram photo draft delivery", () => {
     expect(String(form.get("reply_markup"))).toContain("draft:approve:post-123");
   });
 
-  it("does not fall back to a text or preview link when the browser binding is missing", async () => {
-    const fetchMock = vi.fn();
+  it("delivers the saved draft as text when the browser binding is missing", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      result: { message_id: 43 },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const result = await sendTelegramDraftPreview(12345, { id: "post-123" });
-    expect(result.ok).toBe(false);
-    expect(fetchMock).not.toHaveBeenCalled();
+
+    const result = await sendTelegramDraftPreview(
+      12345,
+      { id: "post-123", internal_title: "AI in finance", text: "The saved draft content." }
+    );
+
+    expect(result.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/sendMessage");
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.text).toContain("The saved draft content.");
+    expect(body.text).toContain("Nothing has been published");
+    expect(body.reply_markup.inline_keyboard[0][0].callback_data).toBe("draft:approve:post-123");
   });
 
   afterAll(() => {
