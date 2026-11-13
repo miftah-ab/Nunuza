@@ -382,28 +382,6 @@ async function persistRevision(
   return current;
 }
 
-function draftReply(post: any, revised: boolean): { text: string; markup?: any } {
-  const title = escapeMarkdownV2(post.internal_title || "LinkedIn draft");
-  const rawBody = post.text || "";
-  let visibleBody = rawBody;
-  while (visibleBody.length > 0 && escapeMarkdownV2(visibleBody).length > 3400) {
-    visibleBody = visibleBody.slice(0, Math.max(0, visibleBody.length - 100));
-  }
-  const truncationNotice = visibleBody.length < rawBody.length
-    ? "\n\n" + escapeMarkdownV2("[Open Nunuza to view the complete draft.]")
-    : "";
-  const body = escapeMarkdownV2(visibleBody) + truncationNotice;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  return {
-    text:
-      (revised ? "✏️ *Draft revised*\n\n" : "📝 *New draft created*\n\n") +
-      "*" + title + "*\n\n" + body + "\n\n" +
-      "Draft ID: " + post.id.slice(0, 8) + "\n" +
-      escapeMarkdownV2("Saved in Nunuza as a draft. It has not been published.") + "\n\n" +
-      escapeMarkdownV2("Use /drafts to review it. Publishing requires a separate approval action."),
-    ...(appUrl ? { markup: { inline_keyboard: [[{ text: "Open full draft in Nunuza", url: appUrl + "/app/content" }]] } } : {}),
-  };
-}
 
 export async function executeTelegramContentJob(
   job: AgentJob,
