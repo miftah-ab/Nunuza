@@ -33,7 +33,21 @@ export interface ClaimJobsOptions {
   jobTypes?: string[];
 }
 
-export type JobHandler = (job: AgentJob, supabase: any) => Promise<JobExecutionResult>;
+export interface JobRuntimeBindings {
+  browser?: {
+    quickAction(
+      action: "screenshot",
+      options: {
+        url: string;
+        viewport?: { width: number; height: number };
+        screenshotOptions?: { fullPage?: boolean };
+        gotoOptions?: { waitUntil?: "load" | "domcontentloaded" | "networkidle0" | "networkidle2"; timeout?: number };
+      }
+    ): Promise<Response>;
+  };
+}
+
+export type JobHandler = (job: AgentJob, supabase: any, runtime?: JobRuntimeBindings) => Promise<JobExecutionResult>;
 
 /** Renew only the exact active attempt and lease; stale workers are fenced out. */
 export async function renewAgentJobLease(
@@ -91,7 +105,7 @@ export function isClaimedAgentJobEnvelope(value: unknown): value is AgentJob {
 const handlers: Record<string, JobHandler> = {
   publish_post: (job, supabase) => executePublishJob(job, supabase, { deferJobFinalization: true }),
   agent_cycle: (job, supabase) => executeAutonomousCycle(job, supabase),
-  telegram_content_generation: (job, supabase) => executeTelegramContentJob(job, supabase),
+  telegram_content_generation: (job, supabase, runtime) => executeTelegramContentJob(job, supabase, runtime?.browser),
 };
 
 export function registerJobHandler(jobType: string, handler: JobHandler): void {
@@ -198,7 +212,8 @@ export async function claimDueJobs(
  */
 export async function processJob(
   job: AgentJob,
-  supabaseOverride?: any
+  supabaseOverride?: any,
+  runtimeBindings?: JobRuntimeBindings
 ): Promise<JobExecutionResult> {
   const supabase = supabaseOverride || createServiceClient();
   const startTime = new Date();
@@ -307,7 +322,7 @@ export async function processJob(
         error: `Unrecognized job type: ${liveJob.job_type}`,
       };
     } else {
-      const execute = () => handler(liveJob, supabase);
+      const execute = () => handler(liveJob, supabase, runtimeBindings);
       const telegramChatId = (liveJob.payload as Record<string, unknown> | null)?.chatId;
       result = typeof telegramChatId === "number" && Number.isSafeInteger(telegramChatId)
         ? await withTelegramTyping(telegramChatId, execute)
