@@ -5,7 +5,7 @@ import { CheckCircle2, Info } from "lucide-react";
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "Nunuza Solo — $29/month with a 14-day free trial. Strategy-led LinkedIn content workflow. Cancel anytime.",
+    "Nunuza Solo: $29/month with a 14-day free trial. Strategy-led LinkedIn content workflow. Cancel anytime.",
 };
 
 const includedFeatures = [
