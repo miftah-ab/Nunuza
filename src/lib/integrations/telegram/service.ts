@@ -1503,49 +1503,43 @@ export async function sendTelegramDraftPreview(
   revised = false
 ): Promise<{ ok: boolean; error?: string }> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || token.trim() === "") {
-    return { ok: false, error: "Telegram bot is not configured." };
+  const signingSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!token?.trim() || !signingSecret?.trim() || !appUrl?.trim()) {
+    return { ok: false, error: "Telegram preview configuration is incomplete." };
   }
-
   try {
-    const { renderTelegramDraftPreview } = await import("./draft-preview");
-    const image = await renderTelegramDraftPreview({
-      title: post.internal_title || "LinkedIn post",
-      text: post.text || "",
-      revised,
-    });
-    const form = new FormData();
-    form.set("chat_id", String(chatId));
-    const imageBuffer = new ArrayBuffer(image.byteLength);
-    new Uint8Array(imageBuffer).set(image);
-    form.set("photo", new Blob([imageBuffer], { type: "image/png" }), "nunuza-linkedin-draft.png");
-    form.set(
-      "caption",
-      revised ? "✏️ Revised LinkedIn draft · Not published" : "📝 Your LinkedIn draft · Not published"
-    );
-    form.set("reply_markup", JSON.stringify({
-      inline_keyboard: [
-        [
-          { text: "✅ Approve", callback_data: `draft:approve:${post.id}` },
-          { text: "❌ Reject", callback_data: `draft:reject:${post.id}` },
+    const expires = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
+    const signature = crypto.createHmac("sha256", signingSecret).update(`${post.id}.${expires}`).digest("hex");
+    const previewUrl = new URL(`/api/telegram/draft-preview/${encodeURIComponent(post.id)}`, appUrl);
+    previewUrl.searchParams.set("expires", String(expires));
+    previewUrl.searchParams.set("signature", signature);
+    const text = [
+      revised ? "✏️ <b>Your LinkedIn draft has been revised</b>" : "📝 <b>Your LinkedIn draft is ready</b>",
+      "",
+      "Open the formatted HTML/CSS preview to read the complete post.",
+      "<i>Saved as a draft. Nothing has been published.</i>",
+    ].join("\n");
+    const result = await tgPost("sendMessage", {
+      chat_id: chatId,
+      text,
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "👀 Open draft preview", url: previewUrl.toString() }],
+          [
+            { text: "✅ Approve", callback_data: `draft:approve:${post.id}` },
+            { text: "❌ Reject", callback_data: `draft:reject:${post.id}` },
+          ],
+          [{ text: "✏️ Request Changes", callback_data: `draft:revise:${post.id}` }],
         ],
-        [{ text: "✏️ Request Changes", callback_data: `draft:revise:${post.id}` }],
-      ],
-    }));
-
-    const response = await fetch(TG_API(token, "sendPhoto"), {
-      method: "POST",
-      body: form,
-      signal: AbortSignal.timeout(20_000),
+      },
     });
-    const result: any = await response.json();
-    if (!response.ok || !result?.ok) {
-      return { ok: false, error: result?.description || `Telegram sendPhoto returned HTTP ${response.status}.` };
-    }
-    return { ok: true };
+    return result.ok ? { ok: true } : { ok: false, error: result.error || "Telegram could not deliver the draft preview." };
   } catch (error) {
-    console.error("[telegram] Draft preview send failed:", error instanceof Error ? error.message : "unknown_error");
-    return { ok: false, error: "Could not render or send the LinkedIn draft preview." };
+    console.error("[telegram] HTML/CSS draft preview delivery failed:", error instanceof Error ? error.message : "unknown_error");
+    return { ok: false, error: "Could not create or send the draft preview link." };
   }
 }
 
