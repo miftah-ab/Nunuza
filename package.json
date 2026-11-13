@@ -2,7 +2,7 @@
   "name": "nunuza",
   "version": "0.1.0",
   "private": true,
-  "description": "Nunuza — LinkedIn content operations agent for solo founders",
+  "description": "Nunuza, LinkedIn content operations agent for solo founders",
   "scripts": {
     "dev": "next dev --webpack -H 127.0.0.1",
     "build": "next build --webpack",
