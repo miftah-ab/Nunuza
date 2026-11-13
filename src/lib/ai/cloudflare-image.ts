@@ -2,11 +2,13 @@
  * Cloudflare Workers AI image generation client.
  *
  * Server-only: credentials never reach browser code. Uses the documented
- * multipart REST API for FLUX.2 Klein 9B on both Vercel and OpenNext.
+ * JSON REST API for Leonardo Lucid Origin on both Vercel and OpenNext.
  */
 
-export const CLOUDFLARE_IMAGE_MODEL = "@cf/black-forest-labs/flux-2-klein-9b";
+export const CLOUDFLARE_IMAGE_MODEL = "@cf/leonardo/lucid-origin";
 export const MAX_GENERATED_IMAGE_BYTES = 5 * 1024 * 1024;
+const IMAGE_GUIDANCE = 7;
+const IMAGE_STEPS = 28;
 
 export class CloudflareImageError extends Error {
   readonly code: "not_configured" | "invalid_prompt" | "provider_error" | "invalid_image";
@@ -67,20 +69,23 @@ export async function generateCloudflareImage(
     );
   }
 
-  const form = new FormData();
-  form.set("prompt", normalizedPrompt);
-  form.set("width", String(dimensions.width));
-  form.set("height", String(dimensions.height));
-  form.set("guidance", "3.5");
-
   let response: Response;
   try {
     response = await fetcher(
       `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/run/${CLOUDFLARE_IMAGE_MODEL}`,
       {
         method: "POST",
-        headers: { Authorization: `Bearer ${apiToken}` },
-        body: form,
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          prompt: normalizedPrompt,
+          width: dimensions.width,
+          height: dimensions.height,
+          guidance: IMAGE_GUIDANCE,
+          num_steps: IMAGE_STEPS,
+        }),
         signal: AbortSignal.timeout(55_000),
       }
     );
