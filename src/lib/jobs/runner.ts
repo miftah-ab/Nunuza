@@ -160,26 +160,9 @@ async function recoverTerminalTelegramContentJob(job: AgentJob, supabase: any): 
   if (clearError) throw new Error("Could not clear the failed Telegram conversation state.");
   if (cleared !== true) return;
 
-  const { data: savedPost, error: postError } = await supabase
-    .from("content_posts")
-    .select("id, status")
-    .eq("workspace_id", job.workspace_id)
-    .eq("telegram_job_id", job.id)
-    .maybeSingle();
-  if (postError) throw new Error("Could not check whether the Telegram draft was already saved.");
-
-  const { notifyWorkspaceTelegram } = await import("@/lib/integrations/telegram/service");
-  const message = savedPost && ["draft", "needs_review"].includes(savedPost.status)
-    ? {
-        text: "⚠️ Your draft was saved, but I couldn't deliver its preview to Telegram. Your work is safe. Open /drafts to find it; nothing has been published.",
-      }
-    : {
-        text: "⚠️ I couldn't finish creating that LinkedIn draft after several attempts. No draft was created, and nothing was published. Please send the topic again to retry.",
-      };
-  const delivery = await notifyWorkspaceTelegram(job.workspace_id, message, supabase);
-  if (!delivery.ok) {
-    console.error("[runner] Telegram terminal-job recovery notification failed:", delivery.error || "delivery_failed");
-  }
+  // The database status trigger creates a durable, user-safe notification
+  // for this terminal Telegram job. Do not send a second direct Telegram
+  // message here; the notification dispatcher owns push + Telegram delivery.
 }
 
 /**
