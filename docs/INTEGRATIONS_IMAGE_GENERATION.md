@@ -1,6 +1,6 @@
 # Image Generation — Cloudflare Workers AI
 
-Nunuza uses Black Forest Labs **FLUX.2 Klein 9B** through Cloudflare Workers AI to generate optional visuals for existing content drafts.
+Nunuza uses Leonardo **Lucid Origin** through Cloudflare Workers AI to generate optional visuals for existing content drafts. Lucid Origin is selected for its documented prompt adherence and support for a broad range of visual styles and specific creative direction.
 
 ## Runtime configuration
 
@@ -15,12 +15,13 @@ For local development, add them to `.env.local`. For production, add them as enc
 
 - Generation is explicitly user-triggered from the post editor.
 - The API derives the workspace from the authenticated session and verifies post ownership.
-- FLUX.2 Klein 9B is called through Cloudflare's multipart REST API with explicit dimensions and guidance.
+- Lucid Origin is called through Cloudflare's JSON REST API with explicit dimensions, prompt guidance, and 28 inference steps.
 - Available art directions: editorial photography, cinematic, conceptual editorial illustration, 3D render, and minimalist.
+- Subject controls: **Objects & scenes** (default; explicitly excludes people), **Abstract concept** (non-human visual metaphors), and **People** (only when deliberately selected).
+- Prompts prioritize the selected subject and the user's exact creative direction. The default prompt explicitly prohibits random portraits, people, faces, bodies, silhouettes, and hands.
 - Available formats: portrait (1024×1280), landscape (1280×720), and square (1024×1024). Portrait is the default for LinkedIn feed visuals.
-- Prompts combine the post title/body, art direction, and optional user direction without silently truncating the user's instructions.
 - Images are stored as JPEG files in the private `nunuza-generated-images` Supabase Storage bucket. Object paths are workspace/post scoped; browser previews use one-hour signed URLs.
-- The API enforces a maximum of five image generations per workspace per UTC hour using the existing atomic `usage_counters` RPC.
+- The API enforces an atomic per-workspace hourly limit using the existing `usage_counters` RPC: **100 generations per UTC hour for `internal_beta` workspaces; 5 per UTC hour for all other entitlement types**.
 - Generated images are limited to 5 MB and are never automatically published.
 - Regenerating an image replaces the old object only after the new object is attached successfully.
 - Adding an image to an already-approved post returns it to draft status so it must be reviewed again.
@@ -35,4 +36,4 @@ This feature generates and attaches private images to Nunuza drafts. The existin
 
 ## Prompting and text
 
-Prompts are grounded in the post title and body, with one selected art direction and optional user direction. The model is asked to create the image only. Exact text, labels, logos, and typography should be composited separately rather than requested from the image model.
+Prompts are grounded in the post title and body, with one selected art direction, one selected subject mode, and optional user direction. The model is asked to create the image only. Exact text, labels, logos, and typography should be composited separately rather than requested from the image model.
