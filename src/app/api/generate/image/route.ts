@@ -18,29 +18,26 @@ import {
   generateCloudflareImage,
   type ImageDimensions,
 } from "@/lib/ai/cloudflare-image";
+import { buildImagePrompt, type ImageStyle, type ImageSubject } from "@/lib/ai/image-prompt";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const BUCKET = "nunuza-generated-images";
-const HOURLY_IMAGE_LIMIT = 5;
+const STANDARD_HOURLY_IMAGE_LIMIT = 5;
+const PRIVATE_BETA_HOURLY_IMAGE_LIMIT = 100;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const IMAGE_STYLES = {
-  editorial: "Premium editorial photography for a leading business publication. Art-directed, visually specific, tactile details, natural cinematic light, sophisticated color grading, authentic materials, intentional negative space.",
-  cinematic: "Cinematic documentary still, dramatic but believable lighting, rich atmospheric depth, strong composition, realistic lens and material detail, restrained color grade, premium film production quality.",
-  illustration: "Sophisticated conceptual editorial illustration, distinctive art direction, elegant shapes and textures, restrained palette, clear visual metaphor, polished magazine-cover quality, not childish or clip-art.",
-  "3d": "High-end product visualization with physically plausible materials, refined studio lighting, realistic reflections and shadows, precise geometry, premium commercial art direction.",
-  minimalist: "Minimalist Swiss-inspired editorial visual, one unmistakable focal object, deliberate negative space, precise geometry, restrained palette, subtle texture, exceptionally clean composition.",
-} as const;
+const IMAGE_STYLE_VALUES: ImageStyle[] = ["editorial", "cinematic", "illustration", "3d", "minimalist"];
+const IMAGE_SUBJECT_VALUES: ImageSubject[] = ["objects", "people", "abstract"];
 
-type ImageStyle = keyof typeof IMAGE_STYLES;
 type ImageFormat = "portrait" | "landscape" | "square";
 
 interface GenerateImageBody {
   postId: string;
   prompt?: string;
   style?: ImageStyle;
+  subject?: ImageSubject;
   format?: ImageFormat;
 }
 
@@ -49,29 +46,6 @@ const IMAGE_DIMENSIONS: Record<ImageFormat, ImageDimensions> = {
   landscape: { width: 1280, height: 720 },
   square: { width: 1024, height: 1024 },
 };
-
-function buildImagePrompt(
-  post: { internal_title: string | null; text: string },
-  direction?: string,
-  style: ImageStyle = "editorial"
-) {
-  const subject = (post.internal_title || post.text.slice(0, 180)).replace(/\s+/g, " ").trim();
-  const context = post.text.replace(/\s+/g, " ").slice(0, 2_000).trim();
-  const userDirection = direction?.trim();
-
-  return [
-    "Create one exceptional, publication-ready visual for the LinkedIn post described below.",
-    "VISUAL CONCEPT: Translate the post's central insight into one memorable, concrete scene or visual metaphor. Make the subject instantly understandable at feed size. Prefer a specific, surprising visual idea over a literal generic stock-photo scene.",
-    `ART DIRECTION: ${IMAGE_STYLES[style]}`,
-    "COMPOSITION: Establish one dominant focal point, foreground/midground/background depth, intentional framing, balanced visual weight, and clean negative space. The composition must feel designed by an experienced editorial art director, not like a generic AI image.",
-    "SUBJECT ACCURACY: The main visual must clearly represent the actual topic and meaning of the post. Do not invent named people, brands, products, statistics, logos, events, or factual claims. Include people only when the post's meaning benefits from showing a human subject.",
-    "CRAFT: Photorealistic detail when appropriate to the selected style, coherent anatomy and object geometry, natural hands and reflections, consistent lighting, believable perspective, refined texture, no visual glitches.",
-    "OUTPUT: Image only. No text, lettering, captions, numbers, logos, watermarks, borders, UI mockups, split panels, or collage layouts. Typography can be added separately by the product.",
-    `POST TITLE: ${subject}`,
-    `POST CONTENT: ${context}`,
-    userDirection ? `USER'S CREATIVE DIRECTION: ${userDirection}` : "CREATIVE DIRECTION: Invent the strongest visual concept that communicates this post clearly and memorably. Do not default to an office, laptop, handshake, or random portrait.",
-  ].join("\n");
-}
 
 async function createPreviewUrl(path: string) {
   const service = createServiceClient();
@@ -113,8 +87,11 @@ export async function POST(request: Request) {
     if (typeof body.prompt === "string" && body.prompt.length > 1200) {
       return NextResponse.json({ error: "Visual direction must be 1,200 characters or fewer." }, { status: 400 });
     }
-    if (body.style !== undefined && !Object.hasOwn(IMAGE_STYLES, body.style)) {
+    if (body.style !== undefined && !IMAGE_STYLE_VALUES.includes(body.style)) {
       return NextResponse.json({ error: "Choose a supported visual style." }, { status: 400 });
+    }
+    if (body.subject !== undefined && !IMAGE_SUBJECT_VALUES.includes(body.subject)) {
+      return NextResponse.json({ error: "Choose a supported image subject." }, { status: 400 });
     }
     if (body.format !== undefined && !Object.hasOwn(IMAGE_DIMENSIONS, body.format)) {
       return NextResponse.json({ error: "Choose a supported image format." }, { status: 400 });
@@ -143,16 +120,20 @@ export async function POST(request: Request) {
       p_period_end: periodStart,
     });
     if (usageError) throw new Error("Image generation usage could not be verified.");
-    if (Number(usageCount) > HOURLY_IMAGE_LIMIT) {
+    const hourlyImageLimit = workspace.entitlement_type === "internal_beta"
+      ? PRIVATE_BETA_HOURLY_IMAGE_LIMIT
+      : STANDARD_HOURLY_IMAGE_LIMIT;
+    if (Number(usageCount) > hourlyImageLimit) {
       return NextResponse.json(
-        { error: "You’ve used all 5 image generations for this hour. You can create more next hour." },
+        { error: `You’ve used all ${hourlyImageLimit} image generations for this hour. You can create more next hour.` },
         { status: 429 }
       );
     }
 
     const style = body.style ?? "editorial";
+    const subject = body.subject ?? "objects";
     const format = body.format ?? "portrait";
-    const prompt = buildImagePrompt(post, body.prompt, style);
+    const prompt = buildImagePrompt(post, body.prompt, style, subject);
     const generated = await generateCloudflareImage(prompt, IMAGE_DIMENSIONS[format]);
     const path = `${workspace.id}/${post.id}/${crypto.randomUUID()}.jpg`;
 
@@ -194,7 +175,7 @@ export async function POST(request: Request) {
       action: "generate_post_image",
       resourceType: "content_post",
       resourceId: post.id,
-      safeMetadata: { provider: "cloudflare_workers_ai", model: CLOUDFLARE_IMAGE_MODEL, style, format },
+      safeMetadata: { provider: "cloudflare_workers_ai", model: CLOUDFLARE_IMAGE_MODEL, style, subject, format, hourlyImageLimit },
     });
 
     return NextResponse.json({
