@@ -20,6 +20,7 @@ import type {
 import { GroqProvider } from "./groq";
 import { OpenRouterProvider } from "./openrouter";
 import { MockAiProvider } from "./mock";
+import { normalizeLinkedInPostText } from "./plain-text";
 
 export class AiService {
   private primary: GroqProvider;
@@ -41,7 +42,7 @@ export class AiService {
     if (this.primary.isConfigured()) {
       try {
         const result = await this.primary.generateDraft(request);
-        return result;
+        return this.normalizeDraftResult(result);
       } catch (err) {
         console.warn("[ai] Primary provider (Groq) failed. Attempting fallback.", err);
       }
@@ -51,7 +52,7 @@ export class AiService {
     if (this.fallback.isConfigured()) {
       try {
         const result = await this.fallback.generateDraft(request);
-        return result;
+        return this.normalizeDraftResult(result);
       } catch (err) {
         console.warn("[ai] Fallback provider (OpenRouter) failed.", err);
       }
@@ -60,7 +61,11 @@ export class AiService {
     // 3. Offline / Deterministic Mock
     // Transparently marks providerUsed as 'mock_deterministic'
     console.warn("[ai] No external AI credentials configured or providers failed. Using deterministic mock.");
-    return this.mock.generateDraft(request);
+    return this.normalizeDraftResult(await this.mock.generateDraft(request));
+  }
+
+  private normalizeDraftResult(result: DraftGenerationResult): DraftGenerationResult {
+    return { ...result, text: normalizeLinkedInPostText(result.text).slice(0, 3000) };
   }
 
   async generatePlan(request: PlanGenerationRequest): Promise<PlanGenerationResult> {
