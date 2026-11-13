@@ -444,6 +444,14 @@ describe("reconcileStaleJobs", () => {
     expect(db.jobs[0].max_attempts).toBe(4);
     expect(db.jobs[0].last_error_code).toBe("WORKER_INTERRUPTED_BEFORE_ATTEMPT_RECORD");
     expect(db.jobs[0].payload.leaseGraceRetryUsed).toBe(true);
+
+    // A second unrecorded interruption must terminate instead of extending forever.
+    db.jobs[0].status = "running";
+    db.jobs[0].attempt_count = 4;
+    db.jobs[0].lease_until = expired();
+    expect(await reconcileStaleJobs(db)).toBe(1);
+    expect(db.jobs[0].status).toBe("failed_terminal");
+    expect(db.jobs[0].max_attempts).toBe(4);
   });
 
   it("clears a failed Telegram conversation and sends a user-safe recovery message", async () => {
