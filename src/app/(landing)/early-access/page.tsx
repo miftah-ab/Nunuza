@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, CheckCircle2, ShieldCheck, Sparkles } from "lucide-react";
+import { CheckCircle2, ShieldCheck, Sparkles } from "lucide-react";
 import { Logo } from "@/components/layout/Logo";
 import { EarlyAccessForm } from "@/components/landing/EarlyAccessForm";
 
@@ -16,7 +16,7 @@ export default function EarlyAccessPage() {
       <header className="nz-early-nav">
         <div className="nz-wrap nz-early-nav-in">
           <Logo height={29} />
-          <Link href="/" className="nz-early-back"><ArrowLeft size={16} /> Back to Nunuza</Link>
+          <Link href="/login" className="nz-early-back">Already have an account? Sign in</Link>
         </div>
       </header>
 
