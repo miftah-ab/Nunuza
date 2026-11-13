@@ -8,6 +8,10 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(),
   createServiceClient: vi.fn(),
 }));
+vi.mock("@/lib/integrations/telegram/service", () => ({
+  notifyWorkspaceTelegram: vi.fn().mockResolvedValue({ ok: true }),
+}));
+import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
 
 describe("claimed queue envelope validation", () => {
   it("accepts a complete running claim returned by the database", () => {
@@ -425,6 +429,37 @@ describe("reconcileStaleJobs", () => {
     db.jobs.push(makeJob({ job_type: "other", status: "running", attempt_count: 3, max_attempts: 3, lease_until: expired() }));
     await reconcileStaleJobs(db);
     expect(db.jobs[0].status).toBe("failed_terminal");
+  });
+
+  it("clears a failed Telegram conversation and sends a user-safe recovery message", async () => {
+    const job = makeJob({
+      job_type: "telegram_content_generation",
+      status: "running",
+      attempt_count: 3,
+      max_attempts: 3,
+      lease_until: expired(),
+      payload: { telegramUserId: 55, chatId: 66 },
+    });
+    db.jobs.push(job);
+    db.tables.telegram_links.push({
+      telegram_user_id: 55,
+      chat_id: 66,
+      workspace_id: "ws-test",
+      revoked_at: null,
+      conversation_state: { pendingJobId: job.id, topic: "AI in finance" },
+    });
+
+    expect(await reconcileStaleJobs(db)).toBe(1);
+    expect(db.jobs[0].status).toBe("failed_terminal");
+    expect(db.tables.telegram_links[0].conversation_state.pendingJobId).toBeUndefined();
+    expect(notifyWorkspaceTelegram).toHaveBeenCalledWith(
+      "ws-test",
+      expect.objectContaining({
+        text: expect.stringContaining("I couldn't finish creating that LinkedIn draft"),
+      }),
+      db
+    );
+    expect(db.jobs[0].safe_error_message).not.toContain("lease expired");
   });
 
   it("does NOT retry a publish job whose post was already 'publishing' (could double-post)", async () => {
