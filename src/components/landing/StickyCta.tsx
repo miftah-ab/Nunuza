@@ -36,8 +36,8 @@ export function StickyCta() {
   return (
     <div className={`nz-sticky-cta${show ? " is-show" : ""}`} aria-hidden={!show}>
       <span className="nz-sticky-note">You approve every post.</span>
-      <Link href="/login" className="nz-btn nz-btn-primary nz-btn-sm" tabIndex={show ? 0 : -1}>
-        Get started
+      <Link href="/early-access" className="nz-btn nz-btn-primary nz-btn-sm" tabIndex={show ? 0 : -1}>
+        Early access
       </Link>
     </div>
   );
