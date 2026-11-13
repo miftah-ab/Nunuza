@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { claimDueJobs, isClaimedAgentJobEnvelope, processJob, reconcileStaleJobs, registerJobHandler, renewAgentJobLease } from "./runner";
+import { claimDueJobs, isClaimedAgentJobEnvelope, processJob, reconcileStaleJobs, registerJobHandler, renewAgentJobLease, sameTimestampInstant } from "./runner";
 import { backoffSeconds, isAllowedTransition, JobTransitionError, transitionJob } from "./state";
 import { MockSupabase, makeJob } from "@/test/mock-supabase";
 import type { AgentJob } from "@/types/database";
@@ -8,6 +8,18 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(),
   createServiceClient: vi.fn(),
 }));
+
+describe("lease timestamp normalization", () => {
+  it("treats Z and +00:00 representations of the same instant as equal", () => {
+    expect(sameTimestampInstant("2026-11-13T08:47:33.756Z", "2026-11-13T08:47:33.756+00:00")).toBe(true);
+  });
+
+  it("rejects different instants and invalid timestamps", () => {
+    expect(sameTimestampInstant("2026-11-13T08:47:33.756Z", "2026-11-13T08:47:34.756+00:00")).toBe(false);
+    expect(sameTimestampInstant("not-a-date", "2026-11-13T08:47:33.756Z")).toBe(false);
+    expect(sameTimestampInstant(null, "2026-11-13T08:47:33.756Z")).toBe(false);
+  });
+});
 
 describe("claimed queue envelope validation", () => {
   it("accepts a complete running claim returned by the database", () => {
