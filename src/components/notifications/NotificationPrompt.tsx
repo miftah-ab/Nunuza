@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Bell } from "lucide-react";
 
 function decodeVapidKey(value: string): Uint8Array {
@@ -145,11 +145,9 @@ export function NotificationPrompt() {
               Stay informed with Nunuza
             </h2>
             <p className="mt-1 max-w-xl text-sm leading-6 text-ink-secondary">
-              {visible
-                ? permission === "denied"
+              {permission === "denied"
                   ? "Notifications are currently blocked by your browser. Allow them in the site settings, then come back here. This reminder will stay visible until notifications are enabled."
-                  : "Get important updates about your posts, approvals, and agent activity, even when you’re away. This reminder stays here until your device is connected."
-}
+                  : "Get important updates about your posts, approvals, and agent activity, even when you’re away. This reminder stays here until your device is connected."}
             </p>
             {error && <p role="alert" className="mt-2 text-sm text-error">{error}</p>}
           </div>
@@ -171,79 +169,4 @@ export function NotificationPrompt() {
       </div>
     </section>
   );
-}  useEffect(() => {
-    let active = true;
-    const frame = window.requestAnimationFrame(() => {
-      if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
-        return;
-      }
-
-      setPermission(Notification.permission);
-      if (Notification.permission === "granted") {
-        // Permission alone is not a connected state. Reconcile the live browser
-        // subscription and persist it on every authenticated app visit.
-        void activate().then((ok) => {
-          if (!active) return;
-          setVisible(!ok);
-        });
-      } else {
-        setVisible(true);
-      }
-    });
-    return () => {
-      active = false;
-      window.cancelAnimationFrame(frame);
-    };
-  }, [activate]);
-
-  if (!visible && permission !== "granted") return null;
-
-  return (
-    <section aria-label="Browser notifications" className="relative mb-5 overflow-hidden rounded-2xl border border-forest/15 bg-gradient-to-br from-white to-forest-light/50 shadow-sm">
-      <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-forest text-white shadow-sm">
-            <Bell size={20} />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-base font-semibold tracking-tight text-ink">
-              {visible ? "Stay informed with Nunuza" : "Test your browser notifications"}
-            </h2>
-            <p className="mt-1 max-w-xl text-sm leading-6 text-ink-secondary">
-              {visible
-                ? permission === "denied"
-                  ? "Notifications are currently blocked by your browser. Allow them in the site settings, then come back here. This reminder will stay visible until notifications are enabled."
-                  : "Get important updates about your posts, approvals, and agent activity, even when you’re away. This reminder stays here until your device is connected."
-                : "Send a real test notification to this browser. Nunuza will check whether the service worker receives it and accepts it for display."}
-            </p>
-            {error && <p role="alert" className="mt-2 text-sm text-error">{error}</p>}
-            {testStatus && <p role="status" aria-live="polite" className="mt-2 text-sm text-ink-secondary">{testStatus}</p>}
-          </div>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          {visible && (
-            <button
-              type="button"
-              onClick={() => void activate()}
-              disabled={busy}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-forest px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-forest/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70"
-            >
-              <Bell size={16} />
-              {busy ? "Connecting..." : permission === "denied" ? "Check again" : "Enable notifications"}
-            </button>
-          )}
-          {permission === "granted" && (
-            <button
-              type="button"
-              onClick={() => void sendTest()}
-              disabled={testBusy}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-forest/25 bg-white px-5 py-3 text-sm font-semibold text-forest transition hover:bg-forest-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70"
-            >
-              {testBusy ? "Testing..." : "Send test notification"}
-            </button>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
+} 
