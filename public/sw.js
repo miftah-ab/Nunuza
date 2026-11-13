@@ -79,8 +79,6 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-// Resolve only after the browser accepts the notification display request.
-// A message to open app clients gives the in-page test UI an end-to-end ack.
 self.addEventListener("push", (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch { data = {}; }
