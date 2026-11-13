@@ -41,8 +41,8 @@ export default function LandingPage() {
             <p className="nz-final-sub">
               Connect Google, link LinkedIn, and send your first thought. You approve every post.
             </p>
-            <Link href="/login" className="nz-btn nz-btn-primary">
-              Get started
+            <Link href="/early-access" className="nz-btn nz-btn-primary">
+              Request early access
             </Link>
           </div>
         </section>
