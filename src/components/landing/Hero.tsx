@@ -60,8 +60,8 @@ export function Hero({ startStep = 0 }: { startStep?: number }) {
             Telegram or the web. It drafts in your voice, you approve, and it publishes.
           </p>
           <div id="hero-cta" className="nz-hero-cta">
-            <Link href="/early-access" className="nz-btn nz-btn-primary">
-              Request early access
+            <Link href="/login" className="nz-btn nz-btn-primary">
+              Get started
             </Link>
             <a href="#how" className="nz-btn nz-btn-ghost">
               See how it works <ArrowDown size={18} aria-hidden="true" />
