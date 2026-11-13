@@ -1523,6 +1523,8 @@ export async function sendTelegramDraftPreview(
       env: { BROWSER?: { quickAction: (action: "screenshot", options: {
         url: string;
         viewport?: { width: number; height: number };
+        screenshotOptions?: { fullPage?: boolean };
+        gotoOptions?: { waitUntil?: "load" | "domcontentloaded" | "networkidle0" | "networkidle2"; timeout?: number };
       }) => Promise<Response> } };
     };
     if (!cloudflare.env.BROWSER) {
@@ -1531,7 +1533,9 @@ export async function sendTelegramDraftPreview(
 
     const imageResponse = await cloudflare.env.BROWSER.quickAction("screenshot", {
       url: previewUrl.toString(),
-      viewport: { width: 900, height: 1200 },
+      viewport: { width: 1080, height: 1200 },
+      screenshotOptions: { fullPage: true },
+      gotoOptions: { waitUntil: "networkidle0", timeout: 45_000 },
     });
     if (!imageResponse.ok) {
       console.error("[telegram] Browser Run screenshot failed:", imageResponse.status);
