@@ -113,10 +113,10 @@ export async function POST(request: Request) {
     if (typeof body.prompt === "string" && body.prompt.length > 1200) {
       return NextResponse.json({ error: "Visual direction must be 1,200 characters or fewer." }, { status: 400 });
     }
-    if (body.style !== undefined && !(body.style in IMAGE_STYLES)) {
+    if (body.style !== undefined && !Object.hasOwn(IMAGE_STYLES, body.style)) {
       return NextResponse.json({ error: "Choose a supported visual style." }, { status: 400 });
     }
-    if (body.format !== undefined && !(body.format in IMAGE_DIMENSIONS)) {
+    if (body.format !== undefined && !Object.hasOwn(IMAGE_DIMENSIONS, body.format)) {
       return NextResponse.json({ error: "Choose a supported image format." }, { status: 400 });
     }
 
