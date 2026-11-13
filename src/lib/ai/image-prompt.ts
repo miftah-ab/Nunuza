@@ -31,23 +31,23 @@ export function buildImagePrompt(
   style: ImageStyle = "editorial",
   subject: ImageSubject = "objects"
 ): string {
-  const title = (post.internal_title || post.text.slice(0, 180)).replace(/\\s+/g, " ").trim();
-  const context = post.text.replace(/\\s+/g, " ").slice(0, 2_000).trim();
+  const title = (post.internal_title || post.text.slice(0, 180)).replace(/\s+/g, " ").trim();
+  const context = post.text.replace(/\s+/g, " ").slice(0, 2_000).trim();
   const userDirection = direction?.trim();
 
   return [
     "Create one exceptional, publication-ready visual for the LinkedIn post described below.",
     "FIRST identify the single most important idea in the post. Translate that idea into one specific, memorable visual concept. Do not illustrate generic business success.",
-    `ART DIRECTION: ${IMAGE_STYLES[style]}`,
-    `SUBJECT CONTROL: ${IMAGE_SUBJECTS[subject]}`,
+    "ART DIRECTION: " + IMAGE_STYLES[style],
+    "SUBJECT CONTROL: " + IMAGE_SUBJECTS[subject],
     "SCENE DESIGN: Name and depict a specific primary subject that directly represents the post. Build a coherent scene around it with intentional foreground, background, lighting, camera angle, scale, and composition. The subject must occupy the visual focus.",
     "PROMPT PRIORITY: Follow the user's creative direction first, the selected subject mode second, and the post context third. Never replace a requested object, animal, place, product, diagram-like concept, or environment with a human portrait.",
     "QUALITY: Professional art direction, coherent geometry, accurate object construction, realistic materials, deliberate color palette, controlled detail, no malformed anatomy or objects.",
     "OUTPUT: One image only. No lettering, captions, numbers, logos, watermarks, borders, UI mockups, split panels, or collage layouts.",
-    `POST TITLE: ${title}`,
-    `POST CONTENT: ${context}`,
+    "POST TITLE: " + title,
+    "POST CONTENT: " + context,
     userDirection
-      ? `USER'S EXACT CREATIVE DIRECTION: ${userDirection}`
+      ? "USER'S EXACT CREATIVE DIRECTION: " + userDirection
       : "CREATIVE DIRECTION: Choose a concrete visual concept from the post. Prefer an object, environment, product, or visual metaphor. Do not default to a person, office, laptop, handshake, or generic stock photography.",
-  ].join("\\n");
+  ].join("\n");
 }
