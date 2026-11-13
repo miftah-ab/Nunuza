@@ -49,6 +49,14 @@ export interface JobRuntimeBindings {
 
 export type JobHandler = (job: AgentJob, supabase: any, runtime?: JobRuntimeBindings) => Promise<JobExecutionResult>;
 
+/** Compare lease timestamps by instant, not by their serialized timezone suffix. */
+export function sameTimestampInstant(left: unknown, right: unknown): boolean {
+  if (typeof left !== "string" || typeof right !== "string") return false;
+  const leftTime = Date.parse(left);
+  const rightTime = Date.parse(right);
+  return Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime === rightTime;
+}
+
 /** Renew only the exact active attempt and lease; stale workers are fenced out. */
 export async function renewAgentJobLease(
   supabase: any,
@@ -225,7 +233,7 @@ export async function processJob(
   const attemptCount: number = current.attempt_count ?? job.attempt_count;
   const maxAttempts: number = current.max_attempts ?? job.max_attempts;
   const expectedLeaseUntil = job.lease_until;
-  if (!expectedLeaseUntil || current.lease_until !== expectedLeaseUntil) {
+  if (!expectedLeaseUntil || !sameTimestampInstant(current.lease_until, expectedLeaseUntil)) {
     return {
       jobId: job.id,
       success: false,
@@ -345,7 +353,7 @@ export async function processJob(
     (
       ownership.attempt_count === attemptCount &&
       !leaseLost &&
-      ownership.lease_until === liveJob.lease_until &&
+      sameTimestampInstant(ownership.lease_until, liveJob.lease_until) &&
       Date.parse(ownership.lease_until) > Date.now()
     );
   if (ownership.attempt_count !== attemptCount || !stillOwnsRunningLease) {
