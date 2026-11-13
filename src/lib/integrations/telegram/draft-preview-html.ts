@@ -89,8 +89,7 @@ const CSS = `
 .bar{margin:0 8px;border-top:1px solid #e8e6e1;display:flex;justify-content:space-between;padding:2px 0}
 .act{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:8px 0 7px;color:rgba(0,0,0,.6);font-size:12px;font-weight:600}
 .act svg{display:block}
-.sample{margin:10px 16px 0;text-align:center;font-size:11px;line-height:15px;color:rgba(0,0,0,.55)}
-.sample b{display:inline-block;margin-right:4px;padding:1px 6px;border-radius:9px;background:#e8e6e1;color:rgba(0,0,0,.7);font-weight:600}
+.tag{margin-left:8px;padding:0 6px;border-radius:9px;background:#eeece8;color:rgba(0,0,0,.5);font-size:10px;line-height:15px;font-weight:600}
 `;
 
 export interface DraftPreviewInput {
@@ -121,9 +120,8 @@ export function renderDraftPreviewHtml(input: DraftPreviewInput): string {
 <article class="card">
 <header class="author">${avatar}<div class="who"><div class="name">${escapeHtml(input.name)}</div>${headline}<div class="sub row">Now &nbsp;•&nbsp; ${SVG.globe}</div></div><div class="dots">•••</div></header>
 <div class="text">${escapeHtml(input.text)}</div>
-<div class="counts"><div class="rx">${icons}<span class="n">${sample.reactions}</span></div><div>${sample.comments} ${sample.comments === 1 ? "comment" : "comments"}${reposts}</div></div>
+<div class="counts"><div class="rx">${icons}<span class="n">${sample.reactions}</span><span class="tag">Sample</span></div><div>${sample.comments} ${sample.comments === 1 ? "comment" : "comments"}${reposts}</div></div>
 <div class="bar"><div class="act">${SVG.thumb}Like</div><div class="act">${SVG.comment}Comment</div><div class="act">${SVG.repost}Repost</div><div class="act">${SVG.send}Send</div></div>
 </article>
-<div class="sample"><b>Sample</b>Reactions are sample numbers for this preview. Nothing is published.</div>
 </body></html>`;
 }

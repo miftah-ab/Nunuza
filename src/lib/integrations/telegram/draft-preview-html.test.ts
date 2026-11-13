@@ -33,8 +33,8 @@ describe("renderDraftPreviewHtml", () => {
   it("labels every image as sample", () => {
     for (const seed of ["a", "b", "c", "d"]) {
       const html = renderDraftPreviewHtml({ ...base, seed });
-      expect(html).toContain("<b>Sample</b>");
-      expect(html).toContain("sample numbers");
+      expect(html).toContain('<span class="tag">Sample</span>');
+      expect(html).not.toContain("Nothing is published");
     }
   });
 
