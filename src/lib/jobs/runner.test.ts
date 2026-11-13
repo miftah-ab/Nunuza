@@ -427,6 +427,24 @@ describe("reconcileStaleJobs", () => {
     expect(db.jobs[0].status).toBe("failed_terminal");
   });
 
+  it("gives a Telegram job one grace retry if the worker died before recording its attempt", async () => {
+    const job = makeJob({
+      job_type: "telegram_content_generation",
+      status: "running",
+      attempt_count: 3,
+      max_attempts: 3,
+      lease_until: expired(),
+      payload: { telegramUserId: 55, chatId: 66 },
+    });
+    db.jobs.push(job);
+
+    expect(await reconcileStaleJobs(db)).toBe(1);
+    expect(db.jobs[0].status).toBe("failed_retryable");
+    expect(db.jobs[0].attempt_count).toBe(3);
+    expect(db.jobs[0].max_attempts).toBe(4);
+    expect(db.jobs[0].last_error_code).toBe("WORKER_INTERRUPTED_BEFORE_ATTEMPT_RECORD");
+  });
+
   it("clears a failed Telegram conversation and sends a user-safe recovery message", async () => {
     const job = makeJob({
       job_type: "telegram_content_generation",
@@ -443,6 +461,11 @@ describe("reconcileStaleJobs", () => {
       workspace_id: "ws-test",
       revoked_at: null,
       conversation_state: { pendingJobId: job.id, topic: "AI in finance" },
+    });
+    db.tables.agent_job_attempts.push({
+      id: "attempt-3",
+      job_id: job.id,
+      attempt_number: 3,
     });
 
     expect(await reconcileStaleJobs(db)).toBe(1);
