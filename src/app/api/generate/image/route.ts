@@ -118,7 +118,9 @@ export async function POST(request: Request) {
       p_period_start: periodStart,
       p_period_end: periodStart,
     });
-    if (usageError) throw new Error("Image generation usage could not be verified.");
+    if (usageError || typeof usageCount !== "number" || !Number.isInteger(usageCount) || usageCount < 0) {
+      throw new Error("Image generation usage could not be verified.");
+    }
     const hourlyImageLimit = getHourlyImageLimit(workspace.entitlement_type);
     if (hasReachedHourlyImageLimit(Number(usageCount), hourlyImageLimit)) {
       return NextResponse.json(
