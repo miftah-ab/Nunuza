@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { AlertCircle, ArrowLeft } from "lucide-react";
+import { AlertCircle, ArrowLeft, ShieldCheck } from "lucide-react";
 import { Logo } from "@/components/layout/Logo";
 import { GoogleSignInButton } from "./GoogleSignInButton";
 import "./login.css";
@@ -11,16 +11,20 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-/** A malformed %-sequence in ?error= must not take the page down. */
-function readError(raw: string | undefined): string | null {
-  if (!raw) return null;
-  let message = raw;
-  try {
-    message = decodeURIComponent(raw);
-  } catch {
-    // keep the raw value
-  }
-  return message.startsWith("AUTH_NOT_CONFIGURED") ? null : message;
+type LoginError = "early_access_required" | "sign_in_cancelled" | "invalid_sign_in_link" | "sign_in_failed";
+
+const LOGIN_ERRORS: Record<LoginError, string> = {
+  early_access_required: "Nunuza is currently available to approved users only. Join the waitlist to request access. We’ll notify you when access becomes available.",
+  sign_in_cancelled: "Sign-in was cancelled. You can try again whenever you’re ready.",
+  invalid_sign_in_link: "This sign-in link is invalid or expired. Please start again.",
+  sign_in_failed: "We couldn’t complete sign-in. Please try again. If the problem continues, contact support.",
+};
+
+/** Only render known, safe error messages. Never echo provider or query-string text. */
+function readError(raw: string | undefined): { code: LoginError; message: string } | null {
+  if (!raw || !(raw in LOGIN_ERRORS)) return raw ? { code: "sign_in_failed", message: LOGIN_ERRORS.sign_in_failed } : null;
+  const code = raw as LoginError;
+  return { code, message: LOGIN_ERRORS[code] };
 }
 
 export default async function LoginPage({
@@ -30,6 +34,7 @@ export default async function LoginPage({
 }) {
   const params = await searchParams;
   const displayError = readError(params.error);
+  const earlyAccessRequired = displayError?.code === "early_access_required";
 
   return (
     <div className="nzl">
@@ -46,9 +51,21 @@ export default async function LoginPage({
           <p className="nzl-sub">Use your Google account. No password required.</p>
 
           {displayError && (
-            <div role="alert" className="nzl-error">
-              <AlertCircle size={18} aria-hidden="true" />
-              <p>{displayError}</p>
+            <div role="alert" className={earlyAccessRequired ? "nzl-error nzl-access-notice" : "nzl-error"}>
+              {earlyAccessRequired ? (
+                <ShieldCheck size={19} aria-hidden="true" />
+              ) : (
+                <AlertCircle size={18} aria-hidden="true" />
+              )}
+              <div className="nzl-error-content">
+                {earlyAccessRequired && <strong>Early access is currently limited</strong>}
+                <p>{displayError.message}</p>
+                {earlyAccessRequired && (
+                  <Link href="/early-access" className="nzl-access-link">
+                    Join the waitlist
+                  </Link>
+                )}
+              </div>
             </div>
           )}
 
