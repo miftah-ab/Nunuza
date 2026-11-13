@@ -64,6 +64,28 @@ describe("AI Service & Generation Pipeline", () => {
     expect(result.text).toBe("OpenRouter generated post content");
   });
 
+  it("strips Markdown markers from provider output before returning a draft", async () => {
+    const mock = new MockAiProvider();
+    vi.spyOn(mock, "generateDraft").mockResolvedValue({
+      text: "**A strong hook**\n\nThis is **important** and *clear*.\n\n**",
+      internalTitle: "Topic",
+      providerUsed: "mock_deterministic",
+      modelUsed: "mock-v1",
+      estimatedTokens: 20,
+      generatedAt: new Date().toISOString(),
+    });
+
+    const service = new AiService(
+      new GroqProvider(""),
+      new OpenRouterProvider(""),
+      mock
+    );
+    const result = await service.generateDraft({ topic: "Formatting test" });
+
+    expect(result.text).toBe("A strong hook\n\nThis is important and clear.");
+    expect(result.text).not.toContain("**");
+  });
+
   it("strictly enforces hard max 3,000 characters limit", async () => {
     const mock = new MockAiProvider();
     // Simulate oversized text
