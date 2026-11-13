@@ -23,7 +23,14 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const BUCKET = "nunuza-generated-images";
-const HOURLY_IMAGE_LIMIT = 5;
+const STANDARD_HOURLY_IMAGE_LIMIT = 5;
+const PRIVATE_BETA_HOURLY_IMAGE_LIMIT = 100;
+
+function getHourlyImageLimit(entitlementType: string): number {
+  return entitlementType === "internal_beta"
+    ? PRIVATE_BETA_HOURLY_IMAGE_LIMIT
+    : STANDARD_HOURLY_IMAGE_LIMIT;
+}
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const IMAGE_STYLES = {
@@ -64,12 +71,14 @@ function buildImagePrompt(
     "VISUAL CONCEPT: Translate the post's central insight into one memorable, concrete scene or visual metaphor. Make the subject instantly understandable at feed size. Prefer a specific, surprising visual idea over a literal generic stock-photo scene.",
     `ART DIRECTION: ${IMAGE_STYLES[style]}`,
     "COMPOSITION: Establish one dominant focal point, foreground/midground/background depth, intentional framing, balanced visual weight, and clean negative space. The composition must feel designed by an experienced editorial art director, not like a generic AI image.",
-    "SUBJECT ACCURACY: The main visual must clearly represent the actual topic and meaning of the post. Do not invent named people, brands, products, statistics, logos, events, or factual claims. Include people only when the post's meaning benefits from showing a human subject.",
+    "SUBJECT ACCURACY (NON-NEGOTIABLE): Depict the requested subject, object, place, product, animal, architecture, landscape, diagram, or concept directly. Never substitute a person, face, model, portrait, office worker, or generic business meeting for the requested subject. Do not include any human or human-like figure unless the user explicitly asks for one. Do not invent named people, brands, products, statistics, logos, events, or factual claims.",
     "CRAFT: Photorealistic detail when appropriate to the selected style, coherent anatomy and object geometry, natural hands and reflections, consistent lighting, believable perspective, refined texture, no visual glitches.",
     "OUTPUT: Image only. No text, lettering, captions, numbers, logos, watermarks, borders, UI mockups, split panels, or collage layouts. Typography can be added separately by the product.",
     `POST TITLE: ${subject}`,
     `POST CONTENT: ${context}`,
-    userDirection ? `USER'S CREATIVE DIRECTION: ${userDirection}` : "CREATIVE DIRECTION: Invent the strongest visual concept that communicates this post clearly and memorably. Do not default to an office, laptop, handshake, or random portrait.",
+    userDirection
+      ? `USER'S REQUESTED SUBJECT AND CREATIVE DIRECTION (HIGHEST PRIORITY; FOLLOW LITERALLY): ${userDirection}`
+      : "CREATIVE DIRECTION: Identify the specific subject and central idea from the post, then visualize that subject directly. Do not use a generic human portrait, office worker, laptop, or handshake as a substitute.",
   ].join("\n");
 }
 
@@ -143,9 +152,14 @@ export async function POST(request: Request) {
       p_period_end: periodStart,
     });
     if (usageError) throw new Error("Image generation usage could not be verified.");
-    if (Number(usageCount) > HOURLY_IMAGE_LIMIT) {
+    const hourlyImageLimit = getHourlyImageLimit(workspace.entitlement_type);
+    if (Number(usageCount) > hourlyImageLimit) {
       return NextResponse.json(
-        { error: "You’ve used all 5 image generations for this hour. You can create more next hour." },
+        {
+          error: workspace.entitlement_type === "internal_beta"
+            ? "You’ve used all 100 image generations for this hour. You can create more next hour."
+            : "You’ve used all 5 image generations for this hour. You can create more next hour.",
+        },
         { status: 429 }
       );
     }

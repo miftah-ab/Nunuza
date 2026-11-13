@@ -19,7 +19,7 @@ describe("Cloudflare Workers AI image generation", () => {
     });
   });
 
-  it("calls FLUX.2 Klein 9B using multipart form data and decodes the returned JPEG", async () => {
+  it("calls free-allocation FLUX.2 Klein 4B using multipart form data and decodes the returned JPEG", async () => {
     vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "account-id");
     vi.stubEnv("CLOUDFLARE_API_TOKEN", "secret-token");
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({
@@ -65,7 +65,7 @@ describe("Cloudflare Workers AI image generation", () => {
     await expect(generateCloudflareImage("valid prompt", undefined, fetcher)).rejects.toMatchObject({
       code: "provider_error",
       status: 429,
-      message: "Image creation is busy right now. Please try again in a little while.",
+      message: "The free image-generation allowance or service capacity has been reached. Please try again after it resets.",
     });
   });
 
