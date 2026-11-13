@@ -2,6 +2,9 @@ name: Deploy Nunuza to Cloudflare
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -39,7 +42,7 @@ jobs:
           const env = JSON.parse(process.env.NUNUZA_WORKER_ENV_JSON || "{}");
           const required = [
             "NEXT_PUBLIC_APP_URL","NEXT_PUBLIC_SUPABASE_URL","NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
-            "LINKEDIN_REDIRECT_URI","LINKEDIN_API_VERSION","SUPABASE_SERVICE_ROLE_KEY",
+            "LINKEDIN_REDIRECT_URI","SUPABASE_SERVICE_ROLE_KEY",
             "GROQ_API_KEY","OPENROUTER_API_KEY","LINKEDIN_CLIENT_ID","LINKEDIN_CLIENT_SECRET",
             "LINKEDIN_TOKEN_ENCRYPTION_KEY","TELEGRAM_BOT_TOKEN","TELEGRAM_WEBHOOK_SECRET",
             "POLAR_ACCESS_TOKEN","POLAR_WEBHOOK_SECRET","POLAR_PRODUCT_ID","POLAR_PRICE_ID",
@@ -98,7 +101,7 @@ jobs:
             NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
             NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
             LINKEDIN_REDIRECT_URI: process.env.LINKEDIN_REDIRECT_URI,
-            LINKEDIN_API_VERSION: process.env.LINKEDIN_API_VERSION,
+            LINKEDIN_API_VERSION: "202610",
             WEB_PUSH_VAPID_SUBJECT: process.env.WEB_PUSH_VAPID_SUBJECT
           };
           fs.writeFileSync(".wrangler.deploy.json", JSON.stringify(config, null, 2));
