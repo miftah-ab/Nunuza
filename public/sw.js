@@ -97,15 +97,6 @@ self.addEventListener("push", (event) => {
   };
   event.waitUntil((async () => {
     await self.registration.showNotification(title, options);
-    if (typeof data.notificationId === "string") {
-      const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      for (const client of clients) {
-        client.postMessage({
-          type: "NUNUZA_PUSH_DISPLAYED",
-          notificationId: data.notificationId,
-        });
-      }
-    }
   })());
 });
 
