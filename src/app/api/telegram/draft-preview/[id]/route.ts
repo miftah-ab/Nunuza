@@ -73,7 +73,6 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 <div class="reactions"><span><span class="reaction-icons">👍 ❤️ 👏</span> 123</span><span class="preview-only">Preview only</span></div>
 <div class="actions"><span>Like</span><span>Comment</span><span>Repost</span><span>Send</span></div>
 </article>
-<p class="notice">Saved as a draft. Nothing has been published.</p>
 </main></body></html>`;
   return new Response(html, { headers: {
     "Content-Type": "text/html; charset=utf-8", "Cache-Control": "private, no-store, max-age=0",
