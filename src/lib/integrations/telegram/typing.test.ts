@@ -10,6 +10,7 @@ describe("withTelegramTyping", () => {
   it("does not block work when Telegram's typing endpoint never responds", async () => {
     const neverResponds = new Promise<Response>(() => {});
     const fetchMock = vi.fn().mockReturnValue(neverResponds);
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-token");
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
