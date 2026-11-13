@@ -5,7 +5,7 @@
  * multipart REST API for FLUX.2 Klein 9B on both Vercel and OpenNext.
  */
 
-export const CLOUDFLARE_IMAGE_MODEL = "@cf/black-forest-labs/flux-2-klein-9b";
+export const CLOUDFLARE_IMAGE_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 export const MAX_GENERATED_IMAGE_BYTES = 5 * 1024 * 1024;
 
 export class CloudflareImageError extends Error {
