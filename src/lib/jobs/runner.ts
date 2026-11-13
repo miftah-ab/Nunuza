@@ -292,7 +292,7 @@ export async function processJob(
     }).finally(() => {
       heartbeatInFlight = null;
     });
-  }, 4 * 60 * 1000);
+  }, 60 * 1000);
 
   try {
     const handler = handlers[liveJob.job_type];
