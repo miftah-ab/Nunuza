@@ -561,7 +561,11 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
         }
       }
 
-      if (job.job_type === "telegram_content_generation" && job.attempt_count >= job.max_attempts) {
+      if (
+        job.job_type === "telegram_content_generation" &&
+        job.attempt_count >= job.max_attempts &&
+        (job.payload as Record<string, unknown> | null)?.leaseGraceRetryUsed !== true
+      ) {
         // A claim that never produced an attempt record means the worker died
         // before completing a durable execution. Give it exactly one grace
         // attempt instead of exhausting the user's generation retries.
@@ -577,6 +581,12 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
         if (!recordedAttempt) {
           await transitionJob(supabase, job.id, "running", "failed_retryable", {
             max_attempts: job.attempt_count + 1,
+            payload: {
+              ...((job.payload && typeof job.payload === "object" && !Array.isArray(job.payload))
+                ? job.payload as Record<string, unknown>
+                : {}),
+              leaseGraceRetryUsed: true,
+            },
             scheduled_for: nowIso,
             lease_until: null,
             last_error_code: "WORKER_INTERRUPTED_BEFORE_ATTEMPT_RECORD",
