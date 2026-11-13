@@ -97,8 +97,10 @@ export async function generateCloudflareImage(
     throw new CloudflareImageError(
       "provider_error",
       response.status === 429
-        ? "Image creation is busy right now. Please try again in a little while."
-        : "We couldn’t create your image this time. Please try again.",
+        ? "The free image-generation allowance or service capacity has been reached. Please try again after it resets."
+        : response.status === 403
+          ? "The free image model is not available to this Cloudflare account. No paid model was used."
+          : "We couldn’t create your image this time. Please try again.",
       response.status === 429 ? 429 : 502
     );
   }
