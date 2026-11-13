@@ -1579,8 +1579,8 @@ export async function sendTelegramDraftPreview(
     const imageResponse = await withTimeout(
       browserBinding.quickAction("screenshot", {
         url: previewUrl.toString(),
-        // Phone-width card; 2x keeps text sharp when Telegram shows it full screen.
-        viewport: { width: 390, height: 200, deviceScaleFactor: 2 },
+        // Square canvas: Telegram shows a square photo fully in the chat.
+        viewport: { width: 1080, height: 1080 },
         screenshotOptions: { fullPage: true },
         gotoOptions: { waitUntil: "networkidle0", timeout: 45_000 },
       }),

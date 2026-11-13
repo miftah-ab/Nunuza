@@ -45,3 +45,34 @@ describe("renderDraftPreviewHtml", () => {
     expect(html).toContain("&lt;script&gt;");
   });
 });
+
+import { fitDraftText } from "./draft-preview-html";
+
+describe("fitDraftText", () => {
+  it("keeps a short draft whole at a large size", () => {
+    const fitted = fitDraftText("Short post.\n\nOne idea.");
+    expect(fitted.truncated).toBe(false);
+    expect(fitted.fontPx).toBe(32);
+    expect(fitted.text).toBe("Short post.\n\nOne idea.");
+  });
+
+  it("shrinks a medium draft but keeps all of it", () => {
+    const text = Array.from({ length: 4 }, () => "word ".repeat(40).trim()).join("\n\n");
+    const fitted = fitDraftText(text);
+    expect(fitted.truncated).toBe(false);
+    expect(fitted.fontPx).toBeLessThan(32);
+  });
+
+  it("cuts a very long draft at the smallest size and marks it", () => {
+    const text = Array.from({ length: 40 }, (_, i) => `Paragraph ${i} ` + "word ".repeat(60)).join("\n\n");
+    const fitted = fitDraftText(text);
+    expect(fitted.truncated).toBe(true);
+    expect(fitted.fontPx).toBe(24);
+    expect(fitted.text.length).toBeLessThan(text.length);
+    expect(renderDraftPreviewHtml({ name: "Ada", headline: null, avatarUrl: null, text, seed: "s" })).toContain("see more");
+  });
+
+  it("never marks a fitting draft as cut", () => {
+    expect(renderDraftPreviewHtml({ name: "Ada", headline: null, avatarUrl: null, text: "Hi", seed: "s" })).not.toContain("see more");
+  });
+});

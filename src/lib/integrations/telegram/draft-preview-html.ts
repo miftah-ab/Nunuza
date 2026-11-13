@@ -72,24 +72,84 @@ const REACTION_ICON: Record<SampleEngagement["icons"][number], string> = {
   insightful: '<span class="ri" style="background:#f5bb5c"><svg viewBox="0 0 24 24" width="11" height="11" fill="#fff"><path d="M12 2a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-1.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 2Zm-2.5 16h5v1.5a2.5 2.5 0 0 1-5 0V18Z"/></svg></span>',
 };
 
+/** Telegram shows a square photo in full in the chat; a tall one is cropped until tapped. */
+export const CANVAS_PX = 1080;
+const CARD_PX = 1000;
+const TEXT_PAD_PX = 40;
+const TEXT_MAX_PX = 620;
+const TEXT_WIDTH_PX = CARD_PX - TEXT_PAD_PX * 2;
+const LINE_HEIGHT = 1.45;
+const AVG_CHAR_EM = 0.54;
+
+export interface FittedText {
+  text: string;
+  fontPx: number;
+  truncated: boolean;
+}
+
+function estimateLines(text: string, fontPx: number): number {
+  const perLine = Math.max(8, Math.floor(TEXT_WIDTH_PX / (fontPx * AVG_CHAR_EM)));
+  return text.split("\n").reduce((sum, paragraph) => sum + Math.max(1, Math.ceil(paragraph.length / perLine)), 0);
+}
+
+/**
+ * Picks the largest readable font size at which the whole draft fits the
+ * square card. If it still does not fit at the smallest size, cuts the text
+ * at a word boundary and marks it "see more", like LinkedIn does, so the image
+ * stays square. The full draft is always sent in the Telegram message itself.
+ */
+export function fitDraftText(raw: string): FittedText {
+  const text = raw.replace(/\r\n?/g, "\n").trim();
+  for (let fontPx = 32; fontPx >= 24; fontPx -= 2) {
+    if (estimateLines(text, fontPx) * fontPx * LINE_HEIGHT <= TEXT_MAX_PX) {
+      return { text, fontPx, truncated: false };
+    }
+  }
+  const fontPx = 24;
+  const maxLines = Math.floor(TEXT_MAX_PX / (fontPx * LINE_HEIGHT)) - 1;
+  const perLine = Math.max(8, Math.floor(TEXT_WIDTH_PX / (fontPx * AVG_CHAR_EM)));
+  const kept: string[] = [];
+  let used = 0;
+  for (const paragraph of text.split("\n")) {
+    const lines = Math.max(1, Math.ceil(paragraph.length / perLine));
+    if (used + lines <= maxLines) {
+      kept.push(paragraph);
+      used += lines;
+      continue;
+    }
+    const room = (maxLines - used) * perLine;
+    if (room > 20) {
+      const cut = paragraph.slice(0, room);
+      const lastSpace = cut.lastIndexOf(" ");
+      kept.push((lastSpace > room * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd());
+    }
+    break;
+  }
+  return { text: kept.join("\n").trimEnd(), fontPx, truncated: true };
+}
+
 const CSS = `
 :root{color-scheme:light;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;color:rgba(0,0,0,.9)}
-*{box-sizing:border-box}body{margin:0;background:#f4f2ee;width:390px;padding:10px 0 14px}
-.card{background:#fff;border-top:1px solid #e0dfdc;border-bottom:1px solid #e0dfdc}
-.author{display:flex;gap:8px;padding:12px 16px 0;align-items:flex-start}
-.avatar{width:48px;height:48px;flex:0 0 48px;border-radius:50%;background:#a8b3bd;display:flex;align-items:flex-end;justify-content:center;overflow:hidden;object-fit:cover}
-.avatar svg{margin-bottom:-4px}
-.who{flex:1;min-width:0}.name{font-size:14px;font-weight:600;line-height:20px}
-.sub{font-size:12px;line-height:16px;color:rgba(0,0,0,.6)}.headline{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sub.row{display:flex;align-items:center;gap:3px;margin-top:1px}
-.dots{color:rgba(0,0,0,.6);font-size:20px;letter-spacing:1px;line-height:16px;font-weight:700}
-.text{padding:10px 16px 12px;font-size:14px;line-height:20px;white-space:pre-wrap;overflow-wrap:anywhere}
-.counts{display:flex;align-items:center;justify-content:space-between;padding:0 16px 8px;font-size:12px;color:rgba(0,0,0,.6);line-height:16px}
-.rx{display:flex;align-items:center}.ri{width:16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;border:1.5px solid #fff;margin-right:-4px}
-.rx .n{margin-left:9px}
-.bar{margin:0 8px;border-top:1px solid #e8e6e1;display:flex;justify-content:space-between;padding:2px 0}
-.act{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:8px 0 7px;color:rgba(0,0,0,.6);font-size:12px;font-weight:600}
-.act svg{display:block}
+*{box-sizing:border-box}
+html,body{margin:0;background:#fff}
+body{width:${CANVAS_PX}px;height:${CANVAS_PX}px;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.card{width:${CARD_PX}px;background:#fff;border:1.5px solid #e3e1dd;border-radius:36px;box-shadow:0 10px 34px rgba(0,0,0,.13);overflow:hidden}
+.author{display:flex;gap:22px;padding:36px 40px 0;align-items:flex-start}
+.avatar{width:96px;height:96px;flex:0 0 96px;border-radius:50%;background:#a8b3bd;display:flex;align-items:flex-end;justify-content:center;overflow:hidden;object-fit:cover}
+.avatar svg{width:64px;height:64px;margin-bottom:-8px}
+.who{flex:1;min-width:0;padding-top:6px}.name{font-size:34px;font-weight:600;line-height:42px}
+.sub{font-size:27px;line-height:36px;color:rgba(0,0,0,.6)}.headline{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sub.row{display:flex;align-items:center;gap:8px}.sub.row svg{width:28px;height:28px}
+.dots{color:rgba(0,0,0,.6);font-size:40px;letter-spacing:2px;line-height:30px;font-weight:700}
+.text{padding:30px ${TEXT_PAD_PX}px 26px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;max-height:${TEXT_MAX_PX + 60}px;overflow:hidden}
+.more{color:rgba(0,0,0,.6);white-space:nowrap}
+.counts{display:flex;align-items:center;justify-content:space-between;padding:0 40px 20px;font-size:27px;color:rgba(0,0,0,.6);line-height:36px}
+.rx{display:flex;align-items:center}.ri{width:38px;height:38px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;border:3px solid #fff;margin-right:-10px}
+.ri svg{width:22px;height:22px}
+.rx .n{margin-left:20px}
+.bar{margin:0 20px;border-top:2px solid #eceae6;display:flex;justify-content:space-between;padding:8px 0 14px}
+.act{flex:1;display:flex;align-items:center;justify-content:center;gap:14px;padding:18px 0;color:rgba(0,0,0,.6);font-size:30px;font-weight:600}
+.act svg{display:block;width:42px;height:42px}
 `;
 
 export interface DraftPreviewInput {
@@ -104,6 +164,7 @@ export interface DraftPreviewInput {
 
 export function renderDraftPreviewHtml(input: DraftPreviewInput): string {
   const sample = sampleEngagement(input.seed);
+  const fitted = fitDraftText(input.text);
   const avatar = input.avatarUrl
     ? `<img class="avatar" src="${escapeHtml(input.avatarUrl)}" alt="">`
     : `<div class="avatar" aria-label="Default profile image">${SVG.user}</div>`;
@@ -115,11 +176,11 @@ export function renderDraftPreviewHtml(input: DraftPreviewInput): string {
     ? ` &nbsp;•&nbsp; ${sample.reposts} ${sample.reposts === 1 ? "repost" : "reposts"}`
     : "";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+<meta name="viewport" content="width=1080"><meta name="robots" content="noindex,nofollow">
 <title>LinkedIn draft preview</title><style>${CSS}</style></head><body>
 <article class="card">
 <header class="author">${avatar}<div class="who"><div class="name">${escapeHtml(input.name)}</div>${headline}<div class="sub row">Now &nbsp;•&nbsp; ${SVG.globe}</div></div><div class="dots">•••</div></header>
-<div class="text">${escapeHtml(input.text)}</div>
+<div class="text" style="font-size:${fitted.fontPx}px">${escapeHtml(fitted.text)}${fitted.truncated ? '<span class="more">…&nbsp;see more</span>' : ""}</div>
 <div class="counts"><div class="rx">${icons}<span class="n">${sample.reactions}</span></div><div>${sample.comments} ${sample.comments === 1 ? "comment" : "comments"}${reposts}</div></div>
 <div class="bar"><div class="act">${SVG.thumb}Like</div><div class="act">${SVG.comment}Comment</div><div class="act">${SVG.repost}Repost</div><div class="act">${SVG.send}Send</div></div>
 </article>
