@@ -57,7 +57,8 @@ CREATE TABLE public.agent_jobs (
   workspace_id uuid NOT NULL REFERENCES public.workspaces(id),
   status public.job_status NOT NULL,
   job_type text NOT NULL DEFAULT 'other',
-  safe_error_message text
+  safe_error_message text,
+  created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE TABLE public.approval_events (
   id uuid PRIMARY KEY,
