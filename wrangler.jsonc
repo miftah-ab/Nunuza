@@ -3,7 +3,9 @@
   "name": "nunuza",
   "main": "src/worker.ts",
   "compatibility_date": "2026-11-12",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "upload_source_maps": true,
   "assets": {
     "directory": ".open-next/assets",
@@ -30,9 +32,14 @@
     ]
   },
   "triggers": {
-    "crons": ["* * * * *"]
+    "crons": [
+      "* * * * *"
+    ]
   },
   "vars": {
     "NEXT_PUBLIC_APP_ENV": "production"
+  },
+  "browser": {
+    "binding": "BROWSER"
   }
 }
