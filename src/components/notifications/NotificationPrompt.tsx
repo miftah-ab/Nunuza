@@ -24,11 +24,6 @@ export function NotificationPrompt() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [permission, setPermission] = useState<NotificationPermission>("default");
-  const [testBusy, setTestBusy] = useState(false);
-  const [testStatus, setTestStatus] = useState<string | null>(null);
-  const pendingTestId = useRef<string | null>(null);
-  const testTimeout = useRef<number | null>(null);
-  const testAcknowledged = useRef(false);
 
   const activate = useCallback(async () => {
     if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
@@ -111,68 +106,72 @@ export function NotificationPrompt() {
     }
   }, []);
 
-  const sendTest = useCallback(async () => {
-    if (testBusy) return;
-    const notificationId = crypto.randomUUID();
-    pendingTestId.current = notificationId;
-    testAcknowledged.current = false;
-    if (testTimeout.current !== null) window.clearTimeout(testTimeout.current);
-    setTestBusy(true);
-    setTestStatus("Sending a test to this browser…");
-    setError(null);
-
-    try {
-      const response = await fetch("/api/notifications/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notificationId }),
-      });
-      const result = await response.json().catch(() => ({})) as { ok?: boolean; error?: string };
-      if (!response.ok || !result.ok) {
-        setTestStatus(result.error || "The test notification could not be sent.");
-        setTestBusy(false);
-        pendingTestId.current = null;
+  useEffect(() => {
+    let active = true;
+    const frame = window.requestAnimationFrame(() => {
+      if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
         return;
       }
 
-      if (testAcknowledged.current) return;
-      setTestStatus("The push service accepted it. Waiting for Chrome to confirm display…");
-      testTimeout.current = window.setTimeout(() => {
-        if (pendingTestId.current !== notificationId || testAcknowledged.current) return;
-        setTestStatus("The push was accepted, but this browser did not confirm display. The connection needs further diagnosis.");
-        setTestBusy(false);
-        pendingTestId.current = null;
-      }, 15_000);
-    } catch {
-      setTestStatus("Couldn’t reach the notification service. Please try again.");
-      setTestBusy(false);
-      pendingTestId.current = null;
-    }
-  }, [testBusy]);
-
-  useEffect(() => {
-    const onServiceWorkerMessage = (event: MessageEvent) => {
-      const data = event.data as { type?: string; notificationId?: string } | null;
-      if (
-        data?.type !== "NUNUZA_PUSH_DISPLAYED" ||
-        !data.notificationId ||
-        data.notificationId !== pendingTestId.current
-      ) return;
-
-      testAcknowledged.current = true;
-      pendingTestId.current = null;
-      if (testTimeout.current !== null) window.clearTimeout(testTimeout.current);
-      setTestStatus("Chrome’s service worker accepted the notification for display. Check your desktop notification area.");
-      setTestBusy(false);
-    };
-    navigator.serviceWorker?.addEventListener("message", onServiceWorkerMessage);
+      setPermission(Notification.permission);
+      if (Notification.permission === "granted") {
+        // Permission alone is not a connected state. Reconcile the live browser
+        // subscription and persist it on every authenticated app visit.
+        void activate().then((ok) => {
+          if (!active) return;
+          setVisible(!ok);
+        });
+      } else {
+        setVisible(true);
+      }
+    });
     return () => {
-      navigator.serviceWorker?.removeEventListener("message", onServiceWorkerMessage);
-      if (testTimeout.current !== null) window.clearTimeout(testTimeout.current);
+      active = false;
+      window.cancelAnimationFrame(frame);
     };
-  }, []);
+  }, [activate]);
 
-  useEffect(() => {
+  if (!visible) return null;
+
+  return (
+    <section aria-label="Browser notifications" className="relative mb-5 overflow-hidden rounded-2xl border border-forest/15 bg-gradient-to-br from-white to-forest-light/50 shadow-sm">
+      <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-forest text-white shadow-sm">
+            <Bell size={20} />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold tracking-tight text-ink">
+              Stay informed with Nunuza
+            </h2>
+            <p className="mt-1 max-w-xl text-sm leading-6 text-ink-secondary">
+              {visible
+                ? permission === "denied"
+                  ? "Notifications are currently blocked by your browser. Allow them in the site settings, then come back here. This reminder will stay visible until notifications are enabled."
+                  : "Get important updates about your posts, approvals, and agent activity, even when you’re away. This reminder stays here until your device is connected."
+}
+            </p>
+            {error && <p role="alert" className="mt-2 text-sm text-error">{error}</p>}
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {visible && (
+            <button
+              type="button"
+              onClick={() => void activate()}
+              disabled={busy}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-forest px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-forest/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70"
+            >
+              <Bell size={16} />
+              {busy ? "Connecting..." : permission === "denied" ? "Check again" : "Enable notifications"}
+            </button>
+          )}
+
+        </div>
+      </div>
+    </section>
+  );
+}  useEffect(() => {
     let active = true;
     const frame = window.requestAnimationFrame(() => {
       if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
