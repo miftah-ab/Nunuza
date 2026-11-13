@@ -27,6 +27,12 @@ export { DOQueueHandler, DOShardedTagCache };
 
 interface CloudflareBindings {
   AGENT_JOBS_QUEUE: Queue<AgentJob>;
+  BROWSER: {
+    quickAction(
+      action: "screenshot",
+      options: { url: string; viewport?: { width: number; height: number } }
+    ): Promise<Response>;
+  };
 }
 
 export default {
