@@ -20,6 +20,10 @@ function isEarlyAccessRejection(message: string, errorCode?: string | null): boo
     "before-user-created",
     "before user created",
     "new user creation",
+    // Supabase Auth wraps a non-2xx Before User Created hook response in
+    // a generic 500. The original 403 is the intentional early-access gate.
+    "unexpected status code returned from hook: 403",
+    "status code returned from hook: 403",
   ].some((pattern) => normalized.includes(pattern));
 }
 
