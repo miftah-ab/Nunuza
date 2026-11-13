@@ -23,10 +23,6 @@ function firstString(...values: unknown[]): string | null {
   return null;
 }
 
-function initials(name: string): string {
-  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "LI";
-}
-
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
   const { id } = await context.params;
   const url = new URL(request.url);
@@ -64,42 +60,51 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     return new Response("This draft is no longer available.", { status: 404 });
   }
 
-  // Use the connected LinkedIn identity first, then the user's Supabase profile.
-  // Never invent a placeholder identity such as "XYZ".
+  // Identity priority: connected LinkedIn profile -> Nunuza profile -> neutral "You".
+  // No email-derived names, generated initials, or invented profile details.
   const { data: workspace } = await supabase.from("workspaces")
     .select("owner_user_id").eq("id", post.workspace_id).maybeSingle();
-  let displayName = "LinkedIn member";
-  let headline = "";
-  let avatarUrl: string | null = null;
+
+  let linkedinName: string | null = null;
+  let linkedinHeadline: string | null = null;
+  let linkedinAvatar: string | null = null;
+  let profileName: string | null = null;
+  let profileAvatar: string | null = null;
+
   if (workspace?.owner_user_id) {
-    const { data: authResult } = await supabase.auth.admin.getUserById(workspace.owner_user_id);
-    const user = authResult?.user;
-    if (user) {
-      const identities = Array.isArray(user.identities) ? user.identities : [];
-      const linkedinIdentity = identities.find((identity: any) =>
-        ["linkedin_oidc", "linkedin"].includes(String(identity?.provider || "").toLowerCase())
-      );
-      const identityData = linkedinIdentity?.identity_data || {};
-      const metadata = user.user_metadata || {};
-      displayName = firstString(
-        identityData.name, identityData.full_name, identityData.given_name && identityData.family_name
-          ? `${identityData.given_name} ${identityData.family_name}` : null,
-        metadata.full_name, metadata.name, metadata.display_name,
-        user.email?.split("@")[0]
-      ) || displayName;
-      headline = firstString(identityData.headline, metadata.headline, metadata.bio) || "";
-      avatarUrl = safeImageUrl(firstString(
-        identityData.picture, identityData.avatar_url, metadata.avatar_url, metadata.picture
-      ));
+    const [{ data: connection }, { data: profile }] = await Promise.all([
+      supabase.from("integration_connections")
+        .select("status, metadata")
+        .eq("workspace_id", post.workspace_id)
+        .eq("provider", "linkedin")
+        .maybeSingle(),
+      supabase.from("profiles")
+        .select("display_name, avatar_url")
+        .eq("id", workspace.owner_user_id)
+        .maybeSingle(),
+    ]);
+
+    if (connection?.status === "connected") {
+      const metadata = connection.metadata && typeof connection.metadata === "object"
+        ? connection.metadata as Record<string, unknown>
+        : {};
+      linkedinName = firstString(metadata.name);
+      linkedinHeadline = firstString(metadata.headline);
+      linkedinAvatar = safeImageUrl(firstString(metadata.picture, metadata.avatar_url));
     }
+    profileName = firstString(profile?.display_name);
+    profileAvatar = safeImageUrl(profile?.avatar_url);
   }
 
+  const displayName = linkedinName || profileName || "You";
+  const headline = linkedinName ? linkedinHeadline : null;
+  const avatarUrl = linkedinAvatar || profileAvatar;
   const safeName = escapeHtml(displayName);
-  const safeHeadline = escapeHtml(headline);
+  const safeHeadline = headline ? escapeHtml(headline) : "";
   const safeAvatarUrl = avatarUrl ? escapeHtml(avatarUrl) : null;
   const avatar = safeAvatarUrl
     ? `<img class="avatar" src="${safeAvatarUrl}" alt="">`
-    : `<div class="avatar fallback">${escapeHtml(initials(displayName))}</div>`;
+    : `<div class="avatar fallback" aria-label="Default profile image"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="currentColor"/><path d="M4 21c.5-4.2 3.7-6.5 8-6.5s7.5 2.3 8 6.5" fill="currentColor"/></svg></div>`;
   const body = escapeHtml(post.text || "");
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
@@ -112,16 +117,15 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 .card{background:#fff;border:1px solid rgba(0,0,0,.12);border-radius:9px;overflow:hidden}
 .author{display:flex;align-items:flex-start;gap:10px;padding:18px 18px 0}
 .avatar{width:56px;height:56px;flex:0 0 56px;border-radius:50%;object-fit:cover;background:#e7e9ec}
-.fallback{display:flex;align-items:center;justify-content:center;color:#fff;background:#647d91;font-size:18px;font-weight:600}
+.fallback{display:flex;align-items:center;justify-content:center;color:#fff;background:#d8dde3}.fallback svg{width:34px;height:34px;opacity:.9}
 .identity{min-width:0;flex:1}.name{font-size:16px;font-weight:600;line-height:21px;color:rgba(0,0,0,.9)}
 .headline{font-size:13px;line-height:18px;color:rgba(0,0,0,.6);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .postmeta{font-size:12px;line-height:18px;color:rgba(0,0,0,.6);margin-top:2px}.more{font-size:24px;color:#666;line-height:20px;padding:0 4px}
 .post-content{padding:16px 18px 18px;font-size:16px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;color:rgba(0,0,0,.9)}
-.engagement{border-top:1px solid #e8e8e8;margin:0 18px;padding:12px 0;display:flex;justify-content:space-between;align-items:center;color:#666;font-size:12px}
-.reaction-icons{font-size:15px;letter-spacing:-3px;margin-right:5px}.actions{border-top:1px solid #e8e8e8;padding:4px 10px;display:flex;justify-content:space-around}
+.actions{border-top:1px solid #e8e8e8;padding:4px 10px;display:flex;justify-content:space-around}
 .action{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:13px 4px;color:#666;font-size:14px;font-weight:600;white-space:nowrap}
 .action-icon{font-size:19px;line-height:20px}
-@media(max-width:620px){.nav{padding:0 14px}.search{width:150px}.navitems{gap:12px}.navitem:nth-child(2),.navitem:nth-child(3){display:none}.feed{margin:12px auto;padding:0 8px}.author{padding:15px 14px 0}.post-content{padding:14px;font-size:15px}.engagement{margin:0 14px}.action{font-size:12px;gap:5px}}
+@media(max-width:620px){.nav{padding:0 14px}.search{width:150px}.navitems{gap:12px}.navitem:nth-child(2),.navitem:nth-child(3){display:none}.feed{margin:12px auto;padding:0 8px}.author{padding:15px 14px 0}.post-content{padding:14px;font-size:15px}.action{font-size:12px;gap:5px}}
 </style></head><body>
 <header class="topbar"><nav class="nav"><div class="logo">in</div><div class="search">⌕ &nbsp; Search</div><div class="navitems">
 <div class="navitem"><div class="navicon">⌂</div>Home</div><div class="navitem"><div class="navicon">♧</div>My Network</div><div class="navitem"><div class="navicon">▣</div>Jobs</div><div class="navitem"><div class="navicon">▤</div>Messaging</div><div class="navitem"><div class="navicon">♧</div>Notifications</div><div class="navitem"><div class="navicon">●</div>Me</div>
@@ -129,7 +133,6 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 <main class="feed"><article class="card">
 <header class="author">${avatar}<div class="identity"><div class="name">${safeName}</div>${safeHeadline ? `<div class="headline">${safeHeadline}</div>` : ""}<div class="postmeta">Just now · 🌐</div></div><div class="more">•••</div></header>
 <div class="post-content">${body}</div>
-<div class="engagement"><span><span class="reaction-icons">👍 ❤️ 👏</span></span><span>Like · Comment</span></div>
 <div class="actions"><div class="action"><span class="action-icon">♧</span>Like</div><div class="action"><span class="action-icon">▱</span>Comment</div><div class="action"><span class="action-icon">⟳</span>Repost</div><div class="action"><span class="action-icon">➤</span>Send</div></div>
 </article></main></body></html>`;
   return new Response(html, { headers: {
