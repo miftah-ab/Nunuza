@@ -549,11 +549,9 @@ export async function executeTelegramContentJob(job: AgentJob, supabase: any): P
       if (auditError) throw new Error("Could not record the content audit event.");
     }
 
-    const nextState = safeStateFromPayload(payload, post.id, post.pillar);
-    const completed = await completeConversationJob(supabase, payload, job.workspace_id, job.id, nextState);
-    if (!completed) return { jobId: job.id, success: true, status: "succeeded", retryable: false };
-
-    const reply = draftReply(post, Boolean(existingPost));
+    // Deliver the actual Telegram photo before clearing the pending job state.
+    // If rendering or upload fails, let the durable job retry the delivery path;
+    // the draft is already persisted and is recovered by telegram_job_id.
     const { sendTelegramDraftPreview } = await import("./service");
     const previewDelivery = await sendTelegramDraftPreview(
       payload.chatId,
@@ -561,8 +559,13 @@ export async function executeTelegramContentJob(job: AgentJob, supabase: any): P
       Boolean(existingPost)
     );
     if (!previewDelivery.ok) {
-      console.error("[telegram-conversation] HTML/CSS draft preview delivery failed:", previewDelivery.error || "telegram_preview_delivery_error");
-      await sendConversationReply(payload.chatId, reply.text, reply.markup);
+      throw new Error("Telegram draft image delivery failed.");
+    }
+
+    const nextState = safeStateFromPayload(payload, post.id, post.pillar);
+    const completed = await completeConversationJob(supabase, payload, job.workspace_id, job.id, nextState);
+    if (!completed) {
+      console.warn("[telegram-conversation] Draft image was delivered but the conversation state had already changed.");
     }
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
   } catch (error) {
@@ -578,14 +581,21 @@ export async function executeTelegramContentJob(job: AgentJob, supabase: any): P
     }
 
     if (job.attempt_count >= job.max_attempts) {
-      // A failed new-draft job must not consume the monthly draft allowance.
-      // The reservation is idempotently released by the existing usage RPC.
-      if (payload.mode === "new") {
+      // A draft may already be committed even though its Telegram photo failed.
+      // Preserve that draft and its usage reservation; only release usage when
+      // generation never persisted a post.
+      const savedPost = await loadExistingPostByJob(supabase, job.workspace_id, job.id);
+      if (payload.mode === "new" && !savedPost) {
         const { error: releaseError } = await supabase.rpc("release_draft_usage", { p_job_id: job.id });
         if (releaseError) throw new Error("Could not release unused draft usage reservation.");
       }
       await completeConversationJob(supabase, payload, job.workspace_id, job.id, stateWithoutPending(state));
-      await sendConversationReply(payload.chatId, "I couldn't finish that content request after several attempts. Your existing draft is unchanged. Please retry or open /drafts.");
+      await sendConversationReply(
+        payload.chatId,
+        savedPost
+          ? "⚠️ Your draft was saved, but I couldn't deliver its image preview to Telegram after several attempts. Your work is safe. Use /drafts to find it. Nothing has been published."
+          : "⚠️ I couldn't finish creating that LinkedIn draft after several attempts. No draft was created, and nothing was published. Send the topic again to retry."
+      );
       return { jobId: job.id, success: false, status: "failed_terminal", retryable: false, error: "Telegram content job exhausted retries." };
     }
     throw error;
