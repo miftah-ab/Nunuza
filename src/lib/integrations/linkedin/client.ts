@@ -42,6 +42,7 @@ export interface TokenExchangeResult {
   memberUrn: string;
   grantedScopes: string[];
   name?: string;
+  picture?: string;
 }
 
 function parseGrantedScopes(value: string | undefined): string[] {
@@ -117,17 +118,19 @@ export async function exchangeLinkedInCode(code: string): Promise<TokenExchangeR
   // 2. Fetch UserInfo to get OpenID sub (member URN)
   let memberUrn: string | null = null;
   let name: string | undefined;
+  let picture: string | undefined;
 
   try {
     const userRes = await fetch("https://api.linkedin.com/v2/userinfo", {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (userRes.ok) {
-      const userJson = (await userRes.json()) as { sub?: string; name?: string };
+      const userJson = (await userRes.json()) as { sub?: string; name?: string; picture?: string };
       if (userJson.sub) {
         memberUrn = `urn:li:person:${userJson.sub}`;
       }
       name = userJson.name;
+      picture = userJson.picture;
     }
   } catch (err) {
     console.warn("[linkedin] Failed to fetch userinfo sub:", err);
@@ -143,6 +146,7 @@ export async function exchangeLinkedInCode(code: string): Promise<TokenExchangeR
     memberUrn,
     grantedScopes,
     name,
+    picture,
   };
 }
 
@@ -169,6 +173,7 @@ export async function saveLinkedInConnection(
         connected_at: new Date().toISOString(),
         metadata: {
           name: data.name,
+          picture: data.picture,
           apiVersion: LINKEDIN_API_VERSION,
         },
       },

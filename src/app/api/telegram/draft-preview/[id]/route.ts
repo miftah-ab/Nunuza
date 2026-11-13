@@ -1,10 +1,26 @@
 import { createServiceClient } from "@/lib/supabase/server";
 
-
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[character] || character);
+}
+
+function safeImageUrl(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
 }
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
@@ -18,7 +34,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   if (!/^[0-9a-f-]{36}$/i.test(id) || !/^\d{10}$/.test(expires) ||
       !Number.isSafeInteger(expiry) || expiry < now || expiry > now + 8 * 24 * 60 * 60 ||
       !/^[a-f0-9]{64}$/i.test(supplied) || !secret) {
-    return new Response("This draft preview link is invalid or expired.", { status: 401 });
+    return new Response("This draft image is invalid or expired.", { status: 401 });
   }
   const key = await crypto.subtle.importKey(
     "raw",
@@ -34,47 +50,94 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     signatureBytes,
     new TextEncoder().encode(`${id}.${expires}`)
   );
-  if (!valid) return new Response("This draft preview link is invalid or expired.", { status: 401 });
+  if (!valid) return new Response("This draft image is invalid or expired.", { status: 401 });
+
   const supabase = createServiceClient();
   const { data: post, error } = await supabase.from("content_posts")
-    .select("id, internal_title, text, status").eq("id", id).maybeSingle();
+    .select("id, text, status, workspace_id")
+    .eq("id", id).maybeSingle();
   if (error || !post || post.status !== "draft") {
-    return new Response("This draft is no longer available. Open Nunuza to review your drafts.", { status: 404 });
+    return new Response("This draft is no longer available.", { status: 404 });
   }
-  const title = escapeHtml(post.internal_title || "LinkedIn post");
+
+  // Identity priority: connected LinkedIn profile -> Nunuza profile -> neutral "You".
+  // No email-derived names, generated initials, or invented profile details.
+  const { data: workspace } = await supabase.from("workspaces")
+    .select("owner_user_id").eq("id", post.workspace_id).maybeSingle();
+
+  let linkedinName: string | null = null;
+  let linkedinHeadline: string | null = null;
+  let linkedinAvatar: string | null = null;
+  let profileName: string | null = null;
+  let profileAvatar: string | null = null;
+
+  if (workspace?.owner_user_id) {
+    const [{ data: connection }, { data: profile }] = await Promise.all([
+      supabase.from("integration_connections")
+        .select("status, metadata")
+        .eq("workspace_id", post.workspace_id)
+        .eq("provider", "linkedin")
+        .maybeSingle(),
+      supabase.from("profiles")
+        .select("display_name, avatar_url")
+        .eq("id", workspace.owner_user_id)
+        .maybeSingle(),
+    ]);
+
+    if (connection?.status === "connected") {
+      const metadata = connection.metadata && typeof connection.metadata === "object"
+        ? connection.metadata as Record<string, unknown>
+        : {};
+      linkedinName = firstString(metadata.name);
+      linkedinHeadline = firstString(metadata.headline);
+      linkedinAvatar = safeImageUrl(firstString(metadata.picture, metadata.avatar_url));
+    }
+    profileName = firstString(profile?.display_name);
+    profileAvatar = safeImageUrl(profile?.avatar_url);
+  }
+
+  const displayName = linkedinName || profileName || "You";
+  const headline = linkedinName ? linkedinHeadline : null;
+  const avatarUrl = linkedinAvatar || profileAvatar;
+  const safeName = escapeHtml(displayName);
+  const safeHeadline = headline ? escapeHtml(headline) : "";
+  const safeAvatarUrl = avatarUrl ? escapeHtml(avatarUrl) : null;
+  const avatar = safeAvatarUrl
+    ? `<img class="avatar" src="${safeAvatarUrl}" alt="">`
+    : `<div class="avatar fallback" aria-label="Default profile image"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="currentColor"/><path d="M4 21c.5-4.2 3.7-6.5 8-6.5s7.5 2.3 8 6.5" fill="currentColor"/></svg></div>`;
   const body = escapeHtml(post.text || "");
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
-<title>${title} · LinkedIn post preview</title><style>
-:root{color-scheme:light;font-family:Arial,Helvetica,sans-serif;background:#f3f2ef;color:#191919}
-*{box-sizing:border-box}body{margin:0;padding:34px 20px;background:#f3f2ef}.shell{max-width:680px;margin:0 auto}
-.card{background:#fff;border:1px solid #d9d9d9;border-radius:12px;overflow:hidden}
-.head{display:flex;align-items:center;gap:12px;padding:20px 22px 16px}
-.avatar{width:52px;height:52px;flex:0 0 52px;border-radius:50%;display:grid;place-items:center;background:#dce6f1;color:#245078;font-size:17px;font-weight:700}
-.identity{min-width:0}.name{font-size:16px;font-weight:700;line-height:1.35}.meta{font-size:13px;color:#666;margin-top:3px}
-.state{margin-left:auto;align-self:flex-start;border:1px solid #c8d9ed;background:#f2f7fc;color:#245078;border-radius:20px;padding:6px 9px;font-size:11px;font-weight:700;white-space:nowrap}
-.post-title{padding:0 22px 12px;font-size:21px;line-height:1.35;font-weight:700;overflow-wrap:anywhere}
-.post-body{padding:0 22px 22px;font-size:16px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
-.divider{height:1px;background:#e6e6e6;margin:0 22px}
-.reactions{padding:13px 22px;color:#666;font-size:13px;display:flex;justify-content:space-between;gap:10px}
-.reaction-icons{color:#326fa8;letter-spacing:1px}.preview-only{font-weight:600;color:#707070}
-.actions{border-top:1px solid #e6e6e6;padding:13px 12px;display:flex;justify-content:space-around;gap:8px;color:#666;font-size:14px;font-weight:700}
-.actions span{padding:8px 10px;white-space:nowrap}
-.notice{margin:14px 4px 0;text-align:center;color:#6b6b6b;font-size:12px}
-@media(max-width:520px){body{padding:18px 10px}.head{padding:17px 16px 14px}.post-title{padding:0 16px 10px;font-size:19px}.post-body{padding:0 16px 18px;font-size:15px}.divider{margin:0 16px}.reactions{padding:12px 16px}.actions{font-size:12px}.actions span{padding:7px 4px}.state{font-size:10px;padding:5px 7px}}
-</style></head><body><main class="shell">
-<article class="card">
-<header class="head"><div class="avatar">XYZ</div><div class="identity"><div class="name">XYZ</div><div class="meta">LinkedIn post preview · Just now</div></div><div class="state">Ready for review</div></header>
-<div class="post-title">${title}</div>
-<div class="post-body">${body}</div>
-<div class="divider"></div>
-<div class="reactions"><span><span class="reaction-icons">👍 ❤️ 👏</span> 123</span><span class="preview-only">Preview only</span></div>
-<div class="actions"><span>Like</span><span>Comment</span><span>Repost</span><span>Send</span></div>
-</article>
-</main></body></html>`;
+<title>LinkedIn</title><style>
+:root{color-scheme:light;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:#f3f2ef;color:rgba(0,0,0,.9)}
+*{box-sizing:border-box}body{margin:0;background:#f3f2ef}.topbar{height:72px;background:#fff;border-bottom:1px solid #e0dfdc;display:flex;align-items:center;justify-content:center}
+.nav{width:100%;max-width:1128px;padding:0 22px;display:flex;align-items:center;gap:12px}.logo{width:36px;height:36px;border-radius:4px;background:#0a66c2;color:#fff;font-weight:800;font-size:27px;line-height:36px;text-align:center;letter-spacing:-2px}
+.search{height:36px;width:280px;border:0;border-radius:4px;background:#edf3f8;padding:0 14px;color:#666;font-size:14px}.navitems{margin-left:auto;display:flex;align-items:center;gap:27px;color:#666;font-size:11px}
+.navitem{text-align:center;min-width:42px;white-space:nowrap}.navicon{font-size:21px;line-height:25px;color:#666}.feed{max-width:760px;margin:28px auto;padding:0 16px}
+.card{background:#fff;border:1px solid rgba(0,0,0,.12);border-radius:9px;overflow:hidden}
+.author{display:flex;align-items:flex-start;gap:10px;padding:18px 18px 0}
+.avatar{width:56px;height:56px;flex:0 0 56px;border-radius:50%;object-fit:cover;background:#e7e9ec}
+.fallback{display:flex;align-items:center;justify-content:center;color:#fff;background:#d8dde3}.fallback svg{width:34px;height:34px;opacity:.9}
+.identity{min-width:0;flex:1}.name{font-size:16px;font-weight:600;line-height:21px;color:rgba(0,0,0,.9)}
+.headline{font-size:13px;line-height:18px;color:rgba(0,0,0,.6);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.postmeta{font-size:12px;line-height:18px;color:rgba(0,0,0,.6);margin-top:2px}.more{font-size:24px;color:#666;line-height:20px;padding:0 4px}
+.post-content{padding:16px 18px 18px;font-size:16px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;color:rgba(0,0,0,.9)}
+.actions{border-top:1px solid #e8e8e8;padding:4px 10px;display:flex;justify-content:space-around}
+.action{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:13px 4px;color:#666;font-size:14px;font-weight:600;white-space:nowrap}
+.action-icon{font-size:19px;line-height:20px}
+@media(max-width:620px){.nav{padding:0 14px}.search{width:150px}.navitems{gap:12px}.navitem:nth-child(2),.navitem:nth-child(3){display:none}.feed{margin:12px auto;padding:0 8px}.author{padding:15px 14px 0}.post-content{padding:14px;font-size:15px}.action{font-size:12px;gap:5px}}
+</style></head><body>
+<header class="topbar"><nav class="nav"><div class="logo">in</div><div class="search">⌕ &nbsp; Search</div><div class="navitems">
+<div class="navitem"><div class="navicon">⌂</div>Home</div><div class="navitem"><div class="navicon">♧</div>My Network</div><div class="navitem"><div class="navicon">▣</div>Jobs</div><div class="navitem"><div class="navicon">▤</div>Messaging</div><div class="navitem"><div class="navicon">♧</div>Notifications</div><div class="navitem"><div class="navicon">●</div>Me</div>
+</div></nav></header>
+<main class="feed"><article class="card">
+<header class="author">${avatar}<div class="identity"><div class="name">${safeName}</div>${safeHeadline ? `<div class="headline">${safeHeadline}</div>` : ""}<div class="postmeta">Just now · 🌐</div></div><div class="more">•••</div></header>
+<div class="post-content">${body}</div>
+<div class="actions"><div class="action"><span class="action-icon">♧</span>Like</div><div class="action"><span class="action-icon">▱</span>Comment</div><div class="action"><span class="action-icon">⟳</span>Repost</div><div class="action"><span class="action-icon">➤</span>Send</div></div>
+</article></main></body></html>`;
   return new Response(html, { headers: {
     "Content-Type": "text/html; charset=utf-8", "Cache-Control": "private, no-store, max-age=0",
     "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
-    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   }});
 }
