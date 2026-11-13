@@ -588,13 +588,9 @@ export async function executeTelegramContentJob(
         const { error: releaseError } = await supabase.rpc("release_draft_usage", { p_job_id: job.id });
         if (releaseError) throw new Error("Could not release unused draft usage reservation.");
       }
+      // The agent_jobs status trigger creates the durable user-facing failure
+      // notification. Do not send a second direct Telegram message here.
       await completeConversationJob(supabase, payload, job.workspace_id, job.id, stateWithoutPending(state));
-      await sendConversationReply(
-        payload.chatId,
-        savedPost
-          ? "⚠️ Your draft was saved, but I couldn't deliver its image preview to Telegram after several attempts. Your work is safe. Use /drafts to find it. Nothing has been published."
-          : "⚠️ I couldn't finish creating that LinkedIn draft after several attempts. No draft was created, and nothing was published. Send the topic again to retry."
-      );
       return { jobId: job.id, success: false, status: "failed_terminal", retryable: false, error: "Telegram content job exhausted retries." };
     }
     throw error;
