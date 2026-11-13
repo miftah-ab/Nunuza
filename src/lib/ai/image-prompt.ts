@@ -41,7 +41,7 @@ export function buildImagePrompt(
     "ART DIRECTION: " + IMAGE_STYLES[style],
     "SUBJECT CONTROL: " + IMAGE_SUBJECTS[subject],
     "SCENE DESIGN: Name and depict a specific primary subject that directly represents the post. Build a coherent scene around it with intentional foreground, background, lighting, camera angle, scale, and composition. The subject must occupy the visual focus.",
-    "PROMPT PRIORITY: Follow the user's creative direction first, the selected subject mode second, and the post context third. Never replace a requested object, animal, place, product, diagram-like concept, or environment with a human portrait.",
+    "PROMPT PRIORITY: Follow the selected subject mode first, then the user's creative direction within that constraint, then the post context. Never replace a requested object, animal, place, product, diagram-like concept, or environment with a human portrait.",
     "QUALITY: Professional art direction, coherent geometry, accurate object construction, realistic materials, deliberate color palette, controlled detail, no malformed anatomy or objects.",
     "OUTPUT: One image only. No lettering, captions, numbers, logos, watermarks, borders, UI mockups, split panels, or collage layouts.",
     "POST TITLE: " + title,
