@@ -99,6 +99,76 @@ export function registerJobHandler(jobType: string, handler: JobHandler): void {
 }
 
 /**
+ * A stale Telegram generation job bypasses executeTelegramContentJob(), so
+ * its normal conversation cleanup and user notification never run. Recover
+ * that state only after the job has been terminalized by the stale-job
+ * reconciler. Preserve any already-saved draft and never expose worker errors.
+ */
+async function recoverTerminalTelegramContentJob(job: AgentJob, supabase: any): Promise<void> {
+  const payload = job.payload as Record<string, unknown> | null;
+  if (
+    job.job_type !== "telegram_content_generation" ||
+    !payload ||
+    !Number.isSafeInteger(payload.telegramUserId) ||
+    !Number.isSafeInteger(payload.chatId)
+  ) return;
+
+  const telegramUserId = Number(payload.telegramUserId);
+  const chatId = Number(payload.chatId);
+  const { data: link, error: linkError } = await supabase
+    .from("telegram_links")
+    .select("conversation_state")
+    .eq("telegram_user_id", telegramUserId)
+    .eq("chat_id", chatId)
+    .eq("workspace_id", job.workspace_id)
+    .is("revoked_at", null)
+    .maybeSingle();
+
+  if (linkError) throw new Error("Could not recover the Telegram conversation after a failed job.");
+  const currentState = link?.conversation_state && typeof link.conversation_state === "object"
+    ? link.conversation_state as Record<string, unknown>
+    : {};
+  if (!link || currentState.pendingJobId !== job.id) return;
+
+  const nextState: Record<string, unknown> = {
+    ...(typeof currentState.activePostId === "string" ? { activePostId: currentState.activePostId } : {}),
+    ...(typeof currentState.topic === "string" ? { topic: currentState.topic } : {}),
+    ...(typeof currentState.pillar === "string" ? { pillar: currentState.pillar } : {}),
+    updatedAt: new Date().toISOString(),
+  };
+  const { data: cleared, error: clearError } = await supabase.rpc("complete_telegram_conversation_job", {
+    p_telegram_user_id: telegramUserId,
+    p_chat_id: chatId,
+    p_workspace_id: job.workspace_id,
+    p_job_id: job.id,
+    p_state: nextState,
+  });
+  if (clearError) throw new Error("Could not clear the failed Telegram conversation state.");
+  if (cleared !== true) return;
+
+  const { data: savedPost, error: postError } = await supabase
+    .from("content_posts")
+    .select("id, status")
+    .eq("workspace_id", job.workspace_id)
+    .eq("telegram_job_id", job.id)
+    .maybeSingle();
+  if (postError) throw new Error("Could not check whether the Telegram draft was already saved.");
+
+  const { notifyWorkspaceTelegram } = await import("@/lib/integrations/telegram/service");
+  const message = savedPost && ["draft", "needs_review"].includes(savedPost.status)
+    ? {
+        text: "⚠️ Your draft was saved, but I couldn't deliver its preview to Telegram. Your work is safe. Open /drafts to find it; nothing has been published.",
+      }
+    : {
+        text: "⚠️ I couldn't finish creating that LinkedIn draft after several attempts. No draft was created, and nothing was published. Please send the topic again to retry.",
+      };
+  const delivery = await notifyWorkspaceTelegram(job.workspace_id, message, supabase);
+  if (!delivery.ok) {
+    console.error("[runner] Telegram terminal-job recovery notification failed:", delivery.error || "delivery_failed");
+  }
+}
+
+/**
  * Atomically claims due jobs. Returns only jobs this call actually claimed.
  * Throws if the database call fails (never silently returns an empty list).
  */
@@ -502,6 +572,9 @@ export async function reconcileStaleJobs(supabaseOverride?: any): Promise<number
           "running",
           { attemptCount: job.attempt_count, leaseUntil: job.lease_until ?? undefined }
         );
+        if (job.job_type === "telegram_content_generation") {
+          await recoverTerminalTelegramContentJob(job, supabase);
+        }
       } else {
         await transitionJob(supabase, job.id, "running", "failed_retryable", {
           scheduled_for: nowIso,
