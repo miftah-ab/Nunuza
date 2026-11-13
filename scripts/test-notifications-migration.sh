@@ -121,7 +121,7 @@ INSERT INTO public.subscriptions(id,workspace_id,status)
 VALUES ('00000000-0000-0000-0000-000000000060','00000000-0000-0000-0000-000000000010','active');
 UPDATE public.subscriptions SET status='past_due' WHERE id='00000000-0000-0000-0000-000000000060';
 
-DO $
+DO $telegram_notification_test$
 DECLARE v_title text; v_body text;
 BEGIN
   SELECT title, body INTO v_title, v_body
@@ -138,9 +138,10 @@ BEGIN
     RAISE EXCEPTION 'Uncreated Telegram draft notification is not user-safe: %, %', v_title, v_body;
   END IF;
 END;
-$;
+$telegram_notification_test$;
 
-DO $
+
+DO $notification_count_test$
 DECLARE v_count integer;
 BEGIN
   SELECT count(*) INTO v_count FROM public.notification_events;
@@ -148,7 +149,7 @@ BEGIN
     RAISE EXCEPTION 'Expected 9 notification events, got %', v_count;
   END IF;
 END;
-$;
+$notification_count_test$;
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
