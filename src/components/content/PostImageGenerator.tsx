@@ -7,6 +7,7 @@ import { ImagePlus, Loader2, RefreshCw } from "lucide-react";
 
 type ImageStyle = "editorial" | "cinematic" | "illustration" | "3d" | "minimalist";
 type ImageFormat = "portrait" | "landscape" | "square";
+type ImageSubject = "objects" | "people" | "abstract";
 
 interface ImageApiResponse {
   error?: string;
@@ -31,6 +32,12 @@ const styles: { value: ImageStyle; label: string; description: string }[] = [
   { value: "minimalist", label: "Minimalist", description: "Clean composition with negative space" },
 ];
 
+const subjects: { value: ImageSubject; label: string; description: string }[] = [
+  { value: "objects", label: "Objects & scenes", description: "No people. Focus on objects, products, places, architecture, or environments." },
+  { value: "abstract", label: "Abstract concept", description: "No people. Turn the idea into a symbolic, conceptual visual." },
+  { value: "people", label: "People", description: "Use human subjects only when they directly fit the post." },
+];
+
 const formats: { value: ImageFormat; label: string; dimensions: string }[] = [
   { value: "portrait", label: "Portrait", dimensions: "4:5" },
   { value: "landscape", label: "Landscape", dimensions: "16:9" },
@@ -40,6 +47,7 @@ const formats: { value: ImageFormat; label: string; dimensions: string }[] = [
 export function PostImageGenerator({ postId, imagePath, onImageUpdated }: PostImageGeneratorProps) {
   const [prompt, setPrompt] = useState("");
   const [style, setStyle] = useState<ImageStyle>("editorial");
+  const [subject, setSubject] = useState<ImageSubject>("objects");
   const [format, setFormat] = useState<ImageFormat>("portrait");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -69,7 +77,7 @@ export function PostImageGenerator({ postId, imagePath, onImageUpdated }: PostIm
       const response = await fetch("/api/generate/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId, prompt: prompt.trim() || undefined, style, format }),
+        body: JSON.stringify({ postId, prompt: prompt.trim() || undefined, style, subject, format }),
       });
       const payload = (await response.json()) as ImageApiResponse;
       if (!response.ok) throw new Error(payload.error || "We couldn’t create your image. Please try again.");
@@ -121,6 +129,13 @@ export function PostImageGenerator({ postId, imagePath, onImageUpdated }: PostIm
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
+          <label htmlFor="image-subject" className="mb-1.5 block text-xs font-medium text-ink">What should the image show?</label>
+          <select id="image-subject" value={subject} onChange={(event) => setSubject(event.target.value as ImageSubject)} className="input-field w-full text-sm">
+            {subjects.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
+          <p className="mt-1 text-[11px] text-ink-muted">{subjects.find((item) => item.value === subject)?.description}</p>
+        </div>
+        <div>
           <label htmlFor="image-style" className="mb-1.5 block text-xs font-medium text-ink">Visual style</label>
           <select id="image-style" value={style} onChange={(event) => setStyle(event.target.value as ImageStyle)} className="input-field w-full text-sm">
             {styles.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
@@ -144,10 +159,10 @@ export function PostImageGenerator({ postId, imagePath, onImageUpdated }: PostIm
           maxLength={1200}
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
-          placeholder="Describe the scene, subject, mood, colors, or visual idea you want..."
+          placeholder="Be specific: e.g. a cracked concrete foundation supporting a modern glass building. No people."
           className="input-field w-full resize-y text-sm"
         />
-        <p className="mt-1 text-[11px] text-ink-muted">Nunuza uses your post as context and follows this direction where it fits.</p>
+        <p className="mt-1 text-[11px] text-ink-muted">Your selected subject is enforced. Objects & scenes is the default, so Nunuza won’t add random people.</p>
       </div>
 
       {error && <p role="alert" className="rounded-md bg-error/10 p-2.5 text-xs text-error">{error}</p>}
