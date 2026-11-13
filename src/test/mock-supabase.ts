@@ -30,7 +30,6 @@ export class MockSupabase {
     workspaces: [],
     audit_events: [],
     telegram_links: [],
-    agent_job_attempts: [],
   };
   opts: MockDbOptions;
   /** Every update attempted, as "table:status" strings, for assertions. */
