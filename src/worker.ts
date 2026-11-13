@@ -52,7 +52,7 @@ export default {
   /** Queue consumer: process only valid, atomically claimed job envelopes. */
   async queue(
     batch: MessageBatch<unknown>,
-    _env: CloudflareBindings
+    env: CloudflareBindings
   ): Promise<void> {
     for (const message of batch.messages) {
       if (!isClaimedAgentJobEnvelope(message.body)) {
@@ -63,7 +63,7 @@ export default {
 
       const job: AgentJob = message.body;
       try {
-        const result = await processJob(job);
+        const result = await processJob(job, undefined, { browser: env.BROWSER });
         if (result.success || !result.retryable) {
           message.ack();
         } else {
