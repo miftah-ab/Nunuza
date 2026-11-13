@@ -1516,7 +1516,9 @@ export async function sendTelegramDraftPreview(
     });
     const form = new FormData();
     form.set("chat_id", String(chatId));
-    form.set("photo", new Blob([image], { type: "image/png" }), "nunuza-linkedin-draft.png");
+    const imageBuffer = new ArrayBuffer(image.byteLength);
+    new Uint8Array(imageBuffer).set(image);
+    form.set("photo", new Blob([imageBuffer], { type: "image/png" }), "nunuza-linkedin-draft.png");
     form.set(
       "caption",
       revised ? "✏️ Revised LinkedIn draft · Not published" : "📝 Your LinkedIn draft · Not published"
