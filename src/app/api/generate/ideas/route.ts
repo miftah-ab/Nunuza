@@ -11,13 +11,10 @@ function flattenText(value: unknown): string {
   if (typeof value === "number") return String(value);
   if (Array.isArray(value)) return value.map(flattenText).filter(Boolean).join(", ");
   if (value && typeof value === "object") {
-    return Object.entries(value as Record<string, unknown>)
-      .map(([key, item]) => {
-        const text = flattenText(item);
-        return text ? `${key.replace(/[_-]/g, " ")}: ${text}` : "";
-      })
+    return Object.values(value as Record<string, unknown>)
+      .map(flattenText)
       .filter(Boolean)
-      .join("; ");
+      .join(", ");
   }
   return "";
 }
@@ -78,7 +75,8 @@ export async function POST() {
 
     const profile = (profileResult.data ?? null) as Record<string, unknown> | null;
     const metadata = (connectionResult.data?.metadata ?? null) as Record<string, unknown> | null;
-    const role = profileValue(profile, ["headline", "job_title", "role", "position", "professional_title"]);
+    const role = profileValue(profile, ["headline", "job_title", "role", "position", "professional_title"])
+      ?? profileValue(metadata, ["headline", "job_title", "role"]);
     const displayName = profileValue(profile, ["display_name", "full_name", "name"])
       ?? profileValue(metadata, ["name"]);
     const company = profileValue(profile, ["company_name", "company", "organization"])
@@ -117,7 +115,7 @@ export async function POST() {
         sampleText: voice.sample_text,
         exclusions: voice.exclusions,
       } : undefined,
-      userRole: role ?? displayName ?? workspace.name,
+      userRole: role ?? industry ?? company ?? "Professional",
     });
 
     const ideas = generated.topics.slice(0, 8).map((topic, index) => ({
@@ -137,6 +135,7 @@ export async function POST() {
       company ? `Organization: ${company}` : null,
       industry ? `Industry: ${industry}` : null,
       audienceText ? `Audience: ${audienceText}` : null,
+      connectionResult.data?.status === "connected" ? "LinkedIn account: connected" : "LinkedIn account: not connected",
     ].filter(Boolean);
 
     return NextResponse.json({
