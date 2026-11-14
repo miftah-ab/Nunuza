@@ -179,15 +179,25 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
           else list.push({ ...row });
           return { data: row, error: null };
         });
-        query.update = vi.fn((updates: any) => ({
-          eq: vi.fn(async (column: string, value: any) => {
-            const list = dbTables[table] || [];
-            for (const row of list) {
-              if (row[column] === value) Object.assign(row, updates);
-            }
-            return { data: updates, error: null };
-          }),
-        }));
+        query.update = vi.fn((updates: any) => {
+          const updateFilters: Array<{ column: string; value: any }> = [];
+          const updateQuery: any = {
+            eq: vi.fn((column: string, value: any) => {
+              updateFilters.push({ column, value });
+              return updateQuery;
+            }),
+            then: (resolve: any, reject: any) => {
+              const list = dbTables[table] || [];
+              for (const row of list) {
+                if (updateFilters.every((filter) => row[filter.column] === filter.value)) {
+                  Object.assign(row, updates);
+                }
+              }
+              return Promise.resolve({ data: updates, error: null }).then(resolve, reject);
+            },
+          };
+          return updateQuery;
+        });
         query.insert = vi.fn(async (row: any) => {
           const list = dbTables[table] || (dbTables[table] = []);
           list.push({ ...row });
