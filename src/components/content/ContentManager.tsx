@@ -35,6 +35,15 @@ import {
   Loader2,
 } from "lucide-react";
 
+type AgentRecommendationsResponse = {
+  error?: string;
+  data?: {
+    ideas?: Array<{ id: string; title: string; angle: string; pillar: string; targetFormat: string; reason: string }>;
+    peopleSearches?: Array<{ id: string; label: string; description: string; query: string; url: string }>;
+    contextSummary?: string;
+  };
+};
+
 interface ContentManagerProps {
   initialPosts: ContentPost[];
   workspace: Workspace;
@@ -103,6 +112,7 @@ export function ContentManager({
   // Open the agent composer and proactively research ideas from the saved workspace context.
   const handleOpenAiModal = async () => {
     setIsAiModalOpen(true);
+    if (topicIdeas.length > 0 && peopleSearches.length > 0) return;
     setIdeasError(null);
     setIsLoadingIdeas(true);
     setTopicIdeas([]);
@@ -115,7 +125,7 @@ export function ContentManager({
 
     try {
       const res = await fetch("/api/generate/ideas", { method: "POST" });
-      const json = await res.json();
+      const json = (await res.json()) as AgentRecommendationsResponse;
       if (!res.ok) throw new Error(json.error ?? "We couldn’t prepare recommendations. Please try again.");
       const ideas = Array.isArray(json.data?.ideas) ? json.data.ideas : [];
       setTopicIdeas(ideas);
@@ -936,6 +946,7 @@ export function ContentManager({
                         <span className="min-w-0 flex-1">
                           <span className="block text-xs font-semibold text-ink">{idea.title}</span>
                           <span className="mt-1 block text-[11px] leading-relaxed text-ink-secondary">{idea.angle}</span>
+                          <span className="mt-1 block text-[10px] text-ink-muted">{idea.reason}</span>
                           <span className="mt-1 block text-[10px] text-forest">{idea.pillar} · {idea.targetFormat}</span>
                         </span>
                         {selectedIdeaId === idea.id && <CheckCircle2 size={16} className="shrink-0 text-forest" />}
@@ -1007,14 +1018,6 @@ export function ContentManager({
               </details>
 
               <div className="flex items-center justify-between gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={handleOpenAiModal}
-                  disabled={isLoadingIdeas}
-                  className="btn-ghost text-xs"
-                >
-                  Refresh recommendations
-                </button>
                 <div className="flex items-center gap-2.5">
                   <button
                     type="button"
