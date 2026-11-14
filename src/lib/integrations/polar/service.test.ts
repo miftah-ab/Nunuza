@@ -242,7 +242,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
         canceled_at: null,
         ended_at: null,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        modified_at: new Date().toISOString(),
         metadata: { workspace_id: WORKSPACE_ID },
       },
     };
@@ -284,7 +284,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
         canceled_at: null,
         ended_at: null,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        modified_at: new Date().toISOString(),
         metadata: { workspace_id: WORKSPACE_ID },
       },
     };
@@ -316,7 +316,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
         canceled_at: null,
         ended_at: null,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        modified_at: new Date().toISOString(),
         metadata: { workspace_id: WORKSPACE_ID },
       },
     };
@@ -336,7 +336,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
       workspace_id: WORKSPACE_ID,
       polar_subscription_id: "sub_polar_100",
       status: "active",
-      updated_at: "2026-10-28T12:00:00.000Z",
+      provider_modified_at: "2026-10-28T12:00:00.000Z",
     });
     dbTables.workspaces[0].entitlement_type = "paid_active";
 
@@ -360,7 +360,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
         canceled_at: null,
         ended_at: null,
         created_at: "2026-10-28T11:30:00.000Z",
-        updated_at: "2026-10-28T11:30:00.000Z",
+        modified_at: "2026-10-28T11:30:00.000Z",
         metadata: { workspace_id: WORKSPACE_ID },
       },
     };
@@ -393,7 +393,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
         canceled_at: new Date().toISOString(),
         ended_at: new Date().toISOString(),
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        modified_at: new Date().toISOString(),
         metadata: { workspace_id: WORKSPACE_ID },
       },
     };
@@ -417,7 +417,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
       operating_mode: "approval_required",
       paused_at: null,
       created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      modified_at: new Date().toISOString(),
     });
 
     const event: PolarWebhookEvent = {
@@ -439,7 +439,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
         canceled_at: new Date().toISOString(),
         ended_at: new Date().toISOString(),
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        modified_at: new Date().toISOString(),
         metadata: { workspace_id: BETA_WS_ID },
       },
     };
