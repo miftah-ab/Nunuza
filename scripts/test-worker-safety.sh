@@ -163,8 +163,8 @@ WS3="10000000-0000-0000-0000-000000000003"
 q -c "INSERT INTO workspaces(id,max_posts_per_day,max_posts_per_7_days) VALUES ('$WS3',1,7)" >/dev/null
 q -c "INSERT INTO content_posts(id,workspace_id,status,published_at,updated_at)
 SELECT ('40000000-0000-0000-0000-' || lpad(g::text,12,'0'))::uuid,
-       '$WS3','published',now() - (g * interval '24 hours'),now() - (g * interval '24 hours')
-FROM generate_series(0,6) g" >/dev/null
+       '$WS3','published',now() - (g * interval '23 hours'),now() - (g * interval '24 hours')
+FROM generate_series(1,7) g" >/dev/null
 q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES
 ('40000000-0000-0000-0000-000000000011','$WS3','approved')" >/dev/null
 WEEK=$(q -c "SELECT allowed FROM claim_workspace_publish_slot('$WS3','40000000-0000-0000-0000-000000000011')")
@@ -501,6 +501,9 @@ echo "ok: paid billing-period keys remain distinct even when their UTC start dat
 [ "$(q -c "SELECT has_function_privilege('anon','public.cancel_scheduled_post_atomic(uuid,uuid)','EXECUTE')")" = "f" ] || fail "anon must not cancel scheduled posts"
 [ "$(q -c "SELECT has_function_privilege('authenticated','public.cancel_scheduled_post_atomic(uuid,uuid)','EXECUTE')")" = "f" ] || fail "authenticated must not cancel scheduled posts"
 [ "$(q -c "SELECT has_function_privilege('service_role','public.cancel_scheduled_post_atomic(uuid,uuid)','EXECUTE')")" = "t" ] || fail "service_role must cancel scheduled posts"
+[ "$(q -c "SELECT has_function_privilege('anon','public.schedule_post_atomic(uuid,uuid,uuid,timestamptz)','EXECUTE')")" = "f" ] || fail "anon must not schedule posts"
+[ "$(q -c "SELECT has_function_privilege('authenticated','public.schedule_post_atomic(uuid,uuid,uuid,timestamptz)','EXECUTE')")" = "f" ] || fail "authenticated must not call privileged schedule RPC"
+[ "$(q -c "SELECT has_function_privilege('service_role','public.schedule_post_atomic(uuid,uuid,uuid,timestamptz)','EXECUTE')")" = "t" ] || fail "service_role must schedule posts"
 echo "ok: worker-only execution grants enforced"
 
 echo "ALL WORKER SAFETY CHECKS PASSED"
