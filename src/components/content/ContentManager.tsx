@@ -67,6 +67,12 @@ export function ContentManager({
   const [aiLength, setAiLength] = useState<"short" | "medium" | "long">("medium");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [topicIdeas, setTopicIdeas] = useState<Array<{ id: string; title: string; angle: string; pillar: string; targetFormat: string; reason: string }>>([]);
+  const [peopleSearches, setPeopleSearches] = useState<Array<{ id: string; label: string; description: string; query: string; url: string }>>([]);
+  const [contextSummary, setContextSummary] = useState("");
+  const [isLoadingIdeas, setIsLoadingIdeas] = useState(false);
+  const [ideasError, setIdeasError] = useState<string | null>(null);
+  const [selectedIdeaId, setSelectedIdeaId] = useState<string | null>(null);
 
   // Manual Form State
   const [manualTitle, setManualTitle] = useState("");
@@ -94,10 +100,53 @@ export function ContentManager({
     return post.status === filter;
   });
 
-  // Handle AI draft generation
+  // Open the agent composer and proactively research ideas from the saved workspace context.
+  const handleOpenAiModal = async () => {
+    setIsAiModalOpen(true);
+    setIdeasError(null);
+    setIsLoadingIdeas(true);
+    setTopicIdeas([]);
+    setPeopleSearches([]);
+    setContextSummary("");
+    setSelectedIdeaId(null);
+    setAiTopic("");
+    setAiPillar("");
+    setAiNotes("");
+
+    try {
+      const res = await fetch("/api/generate/ideas", { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "We couldn’t prepare recommendations. Please try again.");
+      const ideas = Array.isArray(json.data?.ideas) ? json.data.ideas : [];
+      setTopicIdeas(ideas);
+      setPeopleSearches(Array.isArray(json.data?.peopleSearches) ? json.data.peopleSearches : []);
+      setContextSummary(typeof json.data?.contextSummary === "string" ? json.data.contextSummary : "");
+      if (ideas.length > 0) {
+        const first = ideas[0];
+        setSelectedIdeaId(first.id);
+        setAiTopic(first.title);
+        setAiPillar(first.pillar ?? "");
+        setAiNotes(first.angle ?? "");
+      }
+    } catch (err) {
+      setIdeasError(userFacingError(err, "We couldn’t prepare recommendations. You can still enter your own topic."));
+    } finally {
+      setIsLoadingIdeas(false);
+    }
+  };
+
+  const handleSelectIdea = (idea: (typeof topicIdeas)[number]) => {
+    setSelectedIdeaId(idea.id);
+    setAiTopic(idea.title);
+    setAiPillar(idea.pillar ?? "");
+    setAiNotes(idea.angle ?? "");
+  };
+
+  // Handle AI draft generation. If the user has not selected an idea, use Nunuza's top recommendation.
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!aiTopic.trim()) return;
+    const selectedTopic = aiTopic.trim() || topicIdeas[0]?.title;
+    if (!selectedTopic) return;
 
     setIsGenerating(true);
     setGenerationError(null);
@@ -107,7 +156,7 @@ export function ContentManager({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          topic: aiTopic.trim(),
+          topic: selectedTopic,
           pillar: aiPillar.trim() || undefined,
           notes: aiNotes.trim() || undefined,
           targetLength: aiLength,
@@ -124,6 +173,7 @@ export function ContentManager({
       setAiTopic("");
       setAiNotes("");
       setAiPillar("");
+      setSelectedIdeaId(null);
     } catch (err: unknown) {
       setGenerationError(userFacingError(err, "We couldn’t create your draft. Please try again."));
     } finally {
@@ -505,7 +555,7 @@ export function ContentManager({
             onCreated={(post) => setPosts((prev) => prev.some((item) => item.id === post.id) ? prev.map((item) => item.id === post.id ? post : item) : [post, ...prev])}
           />
           <button
-            onClick={() => setIsAiModalOpen(true)}
+            onClick={handleOpenAiModal}
             className="btn-primary flex items-center gap-1.5 text-xs"
           >
             <Sparkles size={14} /> Generate with AI
@@ -795,13 +845,16 @@ export function ContentManager({
       {/* AI Generation Modal */}
       {isAiModalOpen && (
         <div className="fixed inset-0 z-50 bg-ink/30 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="ai-modal-title">
-          <div className="card max-w-lg w-full p-6 shadow-xl animate-fade-in">
-            <div className="flex items-center justify-between mb-5">
+          <div className="card max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-xl animate-fade-in">
+            <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-forest-light flex items-center justify-center">
                   <Sparkles size={16} className="text-forest" />
                 </div>
-                <h2 id="ai-modal-title" className="text-base font-bold text-ink">Generate LinkedIn Draft</h2>
+                <div>
+                  <h2 id="ai-modal-title" className="text-base font-bold text-ink">Nunuza content agent</h2>
+                  <p className="text-xs text-ink-secondary">Finding relevant people and post opportunities from your workspace context.</p>
+                </div>
               </div>
               <button
                 onClick={() => setIsAiModalOpen(false)}
@@ -812,6 +865,12 @@ export function ContentManager({
               </button>
             </div>
 
+            {contextSummary && (
+              <div className="mb-4 rounded-lg border border-border bg-surface px-3 py-2 text-xs text-ink-secondary">
+                <span className="font-semibold text-ink">Using your context: </span>{contextSummary}
+              </div>
+            )}
+
             {generationError && (
               <div className="mb-4 notice-error flex items-start gap-2">
                 <AlertCircle size={14} className="shrink-0 mt-0.5 text-error" />
@@ -819,39 +878,111 @@ export function ContentManager({
               </div>
             )}
 
-            <form onSubmit={handleGenerate} className="space-y-4">
+            <section className="mb-5">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <h3 className="text-sm font-semibold text-ink">People worth discovering</h3>
+                  <p className="text-xs text-ink-secondary">Targeted searches based on your audience and industry.</p>
+                </div>
+                {isLoadingIdeas && <Loader2 size={15} className="animate-spin text-forest" />}
+              </div>
+              {peopleSearches.length > 0 ? (
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {peopleSearches.map((search) => (
+                    <a
+                      key={search.id}
+                      href={search.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-lg border border-border p-3 hover:border-forest/50 hover:bg-forest-light/30 transition-colors"
+                    >
+                      <span className="block text-xs font-semibold text-ink">{search.label}</span>
+                      <span className="mt-1 block text-[11px] leading-relaxed text-ink-secondary">{search.description}</span>
+                      <span className="mt-2 block text-[10px] font-medium text-forest">Search LinkedIn people ↗</span>
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-lg border border-dashed border-border p-3 text-xs text-ink-secondary">
+                  {isLoadingIdeas ? "Preparing targeted people searches…" : "People searches will appear when your workspace context is available."}
+                </p>
+              )}
+              <p className="mt-2 text-[10px] text-ink-muted">
+                LinkedIn opens live search results. Nunuza does not invent names or claim an unverified ranking.
+              </p>
+            </section>
+
+            <section className="mb-5">
+              <div className="mb-2">
+                <h3 className="text-sm font-semibold text-ink">Post ideas selected for your audience</h3>
+                <p className="text-xs text-ink-secondary">Choose one, or use the first recommendation and let Nunuza write it.</p>
+              </div>
+              {isLoadingIdeas && topicIdeas.length === 0 ? (
+                <div className="flex items-center gap-2 rounded-lg border border-border p-4 text-xs text-ink-secondary">
+                  <Loader2 size={15} className="animate-spin text-forest" /> Analyzing your strategy and recent posts…
+                </div>
+              ) : topicIdeas.length > 0 ? (
+                <div className="grid gap-2">
+                  {topicIdeas.map((idea, index) => (
+                    <button
+                      key={idea.id}
+                      type="button"
+                      onClick={() => handleSelectIdea(idea)}
+                      aria-pressed={selectedIdeaId === idea.id}
+                      className={`w-full rounded-lg border p-3 text-left transition-colors ${selectedIdeaId === idea.id ? "border-forest bg-forest-light/40" : "border-border hover:border-forest/50"}`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface text-[10px] font-semibold text-ink-secondary">{index + 1}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-xs font-semibold text-ink">{idea.title}</span>
+                          <span className="mt-1 block text-[11px] leading-relaxed text-ink-secondary">{idea.angle}</span>
+                          <span className="mt-1 block text-[10px] text-forest">{idea.pillar} · {idea.targetFormat}</span>
+                        </span>
+                        {selectedIdeaId === idea.id && <CheckCircle2 size={16} className="shrink-0 text-forest" />}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-border p-3 text-xs text-ink-secondary">
+                  {ideasError ?? "No recommendations are available yet. Enter your own idea below."}
+                </div>
+              )}
+              {ideasError && topicIdeas.length > 0 && (
+                <p className="mt-2 text-xs text-ink-secondary">{ideasError}</p>
+              )}
+            </section>
+
+            <form onSubmit={handleGenerate} className="space-y-3 border-t border-border pt-4">
               <div>
                 <label className="block text-xs font-semibold text-ink mb-1">
-                  Topic / Core Idea *
+                  Your topic <span className="font-normal text-ink-secondary">(optional if you choose a recommendation)</span>
                 </label>
                 <input
                   type="text"
-                  required
-                  placeholder="e.g. Why we pivoted our pricing from seat-based to usage"
+                  placeholder="Choose an idea above or add your own"
                   value={aiTopic}
-                  onChange={(e) => setAiTopic(e.target.value)}
+                  onChange={(e) => {
+                    setAiTopic(e.target.value);
+                    setSelectedIdeaId(null);
+                  }}
                   className="input-field text-sm"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-ink mb-1">
-                    Content Pillar (optional)
-                  </label>
+                  <label className="block text-xs font-semibold text-ink mb-1">Content pillar</label>
                   <input
                     type="text"
-                    placeholder="e.g. Founding journey"
+                    placeholder="Selected automatically"
                     value={aiPillar}
                     onChange={(e) => setAiPillar(e.target.value)}
                     className="input-field text-sm"
                   />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-semibold text-ink mb-1">
-                    Length Target
-                  </label>
+                  <label className="block text-xs font-semibold text-ink mb-1">Length</label>
                   <select
                     value={aiLength}
                     onChange={(e) => setAiLength(e.target.value as any)}
@@ -864,40 +995,46 @@ export function ContentManager({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-ink mb-1">
-                  Source Notes / Bullet Points (optional)
-                </label>
+              <details className="rounded-lg border border-border px-3 py-2">
+                <summary className="cursor-pointer text-xs font-medium text-ink">Add your own source notes (optional)</summary>
                 <textarea
                   rows={3}
-                  placeholder="e.g. Talk about the customer interview that made it obvious; 2 main failure modes..."
+                  placeholder="Add a real experience, customer insight, data point, or opinion to make the post more personal."
                   value={aiNotes}
                   onChange={(e) => setAiNotes(e.target.value)}
-                  className="input-field text-sm resize-none"
+                  className="input-field mt-2 text-sm resize-none"
                 />
-              </div>
+              </details>
 
-              <div className="flex items-center justify-end gap-2.5 pt-2">
+              <div className="flex items-center justify-between gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={() => setIsAiModalOpen(false)}
+                  onClick={handleOpenAiModal}
+                  disabled={isLoadingIdeas}
                   className="btn-ghost text-xs"
                 >
-                  Cancel
+                  Refresh recommendations
                 </button>
-                <button
-                  type="submit"
-                  disabled={isGenerating || !aiTopic.trim()}
-                  className="btn-primary text-xs flex items-center gap-1.5"
-                >
-                  {isGenerating ? (
-                    <>
-                      <Sparkles size={14} className="animate-spin" /> Drafting...
-                    </>
-                  ) : (
-                    "Generate Draft"
-                  )}
-                </button>
+                <div className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsAiModalOpen(false)}
+                    className="btn-ghost text-xs"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isGenerating || (!aiTopic.trim() && topicIdeas.length === 0)}
+                    className="btn-primary text-xs flex items-center gap-1.5"
+                  >
+                    {isGenerating ? (
+                      <><Sparkles size={14} className="animate-spin" /> Drafting…</>
+                    ) : (
+                      <><Sparkles size={14} /> Generate draft</>
+                    )}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
