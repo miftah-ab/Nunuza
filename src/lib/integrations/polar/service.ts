@@ -253,7 +253,7 @@ export class PolarService {
         current_period_end: subData.current_period_end,
         cancel_at_period_end: subData.cancel_at_period_end,
         entitlement_snapshot: newEntitlement,
-        updated_at: now,
+        updated_at: providerModifiedAt,
         provider_verified_at: now,
         provider_modified_at: providerModifiedAt,
       };
@@ -368,7 +368,7 @@ export class PolarService {
         entitlement_snapshot: entitlement,
         provider_verified_at: now,
         provider_modified_at: providerModifiedAt,
-        updated_at: now,
+        updated_at: providerModifiedAt,
       })
       .eq("id", subscription.id)
       .eq("workspace_id", workspaceId);
@@ -402,6 +402,8 @@ export class PolarService {
       .from("subscriptions")
       .select("polar_subscription_id, status, trial_end, current_period_end, cancel_at_period_end")
       .eq("workspace_id", workspaceId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     const accessMode = entitlement === "internal_beta" ? "private_beta" : "commercial";
