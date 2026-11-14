@@ -55,11 +55,12 @@ interface DraftUsagePeriod {
  * records. Paid workspaces use the exact Polar billing-cycle start as part of
  * the metric key; draft-only and beta workspaces use UTC calendar months.
  */
-export async function getDraftUsagePeriod(
+export export async function getDraftUsagePeriod(
   workspaceId: string,
-  ownerUserId: string
+  ownerUserId: string,
+  supabaseOverride?: any
 ): Promise<DraftUsagePeriod> {
-  const supabase = createServiceClient();
+  const supabase = supabaseOverride ?? createServiceClient();
   const { data: workspace, error: workspaceError } = await supabase
     .from("workspaces")
     .select("entitlement_type")
