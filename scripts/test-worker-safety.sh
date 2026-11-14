@@ -361,6 +361,37 @@ OWNER_SCHEDULE_RESULT=$(q -c "SELECT schedule_post_atomic('$SCHEDULE_WS','$SCHED
 [ "$OWNER_SCHEDULE_RESULT" = "WORKSPACE_ACCESS_DENIED" ] || fail "non-owner must not schedule a workspace post"
 echo "ok: database scheduling RPC enforces owner, entitlement, and pause gates"
 
+# Worker claims must re-check the live workspace gates and the workspace's
+# selected lower caps; they must not rely only on the scheduler's earlier check.
+CLAIM_PAUSED_WS="10000000-0000-0000-0000-000000000049"
+CLAIM_PAUSED_OWNER="70000000-0000-0000-0000-000000000049"
+CLAIM_PAUSED_POST="30000000-0000-0000-0000-000000000049"
+q -c "INSERT INTO workspaces(id,owner_user_id,paused_at) VALUES ('$CLAIM_PAUSED_WS','$CLAIM_PAUSED_OWNER',now())" >/dev/null
+q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES ('$CLAIM_PAUSED_POST','$CLAIM_PAUSED_WS','approved')" >/dev/null
+[ "$(q -c "SELECT reason FROM claim_workspace_publish_slot('$CLAIM_PAUSED_WS','$CLAIM_PAUSED_POST')")" = "WORKSPACE_PAUSED" ] || fail "worker must refuse a paused workspace"
+
+CLAIM_DRAFT_WS="10000000-0000-0000-0000-000000000050"
+CLAIM_DRAFT_OWNER="70000000-0000-0000-0000-000000000050"
+CLAIM_DRAFT_POST="30000000-0000-0000-0000-000000000050"
+q -c "INSERT INTO workspaces(id,owner_user_id,entitlement_type) VALUES ('$CLAIM_DRAFT_WS','$CLAIM_DRAFT_OWNER','draft_only')" >/dev/null
+q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES ('$CLAIM_DRAFT_POST','$CLAIM_DRAFT_WS','approved')" >/dev/null
+[ "$(q -c "SELECT reason FROM claim_workspace_publish_slot('$CLAIM_DRAFT_WS','$CLAIM_DRAFT_POST')")" = "ENTITLEMENT_REQUIRED" ] || fail "worker must refuse a draft-only workspace"
+
+CLAIM_LOWER_WS="10000000-0000-0000-0000-000000000051"
+CLAIM_LOWER_OWNER="70000000-0000-0000-0000-000000000051"
+CLAIM_LOWER_POST="30000000-0000-0000-0000-000000000051"
+q -c "INSERT INTO workspaces(id,owner_user_id,max_posts_per_day,max_posts_per_7_days) VALUES ('$CLAIM_LOWER_WS','$CLAIM_LOWER_OWNER',0,0)" >/dev/null
+q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES ('$CLAIM_LOWER_POST','$CLAIM_LOWER_WS','approved')" >/dev/null
+[ "$(q -c "SELECT reason FROM claim_workspace_publish_slot('$CLAIM_LOWER_WS','$CLAIM_LOWER_POST')")" = "DAILY_CAP_REACHED" ] || fail "worker must enforce a workspace-selected zero daily limit"
+
+CLAIM_NOT_DUE_WS="10000000-0000-0000-0000-000000000052"
+CLAIM_NOT_DUE_OWNER="70000000-0000-0000-0000-000000000052"
+CLAIM_NOT_DUE_POST="30000000-0000-0000-0000-000000000052"
+q -c "INSERT INTO workspaces(id,owner_user_id) VALUES ('$CLAIM_NOT_DUE_WS','$CLAIM_NOT_DUE_OWNER')" >/dev/null
+q -c "INSERT INTO content_posts(id,workspace_id,status,scheduled_at) VALUES ('$CLAIM_NOT_DUE_POST','$CLAIM_NOT_DUE_WS','scheduled',now()+interval '1 day')" >/dev/null
+[ "$(q -c "SELECT reason FROM claim_workspace_publish_slot('$CLAIM_NOT_DUE_WS','$CLAIM_NOT_DUE_POST')")" = "POST_NOT_DUE" ] || fail "worker must not publish a scheduled post early"
+echo "ok: publish worker re-checks entitlement, pause, lower caps, and due time"
+
 # Only service_role may call privileged functions.
 # The migration defaults every existing and new workspace to the product ceiling of 1/day and 7/7 days.
 DEFAULT_WS="10000000-0000-0000-0000-000000000005"
