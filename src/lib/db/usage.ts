@@ -55,7 +55,7 @@ interface DraftUsagePeriod {
  * records. Paid workspaces use the exact Polar billing-cycle start as part of
  * the metric key; draft-only and beta workspaces use UTC calendar months.
  */
-async function getDraftUsagePeriod(
+export async function getDraftUsagePeriod(
   workspaceId: string,
   ownerUserId: string
 ): Promise<DraftUsagePeriod> {
@@ -155,7 +155,7 @@ export async function checkDraftLimit(workspaceId: string, ownerUserId?: string)
     count = Number(row?.used_count ?? 0) + Number(row?.reserved_count ?? 0);
     resetsOn = period.resetsOn;
   } else {
-    const { periodStart, periodEnd } = getCalendarMonthPeriod();
+    const { periodStart } = getCalendarMonthPeriod();
     const { data, error } = await supabase
       .from("usage_counters")
       .select("count")
