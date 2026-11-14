@@ -149,7 +149,6 @@ async function requestBrief(
       model,
       messages: [{ role: "system", content: system }, { role: "user", content: user }],
       temperature: 0.25,
-      reasoning: { effort: "low" },
       provider: { require_parameters: true },
       response_format: {
         type: "json_schema",
@@ -164,9 +163,9 @@ async function requestBrief(
           },
         },
       },
-      max_tokens: 2200,
+      max_tokens: 4000,
     }),
-    signal: AbortSignal.timeout(25_000),
+    signal: AbortSignal.timeout(35_000),
   });
 
   if (!response.ok) {
@@ -185,10 +184,11 @@ async function requestBrief(
     }>;
   };
 
+  const responseText = await response.text();
   try {
-    payload = (await response.json()) as typeof payload;
+    payload = JSON.parse(responseText) as typeof payload;
   } catch {
-    throw new Error("The provider returned an invalid response.");
+    throw new Error(`The provider returned a non-JSON response: ${responseText.slice(0, 180) || "empty body"}`);
   }
 
   const choice = payload.choices?.[0];
