@@ -20,6 +20,8 @@ export function SettingsClient({
   const [displayName, setDisplayName] = useState(initialProfile?.display_name || "");
   const [timezone, setTimezone] = useState(initialProfile?.timezone || "UTC");
   const [workspaceName, setWorkspaceName] = useState(initialWorkspace.name || "");
+  const [maxPostsPerDay, setMaxPostsPerDay] = useState(initialWorkspace.max_posts_per_day ?? 10);
+  const [maxPostsPer7Days, setMaxPostsPer7Days] = useState(initialWorkspace.max_posts_per_7_days ?? 50);
   const [isSaving, setIsSaving] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +40,8 @@ export function SettingsClient({
           displayName,
           timezone,
           name: workspaceName,
+          maxPostsPerDay,
+          maxPostsPer7Days,
         }),
       });
 
@@ -45,6 +49,8 @@ export function SettingsClient({
       if (!res.ok) throw new Error(json.error || "We couldn’t save your settings. Please try again.");
 
       setWorkspace(json.data.workspace);
+      setMaxPostsPerDay(json.data.workspace.max_posts_per_day ?? maxPostsPerDay);
+      setMaxPostsPer7Days(json.data.workspace.max_posts_per_7_days ?? maxPostsPer7Days);
       setSuccess("Settings saved successfully.");
     } catch (err: unknown) {
       setError(userFacingError(err, "We couldn’t save your settings. Please try again."));
@@ -177,6 +183,56 @@ export function SettingsClient({
           />
           <p id="settings-timezone-hint" className="form-hint">
             Used for scheduling and cadence calculations.
+          </p>
+        </div>
+
+        <div className="border-t border-border pt-5 space-y-4">
+          <div>
+            <h3 className="text-sm font-semibold text-ink">LinkedIn Publishing Limits</h3>
+            <p className="text-xs text-ink-secondary mt-1">
+              Set the maximum number of approved posts Nunuza can publish or schedule for this workspace.
+              These limits apply across immediate publishing and scheduled posts. They are safety ceilings, not posting targets; prioritize useful content over volume.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="settings-daily-post-limit" className="form-label">Maximum posts per day</label>
+              <input
+                id="settings-daily-post-limit"
+                type="number"
+                min={1}
+                max={10}
+                step={1}
+                required
+                value={maxPostsPerDay}
+                onChange={(e) => {
+                  const next = Math.min(10, Math.max(1, Number(e.target.value) || 1));
+                  setMaxPostsPerDay(next);
+                  setMaxPostsPer7Days((current) => Math.max(current, next));
+                }}
+                className="input-field"
+              />
+              <p className="form-hint">Choose between 1 and 10 posts.</p>
+            </div>
+            <div>
+              <label htmlFor="settings-weekly-post-limit" className="form-label">Maximum posts per rolling 7 days</label>
+              <input
+                id="settings-weekly-post-limit"
+                type="number"
+                min={maxPostsPerDay}
+                max={50}
+                step={1}
+                required
+                value={maxPostsPer7Days}
+                onChange={(e) => setMaxPostsPer7Days(Math.min(50, Math.max(maxPostsPerDay, Number(e.target.value) || maxPostsPerDay)))}
+                className="input-field"
+              />
+              <p className="form-hint">Choose between {maxPostsPerDay} and 50 posts.</p>
+            </div>
+          </div>
+          <p className="text-xs text-ink-secondary">
+            Current allowance: {maxPostsPerDay} per day and {maxPostsPer7Days} per rolling 7 days.
+            Every post still requires approval before publishing.
           </p>
         </div>
 

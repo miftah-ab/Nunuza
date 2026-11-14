@@ -96,6 +96,9 @@ export class MockSupabase {
       if (!target || !["approved", "scheduled"].includes(target.status)) {
         return Promise.resolve({ data: [{ allowed: false, reason: "POST_NOT_ELIGIBLE" }], error: null });
       }
+      const workspace = this.tables.workspaces.find((row) => row.id === args.p_workspace_id);
+      const dailyLimit = Number(workspace?.max_posts_per_day ?? 10);
+      const weeklyLimit = Number(workspace?.max_posts_per_7_days ?? 50);
       const dayStart = new Date(now);
       dayStart.setUTCHours(0, 0, 0, 0);
       const dayEnd = dayStart.getTime() + 86400000;
@@ -119,13 +122,13 @@ export class MockSupabase {
       const daily = others.filter((post) =>
         ["published", "scheduled", "publishing", "needs_reconciliation"].includes(post.status) && inDailyWindow(post)
       ).length;
-      if (daily >= 1) {
+      if (daily >= dailyLimit) {
         return Promise.resolve({ data: [{ allowed: false, reason: "DAILY_CAP_REACHED" }], error: null });
       }
       const weekly = others.filter((post) =>
         ["published", "scheduled", "publishing", "needs_reconciliation"].includes(post.status) && inWeeklyWindow(post)
       ).length;
-      if (weekly >= 7) {
+      if (weekly >= weeklyLimit) {
         return Promise.resolve({ data: [{ allowed: false, reason: "WEEKLY_CAP_REACHED" }], error: null });
       }
       Object.assign(target, { status: "publishing", updated_at: new Date(now).toISOString() });

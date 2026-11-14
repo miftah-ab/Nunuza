@@ -62,6 +62,8 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
     entitlement_type: "draft_only",
     operating_mode: "approval_required",
     paused_at: null,
+    max_posts_per_day: 1,
+    max_posts_per_7_days: 7,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
@@ -153,7 +155,7 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
 
     await expect(
       schedulePost("ws-beta", "post-101", futureDate)
-    ).rejects.toThrow("Cap reached: Maximum 1 scheduled post per calendar day.");
+    ).rejects.toThrow("Daily scheduling limit reached. Your limit is 1 post(s) per day.");
   });
 
   it("cancelScheduledPost returns post to approved status", async () => {
@@ -358,7 +360,7 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
       const outcome = await executePublishJob(job, db);
 
       expect(outcome.status).toBe("canceled");
-      expect(outcome.error).toContain("1 post per calendar day");
+      expect(outcome.error).toContain("Your limit is 1 post(s) per day");
       expect(vi.mocked(publishPostToLinkedIn)).not.toHaveBeenCalled();
     });
 
@@ -376,7 +378,7 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
       const outcome = await executePublishJob(job, db);
 
       expect(outcome.status).toBe("canceled");
-      expect(outcome.error).toContain("7 posts per rolling 7-day");
+      expect(outcome.error).toContain("Your limit is 7 post(s)");
       expect(vi.mocked(publishPostToLinkedIn)).not.toHaveBeenCalled();
     });
 
@@ -513,7 +515,7 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
 
       await expect(
         publishPostNow(betaWorkspace.id, sampleApprovedPost.id)
-      ).rejects.toThrow("Cap reached: Maximum 1 post per calendar day.");
+      ).rejects.toThrow("Daily publishing limit reached. Your limit is 1 post(s) per day. Update your workspace settings to change it.");
     });
 
     it("prevents duplicate publishing when job is already running", async () => {
