@@ -6,7 +6,7 @@ import "@/components/landing/early-access.css";
 
 export const metadata: Metadata = {
   title: "Early access",
-  description: "Get an early look at Nunuza, the LinkedIn content agent built around your voice and your approval.",
+  description: "Get early access to Nunuza, the LinkedIn workflow assistant for professionals who want to create, review, schedule, and publish content more consistently.",
   robots: { index: true, follow: true },
 };
 
@@ -25,8 +25,7 @@ export default function EarlyAccessPage() {
           <p className="nze-pill"><span aria-hidden="true" />Early access</p>
           <h1 id="nze-title" className="nz-display nze-title">Your best posts are already in your head.</h1>
           <p className="nze-lede">
-            Send Nunuza a message or a voice note. It turns the idea into a LinkedIn draft in your voice.
-            You approve every post before it goes out.
+            For professionals, creators, consultants, recruiters, and business owners who want a more consistent LinkedIn presence. Send an idea by message or voice note. Nunuza turns it into a draft in your voice, and you approve every post before it goes out.
           </p>
           <EarlyAccessForm />
         </section>

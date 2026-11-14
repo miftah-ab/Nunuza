@@ -56,8 +56,7 @@ export function Hero({ startStep = 0 }: { startStep?: number }) {
             <span>Post it right.</span>
           </h1>
           <p className="nz-hero-sub">
-            Nunuza is the content agent for your LinkedIn. Send it a rough thought on
-            Telegram or the web. It drafts in your voice, you approve, and it publishes.
+            Nunuza helps you run your LinkedIn content workflow. Capture ideas on Telegram or the web, turn them into posts in your voice, manage your drafts and schedule, then approve what gets published.
           </p>
           <div id="hero-cta" className="nz-hero-cta">
             <Link href="/login" className="nz-btn nz-btn-primary">
