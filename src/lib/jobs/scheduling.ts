@@ -608,7 +608,7 @@ export async function executePublishJob(
       }
       result = await publishMediaPostToLinkedIn({
         workspaceId: job.workspace_id,
-        text: typeof post.text === "string" ? post.text : "",
+        postId: post.id,
         format: postFormat,
         media: mediaRows.map((asset: any) => ({
           storagePath: asset.storage_path,

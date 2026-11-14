@@ -455,7 +455,7 @@ export interface PublishLinkedInMediaAsset {
 
 export interface PublishLinkedInMediaOptions {
   workspaceId: string;
-  text?: string;
+  postId: string;
   format: "image_carousel" | "document";
   media: PublishLinkedInMediaAsset[];
   supabaseOverride?: any;
@@ -488,6 +488,20 @@ export async function publishMediaPostToLinkedIn(
   options: PublishLinkedInMediaOptions
 ): Promise<PublishLinkedInResult> {
   const supabase = options.supabaseOverride || createServiceClient();
+
+  // LinkedIn commentary must always come from the saved draft record.
+  // Never accept preview-rendered/truncated text from a caller.
+  const { data: draft, error: draftError } = await supabase
+    .from("content_posts")
+    .select("text")
+    .eq("id", options.postId)
+    .eq("workspace_id", options.workspaceId)
+    .maybeSingle();
+  if (draftError || !draft || typeof draft.text !== "string" || !draft.text.trim()) {
+    throw new LinkedInPublishError("rejected", "LINKEDIN_DRAFT_TEXT_MISSING: The saved draft text could not be loaded.");
+  }
+  const draftText = draft.text.trim();
+
   const { data: connection, error } = await supabase
     .from("integration_connections")
     .select("*")
@@ -602,7 +616,7 @@ export async function publishMediaPostToLinkedIn(
     content,
     lifecycleState: "PUBLISHED",
     isReshareDisabledByAuthor: false,
-    ...(options.text?.trim() ? { commentary: options.text.trim() } : {}),
+    commentary: draftText,
   };
 
   let response: Response;
