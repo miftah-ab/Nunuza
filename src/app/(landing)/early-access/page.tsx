@@ -62,7 +62,6 @@ export default function EarlyAccessPage() {
               </div>
             </li>
           </ol>
-          <p className="nze-example">Example only. Your drafts come from your own ideas.</p>
         </aside>
       </div>
 

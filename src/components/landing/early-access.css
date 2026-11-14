@@ -112,7 +112,6 @@
   display: inline-flex; margin-top: 12px; padding: 11px 22px; border-radius: 12px; background: var(--nz-forest); color: #fff;
   font: 700 14px/1 var(--font-inter), system-ui, sans-serif; box-shadow: 0 4px 0 var(--nz-deep);
 }
-.nze-example { margin: 22px 0 0; color: #8a938d; font: 500 12px/1.4 var(--font-inter), system-ui, sans-serif; }
 
 .nze-footer { border-top: 1px solid var(--nz-line); }
 .nze-footer-in { display: flex; gap: 22px; align-items: center; padding: 20px 0; color: #7b857f; font: 500 13px/1.4 var(--font-inter), system-ui, sans-serif; }
