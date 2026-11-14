@@ -63,6 +63,7 @@ export interface PolarWebhookEvent {
 export interface CheckoutSessionOptions {
   workspaceId: string;
   userEmail: string;
+  customerId?: string | null;
   successUrl: string;
 }
 
