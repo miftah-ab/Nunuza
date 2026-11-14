@@ -341,6 +341,14 @@ BEGIN
      AND status = 'reserved'
      AND expires_at > NOW();
 
+  IF v_active_api_reservations >= p_limit THEN
+    UPDATE public.agent_jobs
+       SET payload = payload - 'draft_usage_reserved_period' - 'draft_usage_reserved_metric',
+           updated_at = NOW()
+     WHERE id = p_job_id;
+    RETURN FALSE;
+  END IF;
+
   INSERT INTO public.usage_counters (workspace_id, metric, period_start, period_end, count)
   VALUES (p_workspace_id, p_metric, p_period_start, p_period_end, 1)
   ON CONFLICT (workspace_id, metric, period_start)
