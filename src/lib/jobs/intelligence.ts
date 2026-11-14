@@ -562,20 +562,21 @@ export async function executeAutonomousCycle(
   }
 
   const quotaPeriod = await getDraftUsagePeriod(workspace.id, workspace.owner_user_id);
-  const { data: usage, error: usageError } = await supabase
-    .from("usage_counters")
-    .select("count")
-    .eq("workspace_id", workspace.id)
-    .eq("metric", quotaPeriod.metric)
-    .eq("period_start", quotaPeriod.periodStart)
-    .maybeSingle();
+  const { data: usageData, error: usageError } = await supabase.rpc("get_draft_usage_status", {
+    p_workspace_id: workspace.id,
+    p_owner_user_id: workspace.owner_user_id,
+    p_period_start: quotaPeriod.periodStart,
+    p_metric: quotaPeriod.metric,
+  });
   if (usageError) return fail("Could not verify monthly draft usage.");
-  if ((usage?.count ?? 0) >= 30) {
+  const usage = Array.isArray(usageData) ? usageData[0] : usageData;
+  const usageCount = Number(usage?.used_count ?? 0) + Number(usage?.reserved_count ?? 0);
+  if (usageCount >= 30) {
     await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {
       cycleDate,
       decision: "no_op",
       reason: "monthly_draft_limit_reached",
-      usageCount: usage.count,
+      usageCount,
       usageLimit: 30,
     });
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
