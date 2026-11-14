@@ -180,7 +180,7 @@ async function requestBrief(
       } : {}),
       max_tokens: 2200,
     }),
-    signal: AbortSignal.timeout(12_000),
+    signal: AbortSignal.timeout(15_000),
   });
 
   if (!response.ok) {
