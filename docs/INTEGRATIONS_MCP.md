@@ -15,7 +15,7 @@
 - [ ] All read and write tools implemented with strict input schemas
 - [ ] Cross-tenant access denial verified
 - [ ] Unapproved publishing denied
-- [x] `approve_draft` is exposed as an explicit owner-directed action; Claude Manual mode must set it to Needs approval
+- [x] MCP cannot approve or publish; human approval is performed only in the Nunuza app or Telegram
 - [ ] MCP gate passed → integration enabled for users
 
 Until this gate passes, the Integrations page shows only: "Integration not enabled."
@@ -46,7 +46,7 @@ Until this gate passes, the Integrations page shows only: "Integration not enabl
 | `schedule_post` | Schedule an approved post (after MCP + LinkedIn + publishing gates pass) |
 | `cancel_scheduled_post` | Cancel a scheduled post (same gate requirement) |
 
-**`approve_draft` is NOT a v1.0.0 tool.** MCP clients and AI agents cannot approve their own drafts.
+**Approval is app/Telegram-only.** MCP clients can create, edit, and schedule only already-approved drafts. They cannot approve or publish.
 
 ---
 
