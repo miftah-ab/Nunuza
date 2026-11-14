@@ -331,21 +331,13 @@ export async function executeMcpTool(
     }
 
     case "get_performance_summary": {
-      const now = new Date();
-      const currentPeriod = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-
-      const { data: usage } = await supabase
-        .from("usage_counters")
-        .select("counter_value")
-        .eq("workspace_id", workspaceId)
-        .eq("period_key", currentPeriod)
-        .maybeSingle();
+      const usage = await checkDraftLimit(workspaceId, userId);
 
       const { count: draftCount } = await supabase
         .from("content_posts")
         .select("id", { count: "exact", head: true })
         .eq("workspace_id", workspaceId)
-        .eq("status", "draft");
+        .in("status", ["draft", "needs_review"]);
 
       const { count: publishedCount } = await supabase
         .from("content_posts")
@@ -354,9 +346,9 @@ export async function executeMcpTool(
         .eq("status", "published");
 
       return {
-        period_key: currentPeriod,
-        monthly_drafts_used: usage?.counter_value ?? 0,
-        monthly_drafts_limit: 30,
+        monthly_drafts_used: usage.count,
+        monthly_drafts_limit: usage.limit,
+        usage_resets_on: usage.resetsOn,
         pending_review_drafts: draftCount ?? 0,
         published_posts: publishedCount ?? 0,
         rate_limits: {
