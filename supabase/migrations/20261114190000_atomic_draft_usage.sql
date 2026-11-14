@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS public.draft_usage_reservations (
   period_start DATE NOT NULL,
   period_end DATE NOT NULL,
   expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '15 minutes'),
+  status TEXT NOT NULL DEFAULT 'reserved' CHECK (status IN ('reserved', 'committed', 'released')),
+  post_id UUID REFERENCES public.content_posts(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT draft_usage_reservations_period_valid CHECK (period_end >= period_start)
 );
@@ -56,7 +58,14 @@ BEGIN
 
   DELETE FROM public.draft_usage_reservations
    WHERE workspace_id = p_workspace_id
+     AND status <> 'reserved'
+     AND created_at < NOW() - INTERVAL '90 days';
+
+  UPDATE public.draft_usage_reservations
+     SET status = 'released'
+   WHERE workspace_id = p_workspace_id
      AND period_start = p_period_start
+     AND status = 'reserved'
      AND expires_at <= NOW();
 
   SELECT COALESCE(count, 0) INTO v_used
@@ -69,6 +78,7 @@ BEGIN
     FROM public.draft_usage_reservations
    WHERE workspace_id = p_workspace_id
      AND period_start = p_period_start
+     AND status = 'reserved'
      AND expires_at > NOW();
 
   IF v_used + v_reserved >= p_limit THEN
@@ -126,9 +136,18 @@ BEGIN
    WHERE id = p_reservation_id
      AND workspace_id = p_workspace_id
      AND owner_user_id = p_owner_user_id
-     AND expires_at > NOW()
    FOR UPDATE;
   IF NOT FOUND THEN
+    RAISE EXCEPTION 'Draft usage reservation is missing or expired';
+  END IF;
+
+  -- A retry after a lost HTTP response returns the already-created post.
+  IF v_reservation.status = 'committed' AND v_reservation.post_id IS NOT NULL THEN
+    SELECT * INTO v_post FROM public.content_posts WHERE id = v_reservation.post_id;
+    IF FOUND THEN RETURN v_post; END IF;
+    RAISE EXCEPTION 'Committed draft reservation has no corresponding post';
+  END IF;
+  IF v_reservation.status <> 'reserved' OR v_reservation.expires_at <= NOW() THEN
     RAISE EXCEPTION 'Draft usage reservation is missing or expired';
   END IF;
 
@@ -158,7 +177,11 @@ BEGIN
     period_end = EXCLUDED.period_end,
     updated_at = NOW();
 
-  DELETE FROM public.draft_usage_reservations WHERE id = p_reservation_id;
+  UPDATE public.draft_usage_reservations
+     SET status = 'committed',
+         post_id = v_post.id,
+         expires_at = NOW()
+   WHERE id = p_reservation_id;
   RETURN v_post;
 END;
 $$;
@@ -185,10 +208,12 @@ BEGIN
     RAISE EXCEPTION 'Workspace owner verification failed';
   END IF;
 
-  DELETE FROM public.draft_usage_reservations
+  UPDATE public.draft_usage_reservations
+     SET status = 'released', expires_at = NOW()
    WHERE id = p_reservation_id
      AND workspace_id = p_workspace_id
-     AND owner_user_id = p_owner_user_id;
+     AND owner_user_id = p_owner_user_id
+     AND status = 'reserved';
   GET DIAGNOSTICS v_deleted = ROW_COUNT;
   RETURN v_deleted = 1;
 END;
@@ -226,6 +251,7 @@ BEGIN
       SELECT COUNT(*)::INTEGER FROM public.draft_usage_reservations
        WHERE workspace_id = p_workspace_id
          AND period_start = p_period_start
+         AND status = 'reserved'
          AND expires_at > NOW()
     );
 END;
