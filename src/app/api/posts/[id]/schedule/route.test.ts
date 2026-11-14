@@ -39,6 +39,8 @@ describe("POST /api/posts/[id]/schedule", () => {
     entitlement_type: "draft_only",
     operating_mode: "approval_required",
     paused_at: null,
+    max_posts_per_day: 10,
+    max_posts_per_7_days: 50,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
@@ -51,6 +53,8 @@ describe("POST /api/posts/[id]/schedule", () => {
     entitlement_type: "internal_beta",
     operating_mode: "approval_required",
     paused_at: null,
+    max_posts_per_day: 10,
+    max_posts_per_7_days: 50,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
