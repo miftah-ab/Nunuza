@@ -54,6 +54,7 @@ function makePeopleSearches(audience: string, industry: string, workspaceName: s
   return searches.map((item) => ({
     ...item,
     url: `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(item.query)}`,
+    publicProfileUrl: `https://www.google.com/search?q=${encodeURIComponent(`site:linkedin.com/in ${item.query}`)}`,
   }));
 }
 
