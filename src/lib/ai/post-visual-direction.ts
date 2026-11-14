@@ -34,9 +34,12 @@ export class VisualPlanningError extends Error {
 }
 
 const MAX_FIELD_LENGTH = 300;
+// Ling is the primary free multimodal planner and supports strict JSON Schema.
+// Gemma is the secondary free fallback; use JSON mode because its route does not
+// guarantee strict JSON Schema support.
 const FREE_MODELS = [
-  "openrouter/free",
-  "dots-studio/dots-3-note-preview:free",
+  "inclusionai/ling-3.2-flash:free",
+  "google/gemma-4-26b-a4b-it:free",
 ] as const;
 
 function cleanText(value: unknown, fallback = ""): string {
@@ -150,19 +153,21 @@ async function requestBrief(
       messages: [{ role: "system", content: system }, { role: "user", content: user }],
       temperature: 0.25,
       provider: { require_parameters: true },
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "editorial_art_direction",
-          strict: true,
-          schema: {
-            type: "object",
-            properties,
-            required: Object.keys(properties),
-            additionalProperties: false,
-          },
-        },
-      },
+      response_format: model === "inclusionai/ling-3.2-flash:free"
+        ? {
+            type: "json_schema",
+            json_schema: {
+              name: "editorial_art_direction",
+              strict: true,
+              schema: {
+                type: "object",
+                properties,
+                required: Object.keys(properties),
+                additionalProperties: false,
+              },
+            },
+          }
+        : { type: "json_object" },
       max_tokens: 4000,
     }),
     signal: AbortSignal.timeout(35_000),
