@@ -106,12 +106,17 @@ export class PolarClient {
 
     const payload: any = {
       product_id: this.productId,
-      customer_email: options.userEmail,
       metadata: {
         workspace_id: options.workspaceId,
       },
       success_url: options.successUrl,
     };
+
+    if (options.customerId) {
+      payload.customer_id = options.customerId;
+    } else {
+      payload.customer_email = options.userEmail;
+    }
 
     if (this.priceId && !this.priceId.includes("placeholder")) {
       payload.product_price_id = this.priceId;
