@@ -291,6 +291,13 @@ function buildResearchQuery(strategy: any): string {
   return "(" + keywords.slice(0, 5).map((word) => '"' + word + '"').join(" OR ") + ")";
 }
 
+export function buildCycleNotificationMessage(mode: "autopilot" | "approval_required"): string {
+  // Notifications report what Nunuza did, never relay third-party news headlines or links.
+  return mode === "autopilot"
+    ? "Nunuza queued a LinkedIn post under your enabled Autopilot settings.\\nYou can check its status in Nunuza or use /drafts in Telegram."
+    : "A new LinkedIn draft is ready for your review.\\nOpen Nunuza or use /drafts in Telegram to review and approve it.";
+}
+
 async function fetchResearch(query: string): Promise<ResearchItem[]> {
   const url = new URL("https://news.google.com/rss/search");
   url.searchParams.set("q", query);
@@ -913,16 +920,11 @@ export async function executeAutonomousCycle(
       return fail("Post was created but the publish job could not be queued: " + publishJobError.message);
     }
     await notifyWorkspaceTelegram(workspace.id, {
-      text: "Nunuza found a timely opportunity and queued a post under your enabled Autopilot settings: " + title +
-        "\nWhy now: it matches your strategy terms " + opportunity.matchedKeywords.join(", ") +
-        "\nEvidence: " + opportunity.url,
+      text: buildCycleNotificationMessage("autopilot"),
     }, supabase);
   } else {
     await notifyWorkspaceTelegram(workspace.id, {
-      text: "Nunuza found a relevant opportunity and created a draft for your review: " + title +
-        "\nWhy now: it matches your strategy terms " + opportunity.matchedKeywords.join(", ") +
-        "\nEvidence: " + opportunity.url +
-        "\nUse /drafts in Telegram or open your dashboard.",
+      text: buildCycleNotificationMessage("approval_required"),
     }, supabase);
   }
 
