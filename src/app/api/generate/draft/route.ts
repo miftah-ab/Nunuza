@@ -164,6 +164,18 @@ export async function POST(request: Request) {
     if (err instanceof VoiceConstraintError) {
       return NextResponse.json({ error: err.message }, { status: 422 });
     }
+    if (err instanceof Error && err.message.startsWith("AI_INCOMPLETE_OUTPUT:")) {
+      return NextResponse.json(
+        { error: "Nunuza couldn't generate a complete post. Nothing was saved. Please try generating it again." },
+        { status: 502 }
+      );
+    }
+    if (err instanceof Error && err.message.startsWith("AI_POST_TOO_LONG:")) {
+      return NextResponse.json(
+        { error: "This draft is longer than LinkedIn allows. Nothing was saved. Generate a shorter post." },
+        { status: 422 }
+      );
+    }
     return apiError(err);
   }
 }
