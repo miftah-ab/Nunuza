@@ -9,7 +9,7 @@
  * 5. Safe fail-closed behavior when external publishing gate is pending
  */
 
-import { createServiceClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import {
   requireWorkspace,
   canSchedule,
