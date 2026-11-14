@@ -16,7 +16,7 @@ export default function EarlyAccessPage() {
       <header className="nze-nav">
         <div className="nze-wrap nze-nav-in">
           <Logo height={28} />
-          <Link href="/login" className="nze-signin">Sign in</Link>
+          <p className="nze-have">Already have an account? <Link href="/login">Sign in</Link></p>
         </div>
       </header>
 
@@ -59,10 +59,10 @@ export default function EarlyAccessPage() {
                 <h3>You approve it</h3>
                 <p>Nothing is published without your yes.</p>
                 <span className="nze-approve">Approve</span>
+                <p className="nze-auto"><b>Autopilot</b> is optional. When you are ready, you can let Nunuza publish within limits you set.</p>
               </div>
             </li>
           </ol>
-          <p className="nze-example">Example only. Your drafts come from your own ideas.</p>
         </aside>
       </div>
 
