@@ -6,6 +6,7 @@ set -euo pipefail
 MIGRATION="supabase/migrations/0010_worker_safety_reservations.sql"
 LIMIT_MIGRATION="supabase/migrations/20261114082730_configurable_publishing_limits.sql"
 CANCEL_MIGRATION="supabase/migrations/20261114170000_atomic_scheduled_post_cancel.sql"
+SCHEDULE_MIGRATION="supabase/migrations/20261114200000_atomic_scheduling_and_product_caps.sql"
 OUT="$(mktemp -d)"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 q() { psql -v ON_ERROR_STOP=1 -At "$@"; }
@@ -26,6 +27,9 @@ CREATE TYPE post_status AS ENUM (
 );
 CREATE TABLE public.workspaces (
   id UUID PRIMARY KEY,
+  owner_user_id UUID,
+  entitlement_type TEXT NOT NULL DEFAULT 'paid_active',
+  paused_at TIMESTAMPTZ,
   max_posts_per_day INTEGER NOT NULL DEFAULT 10,
   max_posts_per_7_days INTEGER NOT NULL DEFAULT 50
 );
@@ -42,7 +46,8 @@ CREATE TABLE public.agent_jobs (
   finished_at TIMESTAMPTZ,
   last_error_code TEXT,
   safe_error_message TEXT,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(workspace_id, idempotency_key)
 );
 CREATE TABLE public.content_posts (
   id UUID PRIMARY KEY,
@@ -68,7 +73,8 @@ SQL
 q -f "$MIGRATION" >/dev/null
 q -f "$LIMIT_MIGRATION" >/dev/null
 q -f "$CANCEL_MIGRATION" >/dev/null
-echo "worker, configurable publishing-limit, and atomic cancellation migrations applied"
+q -f "$SCHEDULE_MIGRATION" >/dev/null
+echo "worker, cancellation, and atomic scheduling migrations applied"
 
 # A workspace may have one active autonomous cycle, but can start another
 # after the previous cycle reaches a terminal state.
@@ -217,12 +223,103 @@ case "$RACE_STATE" in
 esac
 echo "ok: worker claim and cancellation serialize without a publish-after-cancel state"
 
+# Scheduling is one transaction: a valid request creates the durable job and
+# changes the post to scheduled together.
+SCHEDULE_WS="10000000-0000-0000-0000-000000000041"
+SCHEDULE_OWNER="70000000-0000-0000-0000-000000000041"
+SCHEDULE_POST="30000000-0000-0000-0000-000000000041"
+SCHEDULE_KEY="publish-$SCHEDULE_WS-$SCHEDULE_POST"
+SCHEDULE_TIME=$(date -u -d '+2 days' '+%Y-%m-%dT12:00:00Z')
+q -c "INSERT INTO workspaces(id,owner_user_id,max_posts_per_day,max_posts_per_7_days) VALUES ('$SCHEDULE_WS','$SCHEDULE_OWNER',1,7)" >/dev/null
+q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES ('$SCHEDULE_POST','$SCHEDULE_WS','approved')" >/dev/null
+SCHEDULE_RESULT=$(q -c "SELECT schedule_post_atomic('$SCHEDULE_WS','$SCHEDULE_POST','$SCHEDULE_OWNER','$SCHEDULE_TIME'::timestamptz)->>'success'")
+[ "$SCHEDULE_RESULT" = "true" ] || fail "valid schedule request should atomically succeed"
+[ "$(q -c "SELECT status FROM content_posts WHERE id='$SCHEDULE_POST'")" = "scheduled" ] || fail "atomic schedule must update post status"
+[ "$(q -c "SELECT status FROM agent_jobs WHERE workspace_id='$SCHEDULE_WS' AND idempotency_key='$SCHEDULE_KEY'")" = "queued" ] || fail "atomic schedule must create a queued publish job"
+SCHEDULE_JOB_ID=$(q -c "SELECT id FROM agent_jobs WHERE workspace_id='$SCHEDULE_WS' AND idempotency_key='$SCHEDULE_KEY'")
+echo "ok: schedule job and post status commit together"
+
+# Cancellation followed by a deliberate reschedule reuses the same stable job.
+q -c "SELECT success FROM cancel_scheduled_post_atomic('$SCHEDULE_WS','$SCHEDULE_POST')" >/dev/null
+RESCHEDULE_RESULT=$(q -c "SELECT schedule_post_atomic('$SCHEDULE_WS','$SCHEDULE_POST','$SCHEDULE_OWNER',('$SCHEDULE_TIME'::timestamptz + interval '1 hour'))->>'success'")
+[ "$RESCHEDULE_RESULT" = "true" ] || fail "canceled job should be safely reschedulable"
+[ "$(q -c "SELECT count(*) FROM agent_jobs WHERE workspace_id='$SCHEDULE_WS' AND idempotency_key='$SCHEDULE_KEY'")" = "1" ] || fail "reschedule must reuse one idempotent job"
+[ "$(q -c "SELECT id FROM agent_jobs WHERE workspace_id='$SCHEDULE_WS' AND idempotency_key='$SCHEDULE_KEY'")" = "$SCHEDULE_JOB_ID" ] || fail "reschedule must preserve the original job ID"
+echo "ok: explicit reschedule reuses a canceled job without duplicates"
+
+# A needs_reconciliation job must never be re-queued.
+RECON_SCHEDULE_WS="10000000-0000-0000-0000-000000000042"
+RECON_SCHEDULE_OWNER="70000000-0000-0000-0000-000000000042"
+RECON_SCHEDULE_POST="30000000-0000-0000-0000-000000000042"
+q -c "INSERT INTO workspaces(id,owner_user_id) VALUES ('$RECON_SCHEDULE_WS','$RECON_SCHEDULE_OWNER')" >/dev/null
+q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES ('$RECON_SCHEDULE_POST','$RECON_SCHEDULE_WS','approved')" >/dev/null
+q -c "INSERT INTO agent_jobs(workspace_id,job_type,status,idempotency_key) VALUES ('$RECON_SCHEDULE_WS','publish_post','needs_reconciliation','publish-$RECON_SCHEDULE_WS-$RECON_SCHEDULE_POST')" >/dev/null
+RECON_SCHEDULE_RESULT=$(q -c "SELECT schedule_post_atomic('$RECON_SCHEDULE_WS','$RECON_SCHEDULE_POST','$RECON_SCHEDULE_OWNER','$SCHEDULE_TIME'::timestamptz)->>'reason'")
+[ "$RECON_SCHEDULE_RESULT" = "JOB_STATE_NOT_RESCHEDULABLE" ] || fail "needs_reconciliation job must not be re-queued"
+[ "$(q -c "SELECT status FROM content_posts WHERE id='$RECON_SCHEDULE_POST'")" = "approved" ] || fail "failed schedule attempt must not change the post"
+echo "ok: schedule path refuses ambiguous publishing jobs"
+
+# Daily and rolling seven-day caps include posts on either side of the target.
+DAILY_WS="10000000-0000-0000-0000-000000000043"
+DAILY_OWNER="70000000-0000-0000-0000-000000000043"
+DAILY_POST="30000000-0000-0000-0000-000000000043"
+DAILY_EXISTING="30000000-0000-0000-0000-000000000044"
+DAILY_TIME=$(date -u -d '+3 days' '+%Y-%m-%dT12:00:00Z')
+q -c "INSERT INTO workspaces(id,owner_user_id) VALUES ('$DAILY_WS','$DAILY_OWNER')" >/dev/null
+q -c "INSERT INTO content_posts(id,workspace_id,status,scheduled_at) VALUES ('$DAILY_EXISTING','$DAILY_WS','scheduled','$DAILY_TIME')" >/dev/null
+q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES ('$DAILY_POST','$DAILY_WS','approved')" >/dev/null
+DAILY_RESULT=$(q -c "SELECT schedule_post_atomic('$DAILY_WS','$DAILY_POST','$DAILY_OWNER','$DAILY_TIME'::timestamptz)->>'reason'")
+[ "$DAILY_RESULT" = "DAILY_CAP_REACHED" ] || fail "second post on the same UTC day must be blocked"
+echo "ok: atomic scheduler enforces one post per UTC calendar day"
+
+WEEK_WS="10000000-0000-0000-0000-000000000045"
+WEEK_OWNER="70000000-0000-0000-0000-000000000045"
+WEEK_POST="30000000-0000-0000-0000-000000000045"
+WEEK_TIME=$(date -u -d '+14 days' '+%Y-%m-%dT12:00:00Z')
+q -c "INSERT INTO workspaces(id,owner_user_id) VALUES ('$WEEK_WS','$WEEK_OWNER')" >/dev/null
+for n in $(seq 1 7); do
+  EXISTING_ID=$(printf "30000000-0000-0000-0000-%012d" "$((100+n))")
+  EXISTING_TIME=$(date -u -d "$WEEK_TIME - $n days" '+%Y-%m-%dT12:00:00Z')
+  q -c "INSERT INTO content_posts(id,workspace_id,status,scheduled_at) VALUES ('$EXISTING_ID','$WEEK_WS','scheduled','$EXISTING_TIME')" >/dev/null
+done
+q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES ('$WEEK_POST','$WEEK_WS','approved')" >/dev/null
+WEEK_RESULT=$(q -c "SELECT schedule_post_atomic('$WEEK_WS','$WEEK_POST','$WEEK_OWNER','$WEEK_TIME'::timestamptz)->>'reason'")
+[ "$WEEK_RESULT" = "WEEKLY_CAP_REACHED" ] || fail "eighth post in a rolling seven-day window must be blocked"
+echo "ok: atomic scheduler enforces seven posts in every rolling seven-day window"
+
+# Concurrent requests for the same day serialize on the workspace row.
+RACE_SCHEDULE_WS="10000000-0000-0000-0000-000000000046"
+RACE_SCHEDULE_OWNER="70000000-0000-0000-0000-000000000046"
+RACE_SCHEDULE_TIME=$(date -u -d '+20 days' '+%Y-%m-%dT12:00:00Z')
+q -c "INSERT INTO workspaces(id,owner_user_id) VALUES ('$RACE_SCHEDULE_WS','$RACE_SCHEDULE_OWNER')" >/dev/null
+for n in 1 2; do
+  POST_ID=$(printf "30000000-0000-0000-0000-%012d" "$((200+n))")
+  q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES ('$POST_ID','$RACE_SCHEDULE_WS','approved')" >/dev/null
+  (
+    psql -At -c "SELECT schedule_post_atomic('$RACE_SCHEDULE_WS','$POST_ID','$RACE_SCHEDULE_OWNER','$RACE_SCHEDULE_TIME'::timestamptz)->>'success'"
+  ) > "$OUT/schedule-race-$n.txt" &
+done
+wait
+RACE_SCHEDULE_ALLOWED=$(cat "$OUT"/schedule-race-*.txt | grep -c '^true$' || true)
+[ "$RACE_SCHEDULE_ALLOWED" = "1" ] || fail "concurrent schedule calls must allow only one post for the same UTC day"
+[ "$(q -c "SELECT count(*) FROM content_posts WHERE workspace_id='$RACE_SCHEDULE_WS' AND status='scheduled'")" = "1" ] || fail "concurrent schedule race must leave one scheduled post"
+echo "ok: concurrent schedule requests cannot exceed daily cap"
+
+# The database cannot be configured above product limits.
+if q -c "UPDATE workspaces SET max_posts_per_day=2 WHERE id='$SCHEDULE_WS'" >/dev/null 2>&1; then
+  fail "workspace daily cap must not exceed product maximum 1"
+fi
+if q -c "UPDATE workspaces SET max_posts_per_7_days=8 WHERE id='$SCHEDULE_WS'" >/dev/null 2>&1; then
+  fail "workspace weekly cap must not exceed product maximum 7"
+fi
+echo "ok: database constraints prevent raising product publishing caps"
+
 # Only service_role may call privileged functions.
 # The migration defaults every existing and new workspace to 10/day and 50/7 days.
 DEFAULT_WS="10000000-0000-0000-0000-000000000005"
 q -c "INSERT INTO workspaces(id) VALUES ('$DEFAULT_WS')" >/dev/null
 DEFAULT_LIMITS=$(q -c "SELECT max_posts_per_day::text || ':' || max_posts_per_7_days::text FROM workspaces WHERE id='$DEFAULT_WS'")
-[ "$DEFAULT_LIMITS" = "10:50" ] || fail "expected workspace publishing defaults 10:50, got $DEFAULT_LIMITS"
+[ "$DEFAULT_LIMITS" = "1:7" ] || fail "expected product publishing defaults 1:7, got $DEFAULT_LIMITS"
 echo "ok: configurable publishing defaults are 10/day and 50/7 days"
 
 # 80 distinct jobs race for a monthly cap of 30. Repeating one job's reservation
