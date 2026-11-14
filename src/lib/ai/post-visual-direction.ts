@@ -137,6 +137,7 @@ async function requestBrief(
       model: OPENROUTER_FREE_MODEL,
       messages: [{ role: "system", content: system }, { role: "user", content: user }],
       temperature: 0.2,
+      reasoning: { effort: "minimal" },
       provider: { require_parameters: true },
       response_format: {
         type: "json_schema",
