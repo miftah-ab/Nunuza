@@ -155,7 +155,7 @@ VALUES ('$CANCEL_JOB','$CANCEL_WS','publish_post','queued','publish-$CANCEL_WS-$
 CANCELED=$(q -c "SELECT success FROM cancel_scheduled_post_atomic('$CANCEL_WS','$CANCEL_POST')")
 [ "$CANCELED" = "t" ] || fail "queued scheduled post should cancel atomically"
 [ "$(q -c "SELECT status FROM agent_jobs WHERE id='$CANCEL_JOB'")" = "canceled" ] || fail "cancel must stop the queued publishing job"
-[ "$(q -c "SELECT status || ':' || (scheduled_at IS NULL)::TEXT FROM content_posts WHERE id='$CANCEL_POST'")" = "approved:true" ] || fail "cancel must reset the post only after canceling its job"
+[ "$(q -c "SELECT status::TEXT || ':' || (scheduled_at IS NULL)::TEXT FROM content_posts WHERE id='$CANCEL_POST'")" = "approved:true" ] || fail "cancel must reset the post only after canceling its job"
 echo "ok: queued job cancellation and post reset commit together"
 
 # A running job belongs to the worker; cancellation must not make its post eligible.
