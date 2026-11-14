@@ -5,7 +5,7 @@ import { CheckCircle2, Info } from "lucide-react";
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "Nunuza Solo: $29/month with a 14-day free trial. Strategy-led LinkedIn content workflow. Cancel anytime.",
+    "Automate your LinkedIn content workflow with Nunuza for $29/month after a 14-day free trial. Cancel anytime.",
 };
 
 const includedFeatures = [
@@ -42,7 +42,7 @@ export default function PricingPage() {
             One simple plan. 14-day free trial.
           </h1>
           <p className="mt-4 text-lg text-ink-secondary max-w-xl mx-auto">
-            Get the Nunuza Solo content workflow for $29/month after a 14-day card-required trial. Cancel anytime.
+            Get a focused LinkedIn content workflow for $29/month after a 14-day card-required trial. Cancel anytime.
           </p>
         </div>
 
@@ -54,7 +54,7 @@ export default function PricingPage() {
               14-Day Free Trial
             </p>
             <p className="text-sm text-ink-secondary">
-              Start with a 14-day free trial with access to the Solo plan features. Cancel anytime during the trial before your first monthly charge of $29.
+              Start with a 14-day free trial with access to the Nunuza plan features. Cancel anytime during the trial before your first monthly charge of $29.
             </p>
           </div>
         </div>
@@ -64,9 +64,9 @@ export default function PricingPage() {
           {/* Plan header */}
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 pb-6 border-b border-border">
             <div>
-              <h2 className="text-xl font-bold text-ink">Nunuza Solo</h2>
+              <h2 className="text-xl font-bold text-ink">Nunuza</h2>
               <p className="text-sm text-ink-secondary mt-1">
-                A connected workspace for your LinkedIn content strategy, voice, and drafts.
+                A personal LinkedIn workspace for your content strategy, writing voice, drafts, and publishing workflow.
               </p>
             </div>
             <div className="sm:text-right">

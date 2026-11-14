@@ -25,7 +25,7 @@ export default async function BillingPage() {
       <div>
         <h1 className="text-2xl font-bold text-ink">Billing &amp; Subscription</h1>
         <p className="text-sm text-ink-secondary mt-1">
-          Manage your Nunuza Solo subscription, billing details, and receipts.
+          Manage your Nunuza subscription, billing details, and receipts.
         </p>
       </div>
 

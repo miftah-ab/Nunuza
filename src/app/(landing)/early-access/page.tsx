@@ -6,7 +6,7 @@ import "@/components/landing/early-access.css";
 
 export const metadata: Metadata = {
   title: "Early access",
-  description: "Nunuza reads the news in your field every day, drafts LinkedIn posts in your voice, and waits for your approval before anything is published.",
+  description: "Get early access to Nunuza, the LinkedIn workflow assistant for professionals. It reads the news in your field, drafts posts in your voice, and waits for your approval before anything is published.",
   robots: { index: true, follow: true },
 };
 

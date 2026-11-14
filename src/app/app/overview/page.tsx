@@ -37,7 +37,7 @@ const STATE_CONFIG: Record<AgentState, StateInfo> = {
 const ENTITLEMENT_INFO: Record<string, { label: string; badgeClass: string }> = {
   internal_beta: { label: "Private Beta", badgeClass: "bg-forest-light text-forest border-forest-muted" },
   paid_trial: { label: "Trial Active", badgeClass: "bg-success-light text-success border-success/20" },
-  paid_active: { label: "Nunuza Solo", badgeClass: "bg-success-light text-success border-success/20" },
+  paid_active: { label: "Nunuza", badgeClass: "bg-success-light text-success border-success/20" },
   suspended: { label: "Suspended", badgeClass: "bg-error-light text-error border-error/20" },
   expired: { label: "Trial Expired", badgeClass: "bg-error-light text-error border-error/20" },
   draft_only: { label: "Onboarding", badgeClass: "bg-surface text-ink-secondary border-border" },

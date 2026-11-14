@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildCycleNotificationMessage,
   buildLearningProfile,
   isAutonomousEntitlementEligible,
   isAutonomousWorkspaceActive,
@@ -19,6 +20,24 @@ describe("autonomous cycle payload validation", () => {
     expect(isValidCycleDate("2026-02-30")).toBe(false);
     expect(isValidCycleDate("10-11-2026")).toBe(false);
     expect(isValidCycleDate(20261110)).toBe(false);
+  });
+});
+
+describe("intelligence cycle notifications", () => {
+  it("reports the product action without forwarding research headlines or article links", () => {
+    const approvalMessage = buildCycleNotificationMessage("approval_required");
+    const autopilotMessage = buildCycleNotificationMessage("autopilot");
+
+    expect(approvalMessage).toContain("draft is ready for your review");
+    expect(approvalMessage).toContain("/drafts");
+    expect(autopilotMessage).toContain("queued a LinkedIn post");
+    expect(autopilotMessage).toContain("/drafts");
+
+    for (const message of [approvalMessage, autopilotMessage]) {
+      expect(message).not.toContain("http");
+      expect(message).not.toContain("Reuters");
+      expect(message).not.toContain("opportunity");
+    }
   });
 });
 
