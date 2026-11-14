@@ -39,7 +39,7 @@ type AgentRecommendationsResponse = {
   error?: string;
   data?: {
     ideas?: Array<{ id: string; title: string; angle: string; pillar: string; targetFormat: string; reason: string }>;
-    peopleSearches?: Array<{ id: string; label: string; description: string; query: string; url: string }>;
+    peopleSearches?: Array<{ id: string; label: string; description: string; query: string; url: string; publicProfileUrl: string }>;
     contextSummary?: string;
   };
 };
@@ -77,7 +77,7 @@ export function ContentManager({
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [topicIdeas, setTopicIdeas] = useState<Array<{ id: string; title: string; angle: string; pillar: string; targetFormat: string; reason: string }>>([]);
-  const [peopleSearches, setPeopleSearches] = useState<Array<{ id: string; label: string; description: string; query: string; url: string }>>([]);
+  const [peopleSearches, setPeopleSearches] = useState<Array<{ id: string; label: string; description: string; query: string; url: string; publicProfileUrl: string }>>([]);
   const [contextSummary, setContextSummary] = useState("");
   const [isLoadingIdeas, setIsLoadingIdeas] = useState(false);
   const [ideasError, setIdeasError] = useState<string | null>(null);
@@ -908,7 +908,10 @@ export function ContentManager({
                     >
                       <span className="block text-xs font-semibold text-ink">{search.label}</span>
                       <span className="mt-1 block text-[11px] leading-relaxed text-ink-secondary">{search.description}</span>
-                      <span className="mt-2 block text-[10px] font-medium text-forest">Search LinkedIn people ↗</span>
+                      <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-medium text-forest">
+                        <span>Search LinkedIn ↗</span>
+                        <a href={search.publicProfileUrl} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2" onClick={(event) => event.stopPropagation()}>Public profile results ↗</a>
+                      </span>
                     </a>
                   ))}
                 </div>
