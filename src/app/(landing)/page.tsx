@@ -18,13 +18,13 @@ import EarlyAccessPage from "./early-access/page";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Nunuza: Talk it out. Post it right.",
+  title: "Nunuza: Automate your LinkedIn workflow.",
   description:
-    "Nunuza is the content agent for your LinkedIn. Send a rough thought, get a draft in your voice, approve it, and it publishes.",
+    "Nunuza helps professionals build a consistent LinkedIn presence. Turn ideas into on-brand drafts, review them, schedule posts, and publish with your approval.",
   openGraph: {
     title: "Nunuza: Talk it out. Post it right.",
     description:
-      "Send a rough thought. Nunuza drafts in your voice, you approve, and it publishes through LinkedIn's official connection.",
+      "Automate your LinkedIn content workflow with AI-assisted drafting, review, scheduling, and approval-first publishing through LinkedIn's official connection.",
     type: "website",
   },
 };
