@@ -42,7 +42,7 @@ export function OnboardingClient({
   const [audienceProblems, setAudienceProblems] = useState("");
   const [audienceOutcomes, setAudienceOutcomes] = useState("");
 
-  const [pillars, setPillars] = useState("Building in public\nFounder lessons\nProduct strategy\nTeam and hiring");
+  const [pillars, setPillars] = useState("Industry insights\nLessons from your work\nCustomer stories\nPractical advice");
   const [primaryGoal, setPrimaryGoal] = useState("");
   const [exclusions, setExclusions] = useState("");
   const [ctaPreferences, setCtaPreferences] = useState("");
@@ -274,7 +274,7 @@ export function OnboardingClient({
                     type="text"
                     value={role}
                     onChange={(e) => setRole(e.target.value)}
-                    placeholder="e.g. Founder, CEO"
+                    placeholder="e.g. Product manager, consultant, recruiter"
                     className="input-field"
                   />
                 </div>
@@ -300,7 +300,7 @@ export function OnboardingClient({
                     rows={3}
                     value={positioning}
                     onChange={(e) => setPositioning(e.target.value)}
-                    placeholder="e.g. I help B2B founders grow through technical content..."
+                    placeholder="e.g. I help teams improve customer experience through practical insights..."
                     className="input-field resize-none"
                   />
                 </div>
@@ -346,7 +346,7 @@ export function OnboardingClient({
                     rows={2}
                     value={audienceRoles}
                     onChange={(e) => setAudienceRoles(e.target.value)}
-                    placeholder="e.g. B2B SaaS founders, early-stage CTOs"
+                    placeholder="e.g. Operations leaders, hiring managers, small-business owners"
                     className="input-field resize-none"
                   />
                 </div>
@@ -359,7 +359,7 @@ export function OnboardingClient({
                     rows={3}
                     value={audienceProblems}
                     onChange={(e) => setAudienceProblems(e.target.value)}
-                    placeholder="e.g. Hard to get inbound leads without a large team..."
+                    placeholder="e.g. Hard to share useful insights consistently while managing daily work..."
                     className="input-field resize-none"
                   />
                 </div>
@@ -372,7 +372,7 @@ export function OnboardingClient({
                     rows={2}
                     value={audienceOutcomes}
                     onChange={(e) => setAudienceOutcomes(e.target.value)}
-                    placeholder="e.g. Build authority, attract design partners..."
+                    placeholder="e.g. Build professional credibility, attract clients, or reach relevant peers..."
                     className="input-field resize-none"
                   />
                 </div>
