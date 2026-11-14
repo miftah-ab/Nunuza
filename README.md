@@ -1,8 +1,8 @@
 # Nunuza
 
-LinkedIn content operations for solo founders.
+LinkedIn workflow automation for professionals, creators, consultants, recruiters, and business owners.
 
-**Current stage:** Draft-only preview.
+**Current stage:** Early access.
 
 ---
 
