@@ -131,7 +131,7 @@ export async function POST(request: Request) {
       "concept", "subject", "metaphor", "composition", "palette", "mood",
     ];
     if (
-      JSON.stringify(visualBrief).length > 4_000 ||
+      JSON.stringify(visualBrief).length > 6_000 ||
       requiredBriefFields.some((field) => typeof visualBrief[field] !== "string" || visualBrief[field].length > 420) ||
       !Array.isArray(visualBrief.avoid) ||
       visualBrief.avoid.length > 8 ||
