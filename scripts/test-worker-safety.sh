@@ -312,13 +312,15 @@ q -c "INSERT INTO profiles(id) VALUES ('$QUOTA_OWNER')" >/dev/null
 q -c "INSERT INTO workspaces(id,owner_user_id) VALUES ('$QUOTA_WS','$QUOTA_OWNER')" >/dev/null
 for n in $(seq 1 64); do
   (
-    psql -At -c "SELECT allowed::TEXT || ':' || COALESCE(reservation_id::TEXT,'') FROM reserve_draft_usage_slot('$QUOTA_WS','$QUOTA_OWNER',date_trunc('month',current_date)::DATE,(date_trunc('month',current_date)+interval '1 month - 1 day')::DATE,30)"
-  ) >> "$OUT/api-quota-reservations.txt" &
+    psql -At -c "SELECT allowed::TEXT || ':' || COALESCE(reservation_id::TEXT,'') FROM reserve_draft_usage_slot('$QUOTA_WS','$QUOTA_OWNER',date_trunc('month',current_date)::DATE,(date_trunc('month',current_date)+interval '1 month - 1 day')::DATE,30)" \
+      >> "$OUT/api-quota-reservations.txt" 2>> "$OUT/api-quota-errors.txt" \
+      || echo "psql reservation request failed" >> "$OUT/api-quota-reservations.txt"
+  ) &
 done
 wait
 API_RESERVED=$(grep -c '^true:' "$OUT/api-quota-reservations.txt" || true)
 API_DENIED=$(grep -c '^false:' "$OUT/api-quota-reservations.txt" || true)
-[ "$API_RESERVED" = "30" ] || fail "API quota must grant exactly 30 concurrent reservations, got $API_RESERVED"
+[ "$API_RESERVED" = "30" ] || { cat "$OUT/api-quota-errors.txt" 2>/dev/null || true; fail "API quota must grant exactly 30 concurrent reservations, got $API_RESERVED"; }
 [ "$API_DENIED" = "34" ] || fail "API quota must deny remaining concurrent reservations, got $API_DENIED"
 RESERVATION_ID=$(grep '^t:' "$OUT/api-quota-reservations.txt" | head -n 1 | cut -d: -f2)
 CREATED_POST=$(q -c "SELECT id FROM create_draft_with_usage('$RESERVATION_ID','$QUOTA_WS','$QUOTA_OWNER','A tested draft','Test title',NULL,NULL,'draft')")
