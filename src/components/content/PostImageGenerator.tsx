@@ -56,7 +56,7 @@ async function fetchVisualBrief(postId: string): Promise<VisualBrief> {
   });
   const payload = (await response.json()) as ImageApiResponse;
   if (!response.ok) throw new Error(payload.error || "Nunuza couldn’t analyze this post. Please try again.");
-  if (!payload.data?.visualBrief?.concept || !payload.data.visualBrief.subject) {
+  if (!payload.data?.visualBrief?.centralMessage || !payload.data.visualBrief.subject || !payload.data.visualBrief.action) {
     throw new Error("Nunuza couldn’t create a clear visual direction. Please try again.");
   }
   return payload.data.visualBrief;
@@ -233,7 +233,7 @@ export function PostImageGenerator({ postId, imagePath, onImageUpdated }: PostIm
           placeholder="Optional: emphasize a specific object, scene, or visual detail..."
           className="input-field w-full resize-y text-sm"
         />
-        <p className="mt-1 text-[11px] text-ink-muted">Nunuza has already chosen a concept from your post. Add a detail or preference only if you want to change its art direction.</p>
+        <p className="mt-1 text-[11px] text-ink-muted">Nunuza has analyzed the full post and prepared a specific art direction. Add a preference only if you want to change it.</p>
       </div>
 
       {error && <p role="alert" className="rounded-md bg-error/10 p-2.5 text-xs text-error">{error}</p>}
