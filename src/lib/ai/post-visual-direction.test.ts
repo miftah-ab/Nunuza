@@ -58,7 +58,7 @@ describe("post visual art direction", () => {
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe("openrouter/free");
-    expect(body.max_tokens).toBe(2200);
+    expect(body.max_tokens).toBe(4000);
     expect(body.response_format.json_schema.strict).toBe(true);
     expect(body.messages[1].content).toContain("FULL POST BODY");
     expect(body.messages[1].content).toContain("The goal is not to be seen by everyone");
