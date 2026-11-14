@@ -300,7 +300,10 @@ CREATED_POST=$(q -c "SELECT id FROM create_draft_with_usage('$RESERVATION_ID','$
 [ -n "$CREATED_POST" ] || fail "atomic draft creation must return a post ID"
 [ "$(q -c "SELECT count(*) FROM content_post_versions WHERE post_id='$CREATED_POST' AND version_number=1")" = "1" ] || fail "initial version must be committed with the draft"
 [ "$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$QUOTA_WS' AND metric='draft_items_created'")" = "1" ] || fail "draft usage must increment in the same transaction"
-[ "$(q -c "SELECT count(*) FROM draft_usage_reservations WHERE id='$RESERVATION_ID' AND status='committed'")" = "0" ] || fail "committed reservation must be removed"
+[ "$(q -c "SELECT count(*) FROM draft_usage_reservations WHERE id='$RESERVATION_ID' AND status='committed'")" = "1" ] || fail "committed reservation must be retained as an idempotency receipt"
+RETRIED_POST=$(q -c "SELECT id FROM create_draft_with_usage('$RESERVATION_ID','$QUOTA_WS','$QUOTA_OWNER','A tested draft','Test title',NULL,NULL,'draft')")
+[ "$RETRIED_POST" = "$CREATED_POST" ] || fail "retrying a committed reservation must return the same post"
+[ "$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$QUOTA_WS' AND metric='draft_items_created'")" = "1" ] || fail "idempotent draft retry must not double count usage"
 echo "ok: concurrent API draft creation enforces the monthly cap and commits post/version/usage atomically"
 
 # Releasing a failed request frees its reserved slot; an expired reservation
