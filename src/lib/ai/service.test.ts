@@ -86,20 +86,16 @@ describe("AI Service & Generation Pipeline", () => {
     expect(result.text).not.toContain("**");
   });
 
-  it("strictly enforces hard max 3,000 characters limit", async () => {
+  it("rejects oversized generated text instead of silently cutting it off", async () => {
     const mock = new MockAiProvider();
-    // Simulate oversized text
-    vi.spyOn(mock, "generateDraft").mockImplementation(async (req) => {
-      const longText = "A".repeat(4000);
-      return {
-        text: longText.slice(0, 3000),
-        internalTitle: req.topic,
-        providerUsed: "mock_deterministic",
-        modelUsed: "mock-v1",
-        estimatedTokens: 750,
-        generatedAt: new Date().toISOString(),
-      };
-    });
+    vi.spyOn(mock, "generateDraft").mockImplementation(async (req) => ({
+      text: "A".repeat(4000),
+      internalTitle: req.topic,
+      providerUsed: "mock_deterministic",
+      modelUsed: "mock-v1",
+      estimatedTokens: 1000,
+      generatedAt: new Date().toISOString(),
+    }));
 
     const service = new AiService(
       new GroqProvider(""),
@@ -107,8 +103,24 @@ describe("AI Service & Generation Pipeline", () => {
       mock
     );
 
-    const result = await service.generateDraft({ topic: "Long content test" });
-    expect(result.text.length).toBeLessThanOrEqual(3000);
+    await expect(service.generateDraft({ topic: "Long content test" }))
+      .rejects.toThrow("AI_POST_TOO_LONG");
+  });
+
+  it("does not replace a known incomplete AI response with a mock draft", async () => {
+    const groq = new GroqProvider("mock-key");
+    vi.spyOn(groq, "isConfigured").mockReturnValue(true);
+    vi.spyOn(groq, "generateDraft").mockRejectedValue(
+      new Error("AI_INCOMPLETE_OUTPUT: Provider reached its output-token limit.")
+    );
+
+    const mock = new MockAiProvider();
+    const mockGenerate = vi.spyOn(mock, "generateDraft");
+
+    const service = new AiService(groq, new OpenRouterProvider(""), mock);
+    await expect(service.generateDraft({ topic: "A long post" }))
+      .rejects.toThrow("AI_INCOMPLETE_OUTPUT");
+    expect(mockGenerate).not.toHaveBeenCalled();
   });
 
   it("generates a structured plan adhering to cadence bounds", async () => {
