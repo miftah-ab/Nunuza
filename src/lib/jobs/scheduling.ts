@@ -23,6 +23,7 @@ import { logAuditEvent } from "@/lib/db/workspace";
 import { publishPostToLinkedIn, publishMediaPostToLinkedIn, LinkedInPublishError } from "@/lib/integrations/linkedin/client";
 import { transitionJob, markJobRetryable, markJobTerminal } from "./state";
 import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
+import { getPolarService } from "@/lib/integrations/polar/service";
 import type { AgentJob, ContentPost } from "@/types/database";
 import type { JobExecutionResult, PublishPostPayload } from "./types";
 import { safeJobErrorMessage } from "./error-message";
@@ -51,6 +52,8 @@ export async function schedulePost(
   if (workspace.id !== claimedWorkspaceId) {
     throw new ForbiddenError("You do not have access to this workspace.");
   }
+
+  workspace.entitlement_type = await getPolarService().getVerifiedWorkspaceEntitlement(workspace.id);
 
   // 1. Strict entitlement gate (draft_only cannot schedule, BED-02)
   if (!canSchedule(workspace)) {
@@ -427,7 +430,22 @@ export async function executePublishJob(
     .eq("id", job.workspace_id)
     .single();
 
-  if (!workspace || !canPublish(workspace)) {
+  if (!workspace) {
+    return terminal("WORKSPACE_NOT_FOUND", "Workspace could not be found.");
+  }
+
+  try {
+    workspace.entitlement_type = await getPolarService().getVerifiedWorkspaceEntitlement(
+      workspace.id,
+      supabase
+    );
+  } catch (error) {
+    console.error("[publisher] Polar entitlement verification failed:", error);
+    await retryOutcome("Billing status could not be verified.", "BILLING_VERIFICATION_UNAVAILABLE");
+    return fail("failed_retryable", true, "Billing status could not be verified.");
+  }
+
+  if (!canPublish(workspace)) {
     return terminal("ENTITLEMENT_INSUFFICIENT", "Workspace entitlement does not permit publishing.");
   }
 
@@ -769,6 +787,8 @@ export async function publishPostNow(
   if (workspace.id !== claimedWorkspaceId) {
     throw new ForbiddenError("You do not have access to this workspace.");
   }
+
+  workspace.entitlement_type = await getPolarService().getVerifiedWorkspaceEntitlement(workspace.id);
 
   // 1. Strict entitlement gate (draft_only cannot publish, BED-02)
   if (!canPublish(workspace)) {
