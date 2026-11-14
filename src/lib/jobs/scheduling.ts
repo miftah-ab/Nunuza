@@ -9,7 +9,7 @@
  * 5. Safe fail-closed behavior when external publishing gate is pending
  */
 
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/server";
 import {
   requireWorkspace,
   canSchedule,
@@ -80,131 +80,47 @@ export async function schedulePost(
     throw new Error("Scheduled time must be a valid future timestamp.");
   }
 
-  let supabase: any;
-  try {
-    supabase = createServiceClient();
-  } catch {
-    // fallback
-  }
-  if (!supabase) {
-    supabase = await createClient();
-  }
-
-  // 4. Enforce workspace-configured daily and rolling 7-day scheduling limits.
-  const dayStart = new Date(Date.UTC(targetDate.getUTCFullYear(), targetDate.getUTCMonth(), targetDate.getUTCDate()));
-  const dayEnd = new Date(dayStart);
-  dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
-
-  const { data: sameDayPosts, error: sameDayErr } = await supabase
-    .from("content_posts")
-    .select("id")
-    .eq("workspace_id", workspace.id)
-    .eq("status", "scheduled")
-    .neq("id", postId)
-    .gte("scheduled_at", dayStart.toISOString())
-    .lt("scheduled_at", dayEnd.toISOString());
-
-  if (sameDayErr) throw new Error(`[scheduler] Day cap check failed: ${sameDayErr.message}`);
-
-  if (sameDayPosts && sameDayPosts.length >= (workspace.max_posts_per_day ?? 10)) {
-    throw new Error(`Daily scheduling limit reached. Your limit is ${workspace.max_posts_per_day ?? 10} post(s) per day.`);
-  }
-
-  // Rolling 7-day window check
-  const windowStart = new Date(targetDate.getTime() - 7 * 86400000);
-  const { data: rollingPosts, error: rollingErr } = await supabase
-    .from("content_posts")
-    .select("id")
-    .eq("workspace_id", workspace.id)
-    .eq("status", "scheduled")
-    .neq("id", postId)
-    .gte("scheduled_at", windowStart.toISOString())
-    .lte("scheduled_at", targetDate.toISOString());
-
-  if (rollingErr) throw new Error(`[scheduler] Rolling cap check failed: ${rollingErr.message}`);
-
-  if (rollingPosts && rollingPosts.length >= (workspace.max_posts_per_7_days ?? 50)) {
-    throw new Error(`Rolling 7-day scheduling limit reached. Your limit is ${workspace.max_posts_per_7_days ?? 50} post(s).`);
-  }
-
-  // 5. Stable idempotency key
-  const idempotencyKey = `publish-${workspace.id}-${postId}`;
-
-  // 6. Insert or update job in agent_jobs
-  const payload: PublishPostPayload = {
-    postId,
-    workspaceId: workspace.id,
-    userId: workspace.owner_user_id,
-    targetProvider: "linkedin",
-    scheduledFor: targetDate.toISOString(),
-  };
-
-  // Check for existing job with same idempotency key to implement idempotency
-  // (upsert with onConflict requires a DB unique constraint; use check-then-insert instead)
-  const { data: existingJob } = await supabase
-    .from("agent_jobs")
-    .select()
-    .eq("idempotency_key", idempotencyKey)
-    .maybeSingle();
-
-  let job: AgentJob;
-
-  if (existingJob) {
-    // Re-queue the existing job (e.g. if it previously failed or was cancelled)
-    const { data: updatedJob, error: updateErr } = await supabase
-      .from("agent_jobs")
-      .update({
-        status: "queued",
-        payload: payload as unknown as Record<string, unknown>,
-        scheduled_for: targetDate.toISOString(),
-        attempt_count: 0,
-        safe_error_message: null,
-      })
-      .eq("id", existingJob.id)
-      .select()
-      .single();
-
-    if (updateErr) {
-      throw new Error(`[scheduler] Failed to re-queue publishing job: ${updateErr.message}`);
+  // The database RPC re-checks owner, entitlement, pause state, post status,
+  // daily/rolling caps, and the existing job state under transaction locks.
+  // Job creation/requeue and post status change commit or roll back together.
+  const supabase = createServiceClient();
+  const { data: scheduleData, error: scheduleError } = await supabase.rpc(
+    "schedule_post_atomic",
+    {
+      p_workspace_id: workspace.id,
+      p_post_id: postId,
+      p_owner_user_id: workspace.owner_user_id,
+      p_scheduled_for: targetDate.toISOString(),
     }
-    job = updatedJob as AgentJob;
-  } else {
-    const { data: newJob, error: jobErr } = await supabase
-      .from("agent_jobs")
-      .insert({
-        workspace_id: workspace.id,
-        job_type: "publish_post",
-        status: "queued",
-        idempotency_key: idempotencyKey,
-        payload: payload as unknown as Record<string, unknown>,
-        scheduled_for: targetDate.toISOString(),
-        attempt_count: 0,
-        max_attempts: 3,
-        safe_error_message: null,
-      })
-      .select()
-      .single();
+  );
 
-    if (jobErr) {
-      throw new Error(`[scheduler] Failed to enqueue publishing job: ${jobErr.message}`);
-    }
-    job = newJob as AgentJob;
+  if (scheduleError) {
+    throw new Error(`[scheduler] Atomic scheduling failed: ${scheduleError.message}`);
   }
 
-  // 7. Transition post status to scheduled
-  const { data: updatedPost, error: postErr } = await supabase
-    .from("content_posts")
-    .update({
-      status: "scheduled",
-      scheduled_at: targetDate.toISOString(),
-    })
-    .eq("id", postId)
-    .eq("workspace_id", workspace.id)
-    .select()
-    .single();
+  const scheduleResult = Array.isArray(scheduleData) ? scheduleData[0] : scheduleData;
+  if (!scheduleResult?.success) {
+    const reason = String(scheduleResult?.reason ?? "SCHEDULING_NOT_CONFIRMED");
+    const messages: Record<string, string> = {
+      INVALID_SCHEDULE_TIME: "Choose a valid future publishing time.",
+      WORKSPACE_ACCESS_DENIED: "You do not have access to schedule posts in this workspace.",
+      ENTITLEMENT_REQUIRED: "Scheduling requires an eligible publishing workspace.",
+      WORKSPACE_PAUSED: "Nunuza is paused. Resume it before scheduling posts.",
+      POST_NOT_FOUND: "This draft could not be found in your workspace.",
+      POST_NOT_APPROVED: "Only approved posts can be scheduled.",
+      DAILY_CAP_REACHED: "Your daily LinkedIn scheduling limit has been reached.",
+      WEEKLY_CAP_REACHED: "Your rolling seven-day LinkedIn scheduling limit has been reached.",
+      IDEMPOTENCY_KEY_CONFLICT: "This post has a conflicting publishing job. Contact support before trying again.",
+      JOB_STATE_NOT_RESCHEDULABLE: "This publishing job is already running, completed, or requires reconciliation. It was not re-queued.",
+      JOB_ATTEMPTS_EXHAUSTED: "This publishing job has exhausted its retry attempts and cannot be silently restarted.",
+    };
+    throw new Error(messages[reason] ?? "Nunuza could not safely schedule this post. No changes were committed.");
+  }
 
-  if (postErr) {
-    throw new Error(`[scheduler] Failed to update post to scheduled: ${postErr.message}`);
+  const job = scheduleResult.job as AgentJob;
+  const updatedPost = scheduleResult.post as ContentPost;
+  if (!job?.id || !updatedPost?.id || updatedPost.id !== postId || job.status !== "queued" || updatedPost.status !== "scheduled") {
+    throw new Error("[scheduler] Atomic scheduling returned an invalid persisted result.");
   }
 
   // 8. Audit logging
