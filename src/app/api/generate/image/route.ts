@@ -225,7 +225,17 @@ export async function POST(request: Request) {
     uploadedPath = null;
 
     if (post.image_path && post.image_path !== path && post.image_path.startsWith(`${workspace.id}/`)) {
-      await service.storage.from(BUCKET).remove([post.image_path]);
+      try {
+        const { error: oldImageCleanupError } = await service.storage.from(BUCKET).remove([post.image_path]);
+        if (oldImageCleanupError) {
+          console.error("[image-generation] Previous image cleanup failed after successful replacement.");
+        }
+      } catch (cleanupError) {
+        // The new image is already attached and its quota committed. Cleanup of
+        // the superseded object must not turn a successful save into a retryable
+        // API failure that could generate and charge a second image.
+        console.error("[image-generation] Previous image cleanup failed after successful replacement.", cleanupError);
+      }
     }
 
     await logAuditEvent({
