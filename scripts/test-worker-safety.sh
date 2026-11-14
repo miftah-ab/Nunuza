@@ -139,7 +139,7 @@ echo "ok: rolling seven-day cap enforced"
 # The migration defaults every existing and new workspace to 10/day and 50/7 days.
 DEFAULT_WS="10000000-0000-0000-0000-000000000005"
 q -c "INSERT INTO workspaces(id) VALUES ('$DEFAULT_WS')" >/dev/null
-DEFAULT_LIMITS=$(q -c "SELECT max_posts_per_day || ':' || max_posts_per_7_days FROM workspaces WHERE id='$DEFAULT_WS'")
+DEFAULT_LIMITS=$(q -c "SELECT max_posts_per_day::text || ':' || max_posts_per_7_days::text FROM workspaces WHERE id='$DEFAULT_WS'")
 [ "$DEFAULT_LIMITS" = "10:50" ] || fail "expected workspace publishing defaults 10:50, got $DEFAULT_LIMITS"
 echo "ok: configurable publishing defaults are 10/day and 50/7 days"
 
