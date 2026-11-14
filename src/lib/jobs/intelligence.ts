@@ -294,8 +294,8 @@ function buildResearchQuery(strategy: any): string {
 export function buildCycleNotificationMessage(mode: "autopilot" | "approval_required"): string {
   // Notifications report what Nunuza did, never relay third-party news headlines or links.
   return mode === "autopilot"
-    ? "Nunuza queued a LinkedIn post under your enabled Autopilot settings.\\nYou can check its status in Nunuza or use /drafts in Telegram."
-    : "A new LinkedIn draft is ready for your review.\\nOpen Nunuza or use /drafts in Telegram to review and approve it.";
+    ? "Nunuza queued a LinkedIn post under your enabled Autopilot settings.\nYou can check its status in Nunuza or use /drafts in Telegram."
+    : "A new LinkedIn draft is ready for your review.\nOpen Nunuza or use /drafts in Telegram to review and approve it.";
 }
 
 async function fetchResearch(query: string): Promise<ResearchItem[]> {
