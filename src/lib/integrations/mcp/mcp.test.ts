@@ -188,14 +188,12 @@ describe("Remote MCP Integration", () => {
     mockDb = new MockMcpDb();
   });
 
-  describe("Schema Discovery & Approval Controls", () => {
-    it("exposes approve_draft as a separate owner-directed action", () => {
+  describe("Schema Discovery & Human Approval Boundary", () => {
+    it("does not expose approval or publishing tools to MCP", () => {
       const toolNames = MCP_TOOLS.map((tool) => tool.name);
-      expect(toolNames).toContain("approve_draft");
-      const approvalTool = MCP_TOOLS.find((tool) => tool.name === "approve_draft");
-      expect(approvalTool?.inputSchema.required).toContain("draft_id");
-      expect(approvalTool?.description).toContain("explicitly instructs");
-      expect(approvalTool?.description).toContain("does not schedule or publish");
+      expect(toolNames).not.toContain("approve_draft");
+      expect(toolNames).not.toContain("publish_now");
+      expect(toolNames).toContain("schedule_post");
     });
 
     it("exposes all required read and write tools with valid schemas", () => {
@@ -219,32 +217,13 @@ describe("Remote MCP Integration", () => {
       expect(toolNames).toContain("schedule_post");
       expect(toolNames).toContain("cancel_scheduled_post");
     });
-  });
 
-  describe("Explicit MCP draft approval", () => {
-    it("approves a workspace-owned review draft when entitlement permits it", async () => {
-      mockDb.contentPosts.push({
-        id: "post-3", workspace_id: "ws-bbb", text: "Draft B awaiting review",
-        internal_title: "Hook B review", version: 1, status: "needs_review",
-        created_at: new Date().toISOString(),
-      });
-      const result = await executeMcpTool("approve_draft", { draft_id: "post-3" },
-        { workspaceId: "ws-bbb", userId: "user-bbb", scopes: ["write"] }, mockDb.createClient());
-      expect(result.success).toBe(true);
-      expect(result.draft.status).toBe("approved");
-      expect(result.next_step).toContain("explicitly requests");
-    });
-
-    it("rejects approval for draft-only workspaces", async () => {
-      await expect(executeMcpTool("approve_draft", { draft_id: "post-1" },
-        { workspaceId: "ws-aaa", userId: "user-aaa", scopes: ["write"] }, mockDb.createClient()))
-        .rejects.toThrow("does not have approval and publishing access");
-    });
-
-    it("rejects posts that are not awaiting review", async () => {
-      await expect(executeMcpTool("approve_draft", { draft_id: "post-2" },
-        { workspaceId: "ws-bbb", userId: "user-bbb", scopes: ["write"] }, mockDb.createClient()))
-        .rejects.toThrow("Only drafts awaiting review can be approved");
+    it("rejects approval attempts because approval belongs in the app or Telegram", async () => {
+      await expect(executeMcpTool("approve_draft", { draft_id: "post-3" }, {
+        workspaceId: "ws-bbb",
+        userId: "user-bbb",
+        scopes: ["write"],
+      }, mockDb.createClient())).rejects.toThrow("Unknown MCP tool");
     });
   });
 
