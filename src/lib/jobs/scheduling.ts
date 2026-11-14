@@ -2,7 +2,7 @@
  * Durable Job Scheduler & Publishing Gate.
  *
  * Implements BED-02, BED-03, BED-04 & BED-09:
- * 1. Hard caps: max 1 post/day and 7 posts/rolling 7-day window
+ * 1. Hard caps: workspace-configured daily and rolling 7-day publishing limits
  * 2. Strict entitlement gate: draft_only workspaces CANNOT schedule
  * 3. Idempotent scheduling: stable idempotency key prevents duplicate queued jobs
  * 4. Lease acquisition and state reconciliation
@@ -37,8 +37,8 @@ export interface SchedulePostResult {
  * Enforces:
  *   - Entitlement gate (draft_only workspaces strictly rejected)
  *   - Agent pause check
- *   - Daily cap (max 1 scheduled post/calendar day)
- *   - Weekly cap (max 7 scheduled posts per rolling 7 days)
+ *   - Workspace-configured daily publishing cap
+ *   - Workspace-configured rolling 7-day publishing cap
  *   - Idempotency key per post
  */
 export async function schedulePost(
@@ -90,7 +90,7 @@ export async function schedulePost(
     supabase = await createClient();
   }
 
-  // 4. Rate-limit checks: 1 post/day cap & 7 posts/rolling 7 days (BED-02)
+  // 4. Enforce workspace-configured daily and rolling 7-day scheduling limits.
   const dayStart = new Date(Date.UTC(targetDate.getUTCFullYear(), targetDate.getUTCMonth(), targetDate.getUTCDate()));
   const dayEnd = new Date(dayStart);
   dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
@@ -106,8 +106,8 @@ export async function schedulePost(
 
   if (sameDayErr) throw new Error(`[scheduler] Day cap check failed: ${sameDayErr.message}`);
 
-  if (sameDayPosts && sameDayPosts.length >= 1) {
-    throw new Error("Cap reached: Maximum 1 scheduled post per calendar day.");
+  if (sameDayPosts && sameDayPosts.length >= (workspace.max_posts_per_day ?? 10)) {
+    throw new Error(`Cap reached: Maximum ${workspace.max_posts_per_day ?? 10} scheduled posts per calendar day.`);
   }
 
   // Rolling 7-day window check
@@ -123,8 +123,8 @@ export async function schedulePost(
 
   if (rollingErr) throw new Error(`[scheduler] Rolling cap check failed: ${rollingErr.message}`);
 
-  if (rollingPosts && rollingPosts.length >= 7) {
-    throw new Error("Cap reached: Maximum 7 scheduled posts per rolling 7-day period.");
+  if (rollingPosts && rollingPosts.length >= (workspace.max_posts_per_7_days ?? 50)) {
+    throw new Error(`Cap reached: Maximum ${workspace.max_posts_per_7_days ?? 50} scheduled posts per rolling 7-day period.`);
   }
 
   // 5. Stable idempotency key
@@ -563,9 +563,9 @@ export async function executePublishJob(
   if (!slot?.allowed) {
     const reason = String(slot?.reason ?? "POST_NOT_ELIGIBLE");
     const message = reason === "DAILY_CAP_REACHED"
-      ? "Cap reached: Maximum 1 post per calendar day."
+      ? `Daily publishing limit reached (${workspace.max_posts_per_day ?? 10} posts per day). Update your workspace settings to change it.`
       : reason === "WEEKLY_CAP_REACHED"
-        ? "Cap reached: Maximum 7 posts per rolling 7-day period."
+        ? `Rolling 7-day publishing limit reached (${workspace.max_posts_per_7_days ?? 50} posts). Update your workspace settings to change it.`
         : "This post is no longer eligible for publishing.";
     await transitionOutcome("canceled", {
       finished_at: new Date().toISOString(),
@@ -758,8 +758,8 @@ export interface PublishNowResult {
  *   - Entitlement gate (draft_only workspaces strictly rejected)
  *   - Agent pause check
  *   - Approval check (post must be approved)
- *   - Daily cap (max 1 post/calendar day)
- *   - Weekly cap (max 7 posts/rolling 7 days)
+ *   - Workspace-configured daily publishing cap
+ *   - Workspace-configured rolling 7-day publishing cap
  *   - Idempotency key per post / duplicate prevention
  */
 export async function publishPostNow(
@@ -811,7 +811,7 @@ export async function publishPostNow(
 
   const now = new Date();
 
-  // 4. Rate-limit checks: 1 post/day cap & 7 posts/rolling 7 days (BED-02)
+  // 4. Enforce workspace-configured daily and rolling 7-day publishing limits.
   const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const dayEnd = new Date(dayStart);
   dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
@@ -839,8 +839,8 @@ export async function publishPostNow(
   if (pubErr) throw new Error(`[publisher] Day cap check failed: ${pubErr.message}`);
 
   const totalSameDay = (sameDayScheduled?.length || 0) + (sameDayPublished?.length || 0);
-  if (totalSameDay >= 1) {
-    throw new Error("Cap reached: Maximum 1 post per calendar day.");
+  if (totalSameDay >= (workspace.max_posts_per_day ?? 10)) {
+    throw new Error(`Daily publishing limit reached (${workspace.max_posts_per_day ?? 10} posts per day). Update your workspace settings to change it.`);
   }
 
   // Rolling 7-day window check
@@ -868,8 +868,8 @@ export async function publishPostNow(
   if (rollPubErr) throw new Error(`[publisher] Rolling cap check failed: ${rollPubErr.message}`);
 
   const totalRolling = (rollingScheduled?.length || 0) + (rollingPublished?.length || 0);
-  if (totalRolling >= 7) {
-    throw new Error("Cap reached: Maximum 7 posts per rolling 7-day period.");
+  if (totalRolling >= (workspace.max_posts_per_7_days ?? 50)) {
+    throw new Error(`Rolling 7-day publishing limit reached (${workspace.max_posts_per_7_days ?? 50} posts). Update your workspace settings to change it.`);
   }
 
   // 5. Stable idempotency key & duplicate prevention
