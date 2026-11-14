@@ -38,12 +38,15 @@ export class AiService {
       throw new Error("Draft topic cannot be empty.");
     }
 
+    let integrityError: Error | null = null;
+
     // 1. Try Primary: Groq
     if (this.primary.isConfigured()) {
       try {
         const result = await this.primary.generateDraft(request);
         return this.normalizeDraftResult(result);
       } catch (err) {
+        if (this.isDraftIntegrityError(err)) integrityError = err;
         console.warn("[ai] Primary provider (Groq) failed. Attempting fallback.", err);
       }
     }
@@ -54,9 +57,14 @@ export class AiService {
         const result = await this.fallback.generateDraft(request);
         return this.normalizeDraftResult(result);
       } catch (err) {
+        if (this.isDraftIntegrityError(err)) integrityError = err;
         console.warn("[ai] Fallback provider (OpenRouter) failed.", err);
       }
     }
+
+    // Never turn a known incomplete/oversized response into a plausible-looking
+    // mock draft. The user must receive an error rather than publish partial text.
+    if (integrityError) throw integrityError;
 
     // 3. Offline / Deterministic Mock
     // Transparently marks providerUsed as 'mock_deterministic'
@@ -64,8 +72,21 @@ export class AiService {
     return this.normalizeDraftResult(await this.mock.generateDraft(request));
   }
 
+  private isDraftIntegrityError(err: unknown): err is Error {
+    return err instanceof Error &&
+      (err.message.startsWith("AI_INCOMPLETE_OUTPUT:") ||
+       err.message.startsWith("AI_POST_TOO_LONG:"));
+  }
+
   private normalizeDraftResult(result: DraftGenerationResult): DraftGenerationResult {
-    return { ...result, text: normalizeLinkedInPostText(result.text).slice(0, 3000) };
+    const text = normalizeLinkedInPostText(result.text);
+    if (!text) {
+      throw new Error("AI_INCOMPLETE_OUTPUT: The generated post was empty after formatting.");
+    }
+    if (text.length > 3000) {
+      throw new Error("AI_POST_TOO_LONG: The generated post exceeds LinkedIn's 3,000-character limit. Generate a shorter post.");
+    }
+    return { ...result, text };
   }
 
   async generatePlan(request: PlanGenerationRequest): Promise<PlanGenerationResult> {
