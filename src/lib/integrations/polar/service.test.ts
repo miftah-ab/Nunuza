@@ -130,60 +130,94 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
   const OTHER_WORKSPACE_ID = "ws_test_tenant_b";
 
   beforeEach(() => {
-    service = new PolarService();
+    const polarClient = new PolarClient({
+      accessToken: "test-token",
+      productId: "prod_nunuza_solo",
+      priceId: "price_29_mo",
+      server: "sandbox",
+    });
+    service = new PolarService(polarClient);
     dbTables = {
       billing_webhook_events: [],
       subscriptions: [],
       billing_customers: [],
       workspaces: [
-        { id: WORKSPACE_ID, entitlement_type: "draft_only" },
-        { id: OTHER_WORKSPACE_ID, entitlement_type: "draft_only" },
+        { id: WORKSPACE_ID, entitlement_type: "draft_only", access_mode: "commercial" },
+        { id: OTHER_WORKSPACE_ID, entitlement_type: "draft_only", access_mode: "commercial" },
       ],
       audit_events: [],
     };
 
     mockSupabase = {
       from: vi.fn((table: string) => {
-        return {
-          select: vi.fn((columns?: string) => ({
-            eq: vi.fn((col: string, val: any) => ({
-              maybeSingle: vi.fn(async () => {
-                const found = dbTables[table]?.find((r) => r[col] === val);
-                return { data: found ? { ...found } : null, error: null };
-              }),
-              single: vi.fn(async () => {
-                const found = dbTables[table]?.find((r) => r[col] === val);
-                return { data: found ? { ...found } : null, error: null };
-              }),
-            })),
-          })),
-          upsert: vi.fn(async (row: any, opts?: any) => {
-            const list = dbTables[table] || (dbTables[table] = []);
-            const conflictKey = opts?.onConflict || "id";
-            const idx = list.findIndex((r) => r[conflictKey] === row[conflictKey]);
-            if (idx >= 0) {
-              list[idx] = { ...list[idx], ...row };
-            } else {
-              list.push({ ...row });
+        const filters: Array<{ column: string; value: any }> = [];
+        const query: any = {};
+        query.select = vi.fn(() => query);
+        query.eq = vi.fn((column: string, value: any) => {
+          filters.push({ column, value });
+          return query;
+        });
+        query.order = vi.fn(() => query);
+        query.limit = vi.fn(() => query);
+        query.maybeSingle = vi.fn(async () => {
+          const found = (dbTables[table] || []).find((row) =>
+            filters.every((filter) => row[filter.column] === filter.value)
+          );
+          return { data: found ? { ...found } : null, error: null };
+        });
+        query.single = vi.fn(async () => {
+          const found = (dbTables[table] || []).find((row) =>
+            filters.every((filter) => row[filter.column] === filter.value)
+          );
+          return { data: found ? { ...found } : null, error: null };
+        });
+        query.upsert = vi.fn(async (row: any, opts?: any) => {
+          const list = dbTables[table] || (dbTables[table] = []);
+          const conflictKey = opts?.onConflict || "id";
+          const idx = list.findIndex((item) => item[conflictKey] === row[conflictKey]);
+          if (idx >= 0) list[idx] = { ...list[idx], ...row };
+          else list.push({ ...row });
+          return { data: row, error: null };
+        });
+        query.update = vi.fn((updates: any) => ({
+          eq: vi.fn(async (column: string, value: any) => {
+            const list = dbTables[table] || [];
+            for (const row of list) {
+              if (row[column] === value) Object.assign(row, updates);
             }
-            return { data: row, error: null };
+            return { data: updates, error: null };
           }),
-          update: vi.fn((updates: any) => ({
-            eq: vi.fn(async (col: string, val: any) => {
-              const list = dbTables[table] || [];
-              for (const r of list) {
-                if (r[col] === val) {
-                  Object.assign(r, updates);
-                }
-              }
-              return { data: updates, error: null };
-            }),
-          })),
-          insert: vi.fn(async (row: any) => {
-            dbTables[table]?.push(row);
-            return { data: row, error: null };
-          }),
-        };
+        }));
+        query.insert = vi.fn(async (row: any) => {
+          const list = dbTables[table] || (dbTables[table] = []);
+          list.push({ ...row });
+          return { data: row, error: null };
+        });
+        return query;
+      }),
+      rpc: vi.fn(async (name: string, args: any) => {
+        if (name !== "claim_billing_webhook_event") {
+          return { data: null, error: { message: "Unknown RPC" } };
+        }
+        const events = dbTables.billing_webhook_events;
+        const existing = events.find((row) => row.provider_event_id === args.p_provider_event_id);
+        if (!existing) {
+          events.push({
+            provider_event_id: args.p_provider_event_id,
+            type: args.p_event_type,
+            processing_status: "pending",
+            processing_started_at: new Date().toISOString(),
+            attempt_count: 1,
+          });
+          return { data: [{ claimed: true, reason: "CLAIMED" }], error: null };
+        }
+        if (["processed", "duplicate"].includes(existing.processing_status)) {
+          return { data: [{ claimed: false, reason: "ALREADY_PROCESSED" }], error: null };
+        }
+        existing.processing_status = "pending";
+        existing.processing_started_at = new Date().toISOString();
+        existing.attempt_count = (existing.attempt_count || 0) + 1;
+        return { data: [{ claimed: true, reason: "RECLAIMED" }], error: null };
       }),
     };
   });
@@ -339,7 +373,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
     expect(ws?.entitlement_type).toBe("paid_active");
   });
 
-  it("handles subscription.revoked -> transitions entitlement to suspended", async () => {
+  it("handles subscription.revoked -> transitions entitlement to inactive", async () => {
     const event: PolarWebhookEvent = {
       id: "evt_revoked_005",
       type: "subscription.revoked",
@@ -368,7 +402,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
     expect(result.status).toBe("processed");
 
     const ws = dbTables.workspaces.find((w) => w.id === WORKSPACE_ID);
-    expect(ws?.entitlement_type).toBe("suspended");
+    expect(ws?.entitlement_type).toBe("inactive");
   });
 
   it("does not downgrade or overwrite a private beta tester workspace via Polar webhook", async () => {
@@ -411,7 +445,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
     };
 
     const result = await service.processWebhookEvent(event, mockSupabase);
-    expect(result.status).toBe("processed");
+    expect(result.status).toBe("skipped");
 
     const ws = dbTables.workspaces.find((w) => w.id === BETA_WS_ID);
     expect(ws?.entitlement_type).toBe("internal_beta");
