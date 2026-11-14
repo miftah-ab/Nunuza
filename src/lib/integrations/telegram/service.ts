@@ -19,6 +19,7 @@
 import crypto from "crypto";
 import { createServiceClient } from "@/lib/supabase/server";
 import { handleTelegramConversation } from "./conversation";
+import { getDraftUsagePeriod } from "@/lib/db/usage";
 
 // ─── Durable webhook idempotency ──────────────────────────────────────────────
 
@@ -1239,35 +1240,33 @@ export async function handleCallbackQuery(
 
   // ── Performance ──
   if (data === "menu:performance") {
-    const now = new Date();
-    const currentPeriod = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+    try {
+      const quotaPeriod = await getDraftUsagePeriod(workspaceId, workspace.owner_user_id);
+      const { data: usageData, error: usageError } = await supabase.rpc("get_draft_usage_status", {
+        p_workspace_id: workspaceId,
+        p_owner_user_id: workspace.owner_user_id,
+        p_period_start: quotaPeriod.periodStart,
+        p_metric: quotaPeriod.metric,
+      });
 
-    const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
-    const { data: usage, error: usageError } = await supabase
-      .from("usage_counters")
-      .select("count")
-      .eq("workspace_id", workspaceId)
-      .eq("metric", "draft_items_created")
-      .eq("period_start", periodStart)
-      .maybeSingle();
+      if (usageError) throw usageError;
+      const usage = Array.isArray(usageData) ? usageData[0] : usageData;
+      const used = Number(usage?.used_count ?? 0) + Number(usage?.reserved_count ?? 0);
 
-    if (usageError) {
-      await editTelegramMessage(ctx.chatId, ctx.messageId, "❌ *Monthly usage is temporarily unavailable\\.* Please retry\\.", { inline_keyboard: [navRow()] });
-      return;
+      await editTelegramMessage(
+        ctx.chatId,
+        ctx.messageId,
+        `📈 *Draft Usage*\\n\\n` +
+        `• *Generated items:* ${used} / 30\\n` +
+        `• *Daily cap:* Max 1 post/day\\n` +
+        `• *Weekly cap:* Max 7 posts/week\\n` +
+        `• *Resets on:* ${escapeMd(quotaPeriod.resetsOn)}\\n\\n` +
+        `_Usage counters only; LinkedIn audience analytics are not connected._`,
+        { inline_keyboard: [navRow()] }
+      );
+    } catch {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, "❌ *Draft usage is temporarily unavailable\\.* Please retry\\.", { inline_keyboard: [navRow()] });
     }
-    const used = usage?.count ?? 0;
-
-    await editTelegramMessage(
-      ctx.chatId,
-      ctx.messageId,
-      `📈 *Monthly Draft Usage \\— ${escapeMd(currentPeriod)}*\n\n` +
-      `• *Drafts Generated:* ${used} / 30\n` +
-      `• *Daily Cap:* Max 1 post/day\n` +
-      `• *Weekly Cap:* Max 7 posts/week\n` +
-      `• *Reset:* 1st of next month\n\n` +
-      `_Usage counters only; LinkedIn audience analytics are not connected._`,
-      { inline_keyboard: [navRow()] }
-    );
     return;
   }
 
