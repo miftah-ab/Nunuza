@@ -24,6 +24,13 @@ interface PostForVisualAnalysis {
   text: string;
 }
 
+export class VisualPlanningError extends Error {
+  constructor(message: string, readonly providerFailures: string[]) {
+    super(message);
+    this.name = "VisualPlanningError";
+  }
+}
+
 const MAX_FIELD_LENGTH = 250;
 const OPENROUTER_FREE_MODEL = "dots-studio/dots-3-note-preview:free";
 
