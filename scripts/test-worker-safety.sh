@@ -277,11 +277,14 @@ WEEK_OWNER="70000000-0000-0000-0000-000000000045"
 WEEK_POST="30000000-0000-0000-0000-000000000045"
 WEEK_TIME=$(date -u -d '+14 days' '+%Y-%m-%dT12:00:00Z')
 q -c "INSERT INTO workspaces(id,owner_user_id) VALUES ('$WEEK_WS','$WEEK_OWNER')" >/dev/null
-for n in $(seq 1 7); do
+for n in $(seq 1 6); do
   EXISTING_ID=$(printf "30000000-0000-0000-0000-%012d" "$((100+n))")
   EXISTING_TIME=$(date -u -d "$WEEK_TIME - $n days" '+%Y-%m-%dT12:00:00Z')
   q -c "INSERT INTO content_posts(id,workspace_id,status,scheduled_at) VALUES ('$EXISTING_ID','$WEEK_WS','scheduled','$EXISTING_TIME')" >/dev/null
 done
+WEEK_FUTURE_ID="30000000-0000-0000-0000-000000000107"
+WEEK_FUTURE_TIME=$(date -u -d "$WEEK_TIME + 1 day" '+%Y-%m-%dT12:00:00Z')
+q -c "INSERT INTO content_posts(id,workspace_id,status,scheduled_at) VALUES ('$WEEK_FUTURE_ID','$WEEK_WS','scheduled','$WEEK_FUTURE_TIME')" >/dev/null
 q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES ('$WEEK_POST','$WEEK_WS','approved')" >/dev/null
 WEEK_RESULT=$(q -c "SELECT schedule_post_atomic('$WEEK_WS','$WEEK_POST','$WEEK_OWNER','$WEEK_TIME'::timestamptz)->>'reason'")
 [ "$WEEK_RESULT" = "WEEKLY_CAP_REACHED" ] || fail "eighth post in a rolling seven-day window must be blocked"
