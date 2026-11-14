@@ -62,6 +62,8 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
     entitlement_type: "draft_only",
     operating_mode: "approval_required",
     paused_at: null,
+    max_posts_per_day: 1,
+    max_posts_per_7_days: 7,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
