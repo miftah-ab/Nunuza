@@ -104,6 +104,27 @@ describe("Polar Client & Seller Eligibility", () => {
     ).rejects.toThrow(/SELLER_INELIGIBLE/i);
   });
 
+  it("requires the exact configured product and price before accepting billing events", () => {
+    const client = new PolarClient({
+      accessToken: "polar_test_token",
+      productId: "prod_nunuza_solo",
+      priceId: "price_29_mo",
+      server: "sandbox",
+    });
+
+    expect(client.matchesConfiguredOffer("prod_nunuza_solo", "price_29_mo")).toBe(true);
+    expect(client.matchesConfiguredOffer("prod_other", "price_29_mo")).toBe(false);
+    expect(client.matchesConfiguredOffer("prod_nunuza_solo", "price_other")).toBe(false);
+
+    const missingPrice = new PolarClient({
+      accessToken: "polar_test_token",
+      productId: "prod_nunuza_solo",
+      priceId: "",
+      server: "sandbox",
+    });
+    expect(missingPrice.isConfigured()).toBe(false);
+  });
+
   it("blocks checkout when Polar credentials or prices are unconfigured", async () => {
     const client = new PolarClient({
       accessToken: "",
