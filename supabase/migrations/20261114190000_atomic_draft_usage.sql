@@ -72,7 +72,7 @@ BEGIN
      AND status = 'reserved'
      AND expires_at <= NOW();
 
-  SELECT COALESCE(count, 0) INTO v_used
+  SELECT COALESCE(MAX(count), 0)::INTEGER INTO v_used
     FROM public.usage_counters
    WHERE workspace_id = p_workspace_id
      AND metric = p_metric
