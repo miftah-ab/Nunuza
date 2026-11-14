@@ -322,7 +322,7 @@ API_RESERVED=$(grep -c '^true:' "$OUT/api-quota-reservations.txt" || true)
 API_DENIED=$(grep -c '^false:' "$OUT/api-quota-reservations.txt" || true)
 [ "$API_RESERVED" = "30" ] || { cat "$OUT/api-quota-errors.txt" 2>/dev/null || true; fail "API quota must grant exactly 30 concurrent reservations, got $API_RESERVED"; }
 [ "$API_DENIED" = "34" ] || fail "API quota must deny remaining concurrent reservations, got $API_DENIED"
-RESERVATION_ID=$(grep '^t:' "$OUT/api-quota-reservations.txt" | head -n 1 | cut -d: -f2)
+RESERVATION_ID=$(grep '^true:' "$OUT/api-quota-reservations.txt" | head -n 1 | cut -d: -f2)
 CREATED_POST=$(q -c "SELECT id FROM create_draft_with_usage('$RESERVATION_ID','$QUOTA_WS','$QUOTA_OWNER','A tested draft','Test title',NULL,NULL,'draft')")
 [ -n "$CREATED_POST" ] || fail "atomic draft creation must return a post ID"
 [ "$(q -c "SELECT count(*) FROM content_post_versions WHERE post_id='$CREATED_POST' AND version_number=1")" = "1" ] || fail "initial version must be committed with the draft"
