@@ -22,7 +22,7 @@ export const metadata: Metadata = {
   description:
     "Nunuza helps professionals build a consistent LinkedIn presence. Turn ideas into on-brand drafts, review them, schedule posts, and publish with your approval.",
   openGraph: {
-    title: "Nunuza: Talk it out. Post it right.",
+    title: "Nunuza: Automate your LinkedIn workflow.",
     description:
       "Automate your LinkedIn content workflow with AI-assisted drafting, review, scheduling, and approval-first publishing through LinkedIn's official connection.",
     type: "website",
