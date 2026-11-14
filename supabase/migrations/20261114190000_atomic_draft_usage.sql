@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS public.draft_usage_reservations (
   owner_user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   period_start DATE NOT NULL,
   period_end DATE NOT NULL,
+  metric TEXT NOT NULL DEFAULT 'draft_items_created',
   expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '15 minutes'),
   status TEXT NOT NULL DEFAULT 'reserved' CHECK (status IN ('reserved', 'committed', 'released')),
   post_id UUID REFERENCES public.content_posts(id) ON DELETE SET NULL,
@@ -28,7 +29,8 @@ CREATE OR REPLACE FUNCTION public.reserve_draft_usage_slot(
   p_owner_user_id UUID,
   p_period_start DATE,
   p_period_end DATE,
-  p_limit INTEGER DEFAULT 30
+  p_limit INTEGER DEFAULT 30,
+  p_metric TEXT DEFAULT 'draft_items_created'
 )
 RETURNS TABLE(allowed BOOLEAN, reservation_id UUID, current_count INTEGER)
 LANGUAGE plpgsql
@@ -43,7 +45,8 @@ DECLARE
 BEGIN
   IF p_workspace_id IS NULL OR p_owner_user_id IS NULL
      OR p_period_start IS NULL OR p_period_end IS NULL
-     OR p_period_end < p_period_start OR p_limit IS NULL OR p_limit < 1 THEN
+     OR p_period_end < p_period_start OR p_limit IS NULL OR p_limit < 1
+     OR p_metric IS NULL OR p_metric NOT LIKE 'draft_items_created%' THEN
     RAISE EXCEPTION 'Invalid draft usage reservation arguments';
   END IF;
 
@@ -65,6 +68,7 @@ BEGIN
      SET status = 'released'
    WHERE workspace_id = p_workspace_id
      AND period_start = p_period_start
+     AND metric = p_metric
      AND status = 'reserved'
      AND expires_at <= NOW();
 
@@ -87,9 +91,9 @@ BEGIN
   END IF;
 
   INSERT INTO public.draft_usage_reservations(
-    workspace_id, owner_user_id, period_start, period_end
+    workspace_id, owner_user_id, period_start, period_end, metric
   ) VALUES (
-    p_workspace_id, p_owner_user_id, p_period_start, p_period_end
+    p_workspace_id, p_owner_user_id, p_period_start, p_period_end, p_metric
   ) RETURNING id INTO v_reservation;
 
   RETURN QUERY SELECT TRUE, v_reservation, v_used + v_reserved + 1;
@@ -168,7 +172,7 @@ BEGIN
   INSERT INTO public.usage_counters(
     workspace_id, metric, period_start, period_end, count
   ) VALUES (
-    p_workspace_id, 'draft_items_created', v_reservation.period_start,
+    p_workspace_id, v_reservation.metric, v_reservation.period_start,
     v_reservation.period_end, 1
   )
   ON CONFLICT (workspace_id, metric, period_start)
@@ -222,7 +226,8 @@ $$;
 CREATE OR REPLACE FUNCTION public.get_draft_usage_status(
   p_workspace_id UUID,
   p_owner_user_id UUID,
-  p_period_start DATE
+  p_period_start DATE,
+  p_metric TEXT DEFAULT 'draft_items_created'
 )
 RETURNS TABLE(used_count INTEGER, reserved_count INTEGER)
 LANGUAGE plpgsql
@@ -244,29 +249,30 @@ BEGIN
     COALESCE((
       SELECT count FROM public.usage_counters
        WHERE workspace_id = p_workspace_id
-         AND metric = 'draft_items_created'
+         AND metric = p_metric
          AND period_start = p_period_start
     ), 0)::INTEGER,
     (
       SELECT COUNT(*)::INTEGER FROM public.draft_usage_reservations
        WHERE workspace_id = p_workspace_id
          AND period_start = p_period_start
+         AND metric = p_metric
          AND status = 'reserved'
          AND expires_at > NOW()
     );
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.reserve_draft_usage_slot(UUID, UUID, DATE, DATE, INTEGER)
+REVOKE EXECUTE ON FUNCTION public.reserve_draft_usage_slot(UUID, UUID, DATE, DATE, INTEGER, TEXT)
   FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.create_draft_with_usage(UUID, UUID, UUID, TEXT, TEXT, TEXT, TEXT, public.post_status)
   FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.release_draft_usage_slot(UUID, UUID, UUID)
   FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.get_draft_usage_status(UUID, UUID, DATE)
+REVOKE EXECUTE ON FUNCTION public.get_draft_usage_status(UUID, UUID, DATE, TEXT)
   FROM PUBLIC, anon, authenticated;
 
-GRANT EXECUTE ON FUNCTION public.reserve_draft_usage_slot(UUID, UUID, DATE, DATE, INTEGER) TO service_role;
+GRANT EXECUTE ON FUNCTION public.reserve_draft_usage_slot(UUID, UUID, DATE, DATE, INTEGER, TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION public.create_draft_with_usage(UUID, UUID, UUID, TEXT, TEXT, TEXT, TEXT, public.post_status) TO service_role;
 GRANT EXECUTE ON FUNCTION public.release_draft_usage_slot(UUID, UUID, UUID) TO service_role;
-GRANT EXECUTE ON FUNCTION public.get_draft_usage_status(UUID, UUID, DATE) TO service_role;
+GRANT EXECUTE ON FUNCTION public.get_draft_usage_status(UUID, UUID, DATE, TEXT) TO service_role;
