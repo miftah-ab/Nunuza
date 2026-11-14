@@ -21,7 +21,7 @@ interface PostForVisualAnalysis {
   text: string;
 }
 
-const MAX_FIELD_LENGTH = 420;
+const MAX_FIELD_LENGTH = 300;
 
 function cleanText(value: unknown, fallback: string): string {
   if (typeof value !== "string") return fallback;
@@ -165,7 +165,7 @@ export function buildPostVisualImagePrompt(
   styleDirection: string,
   userDirection?: string
 ): string {
-  const avoid = brief.avoid.length ? brief.avoid.join("; ") : "generic stock imagery and unrelated objects";
+  const avoid = brief.avoid.length ? brief.avoid.slice(0, 5).map((item) => item.slice(0, 120)).join("; ") : "generic stock imagery and unrelated objects";
   return [
     "Create one exceptional, publication-ready image for a LinkedIn post. Follow the art direction below precisely.",
     "PRIMARY CREATIVE IDEA: " + brief.concept,
