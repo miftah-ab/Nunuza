@@ -14,7 +14,7 @@ import { requireWorkspace } from "@/lib/auth/workspace";
 import { createClient } from "@/lib/supabase/server";
 import { ok, created, apiError, parseBody, requireFields } from "@/lib/api/respond";
 import type { PostStatus } from "@/types/database";
-import { reserveDraftUsage, createDraftWithUsage, releaseDraftUsage } from "@/lib/db/usage";
+import { checkDraftLimit, reserveDraftUsage, createDraftWithUsage, releaseDraftUsage } from "@/lib/db/usage";
 
 // Statuses that draft_only workspaces may filter by (read)
 const DRAFT_READABLE_STATUSES: PostStatus[] = [
@@ -101,9 +101,7 @@ export async function POST(request: Request) {
     // Manual drafts consume the same monthly allowance as AI-created drafts.
     const reservation = await reserveDraftUsage(workspace.id, workspace.owner_user_id);
     if (!reservation) {
-      const usage = await import("@/lib/db/usage").then(({ checkDraftLimit }) =>
-        checkDraftLimit(workspace.id, workspace.owner_user_id)
-      );
+      const usage = await checkDraftLimit(workspace.id, workspace.owner_user_id);
       return NextResponse.json(
         {
           error: `Monthly limit reached (${usage.count}/${usage.limit} items). Resets on ${usage.resetsOn}.`,
