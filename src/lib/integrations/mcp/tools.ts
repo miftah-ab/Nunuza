@@ -9,7 +9,7 @@
  * Claude Manual mode. Approval changes review status only; scheduling is separate.
  */
 
-import { reserveDraftUsage, createDraftWithUsage, releaseDraftUsage } from "@/lib/db/usage";
+import { checkDraftLimit, reserveDraftUsage, createDraftWithUsage, releaseDraftUsage } from "@/lib/db/usage";
 import { createServiceClient } from "@/lib/supabase/server";
 import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
 
@@ -411,7 +411,8 @@ export async function executeMcpTool(
       } else {
         const reservation = await reserveDraftUsage(workspaceId, userId);
         if (!reservation) {
-          throw new Error(`Monthly quota reached (30/30). It resets on ${(await import("@/lib/db/usage")).checkDraftLimit(workspaceId, userId).then((usage) => usage.resetsOn)}.`);
+          const usage = await checkDraftLimit(workspaceId, userId);
+          throw new Error(`Monthly quota reached (${usage.count}/${usage.limit}). It resets on ${usage.resetsOn}.`);
         }
 
         let reservationId: string | null = reservation.reservationId;
