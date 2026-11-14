@@ -23,6 +23,10 @@ interface PostForVisualAnalysis {
 
 const MAX_FIELD_LENGTH = 250;
 
+// OpenRouter's free router selects only free models and never falls back
+// to paid models. This keeps visual planning at $0 inference cost.
+const OPENROUTER_FREE_MODEL = "openrouter/free";
+
 export class VisualPlanningError extends Error {
   constructor(message: string, readonly providerFailures: string[]) {
     super(message);
@@ -132,53 +136,29 @@ async function requestBrief(
 }
 
 export async function createPostVisualBrief(post: PostForVisualAnalysis): Promise<PostVisualBrief> {
-  const groqKey = process.env.GROQ_API_KEY?.trim();
   const openRouterKey = process.env.OPENROUTER_API_KEY?.trim();
-  const failures: string[] = [];
-
-  if (groqKey) {
-    try {
-      return await requestBrief(
-        "https://api.groq.com/openai/v1/chat/completions",
-        groqKey,
-        process.env.GROQ_DEFAULT_MODEL?.trim() || "llama-3.3-70b-versatile",
-        post
-      );
-    } catch (error) {
-      const reason = error instanceof Error ? error.message.slice(0, 500) : "Unknown provider error";
-      failures.push(`Groq: ${reason}`);
-      console.error("[image-generation] Groq visual planning failed", {
-        model: process.env.GROQ_DEFAULT_MODEL?.trim() || "llama-3.3-70b-versatile",
-        reason,
-      });
-    }
-  }
-
-  if (openRouterKey) {
-    try {
-      return await requestBrief(
-        "https://openrouter.ai/api/v1/chat/completions",
-        openRouterKey,
-        process.env.OPENROUTER_DEFAULT_MODEL?.trim() || "anthropic/claude-3-haiku",
-        post
-      );
-    } catch (error) {
-      const reason = error instanceof Error ? error.message.slice(0, 500) : "Unknown provider error";
-      failures.push(`OpenRouter: ${reason}`);
-      console.error("[image-generation] OpenRouter visual planning failed", {
-        model: process.env.OPENROUTER_DEFAULT_MODEL?.trim() || "anthropic/claude-3-haiku",
-        reason,
-      });
-    }
-  }
-
-  if (!groqKey && !openRouterKey) {
+  if (!openRouterKey) {
     throw new Error("Visual planning is temporarily unavailable. Please try again later.");
   }
-  throw new VisualPlanningError(
-    "Nunuza’s visual planner is temporarily unavailable. Please try again in a moment.",
-    failures
-  );
+
+  try {
+    return await requestBrief(
+      "https://openrouter.ai/api/v1/chat/completions",
+      openRouterKey,
+      OPENROUTER_FREE_MODEL,
+      post
+    );
+  } catch (error) {
+    const reason = error instanceof Error ? error.message.slice(0, 500) : "Unknown provider error";
+    console.error("[image-generation] OpenRouter free visual planning failed", {
+      model: OPENROUTER_FREE_MODEL,
+      reason,
+    });
+    throw new VisualPlanningError(
+      "Nunuza’s visual planner is temporarily unavailable. Please try again in a moment.",
+      [`OpenRouter free: ${reason}`]
+    );
+  }
 }
 
 export function buildPostVisualImagePrompt(
