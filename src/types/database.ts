@@ -83,6 +83,8 @@ export interface Workspace {
   access_mode?: AccessMode;
   operating_mode: OperatingMode;
   paused_at: string | null;
+  max_posts_per_day: number;
+  max_posts_per_7_days: number;
   beta_expires_at?: string | null;
   beta_notes?: string | null;
   beta_granted_at?: string | null;
