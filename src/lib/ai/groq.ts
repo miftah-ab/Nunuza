@@ -161,7 +161,7 @@ export class GroqProvider implements AiProvider {
             { role: "user", content: userPrompt },
           ],
           temperature: 0.7,
-          max_tokens: 1200,
+          max_tokens: 1800,
         }),
         signal: controller.signal,
       });
@@ -172,16 +172,19 @@ export class GroqProvider implements AiProvider {
       }
 
       const json = (await response.json()) as any;
-      const content = json.choices?.[0]?.message?.content?.trim();
+      const choice = json.choices?.[0];
+      const content = choice?.message?.content?.trim();
       if (!content) {
         throw new Error("Groq API returned empty completion.");
       }
+      if (choice?.finish_reason === "length") {
+        throw new Error("AI_INCOMPLETE_OUTPUT: Groq reached its output-token limit before completing the post.");
+      }
 
-      // Enforce character limit and strip em dashes (— U+2014, – U+2013)
+      // Normalize punctuation only. Never silently cut a post mid-sentence.
       const safeText = content
         .replace(/\u2014/g, ",")   // em dash → comma
-        .replace(/\u2013/g, "-")   // en dash → hyphen
-        .slice(0, 3000);
+        .replace(/\u2013/g, "-");  // en dash → hyphen
 
       return {
         text: safeText,
