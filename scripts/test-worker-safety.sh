@@ -148,9 +148,7 @@ for n in $(seq 1 11); do
   psql -At -c "SELECT allowed FROM claim_workspace_publish_slot('$WS5','$ID')" > "$OUT/default-daily-$n.txt" &
 done
 wait
-DEFAULT_DAILY_ALLOWED=$(cat "$OUT"/default-daily-*.txt | grep -c '^t for a monthly cap of 30. Repeating one job's reservation
-# is idempotent and does not consume another slot.
-WS4="10000000-0000-0000-0000-000000000004"
+DEFAULT_DAILY_ALLOWED=$(cat "$OUT"/default-daily-*.txt | grep -c '^t"10000000-0000-0000-0000-000000000004"
 q -c "INSERT INTO workspaces(id) VALUES ('$WS4')" >/dev/null
 for n in $(seq 1 80); do
   ID=$(printf "50000000-0000-0000-0000-%012d" "$n")
