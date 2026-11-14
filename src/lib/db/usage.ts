@@ -152,10 +152,11 @@ export async function createDraftWithUsage(
     p_status: status,
   });
   if (error) throw new Error(`[usage] createDraftWithUsage: ${error.message}`);
-  if (!data || typeof data !== "object" || !("id" in data)) {
+  const post = Array.isArray(data) ? data[0] : data;
+  if (!post || typeof post !== "object" || !("id" in post)) {
     throw new Error("[usage] Draft creation did not return a persisted post.");
   }
-  return data as import("@/types/database").ContentPost;
+  return post as import("@/types/database").ContentPost;
 }
 
 export async function releaseDraftUsage(
