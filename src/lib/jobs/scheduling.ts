@@ -107,7 +107,7 @@ export async function schedulePost(
   if (sameDayErr) throw new Error(`[scheduler] Day cap check failed: ${sameDayErr.message}`);
 
   if (sameDayPosts && sameDayPosts.length >= (workspace.max_posts_per_day ?? 10)) {
-    throw new Error(`Cap reached: Maximum ${workspace.max_posts_per_day ?? 10} scheduled posts per calendar day.`);
+    throw new Error(`Daily scheduling limit reached. Your limit is ${workspace.max_posts_per_day ?? 10} post(s) per day.`);
   }
 
   // Rolling 7-day window check
@@ -124,7 +124,7 @@ export async function schedulePost(
   if (rollingErr) throw new Error(`[scheduler] Rolling cap check failed: ${rollingErr.message}`);
 
   if (rollingPosts && rollingPosts.length >= (workspace.max_posts_per_7_days ?? 50)) {
-    throw new Error(`Cap reached: Maximum ${workspace.max_posts_per_7_days ?? 50} scheduled posts per rolling 7-day period.`);
+    throw new Error(`Rolling 7-day scheduling limit reached. Your limit is ${workspace.max_posts_per_7_days ?? 50} post(s).`);
   }
 
   // 5. Stable idempotency key
@@ -563,9 +563,9 @@ export async function executePublishJob(
   if (!slot?.allowed) {
     const reason = String(slot?.reason ?? "POST_NOT_ELIGIBLE");
     const message = reason === "DAILY_CAP_REACHED"
-      ? `Daily publishing limit reached (${workspace.max_posts_per_day ?? 10} posts per day). Update your workspace settings to change it.`
+      ? `Daily publishing limit reached. Your limit is ${workspace.max_posts_per_day ?? 10} post(s) per day. Update your workspace settings to change it.`
       : reason === "WEEKLY_CAP_REACHED"
-        ? `Rolling 7-day publishing limit reached (${workspace.max_posts_per_7_days ?? 50} posts). Update your workspace settings to change it.`
+        ? `Rolling 7-day publishing limit reached. Your limit is ${workspace.max_posts_per_7_days ?? 50} post(s). Update your workspace settings to change it.`
         : "This post is no longer eligible for publishing.";
     await transitionOutcome("canceled", {
       finished_at: new Date().toISOString(),
@@ -840,7 +840,7 @@ export async function publishPostNow(
 
   const totalSameDay = (sameDayScheduled?.length || 0) + (sameDayPublished?.length || 0);
   if (totalSameDay >= (workspace.max_posts_per_day ?? 10)) {
-    throw new Error(`Daily publishing limit reached (${workspace.max_posts_per_day ?? 10} posts per day). Update your workspace settings to change it.`);
+    throw new Error(`Daily publishing limit reached. Your limit is ${workspace.max_posts_per_day ?? 10} post(s) per day. Update your workspace settings to change it.`);
   }
 
   // Rolling 7-day window check
@@ -869,7 +869,7 @@ export async function publishPostNow(
 
   const totalRolling = (rollingScheduled?.length || 0) + (rollingPublished?.length || 0);
   if (totalRolling >= (workspace.max_posts_per_7_days ?? 50)) {
-    throw new Error(`Rolling 7-day publishing limit reached (${workspace.max_posts_per_7_days ?? 50} posts). Update your workspace settings to change it.`);
+    throw new Error(`Rolling 7-day publishing limit reached. Your limit is ${workspace.max_posts_per_7_days ?? 50} post(s). Update your workspace settings to change it.`);
   }
 
   // 5. Stable idempotency key & duplicate prevention
