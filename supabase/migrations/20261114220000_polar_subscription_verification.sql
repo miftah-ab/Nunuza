@@ -2,7 +2,8 @@
 -- serialize webhook event claims so concurrent deliveries cannot process the
 -- same lifecycle event twice.
 ALTER TABLE public.subscriptions
-  ADD COLUMN IF NOT EXISTS provider_verified_at TIMESTAMPTZ;
+  ADD COLUMN IF NOT EXISTS provider_verified_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS provider_modified_at TIMESTAMPTZ;
 
 ALTER TABLE public.billing_webhook_events
   ADD COLUMN IF NOT EXISTS processing_started_at TIMESTAMPTZ,
