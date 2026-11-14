@@ -854,8 +854,8 @@ export function ContentManager({
 
       {/* AI Generation Modal */}
       {isAiModalOpen && (
-        <div className="fixed inset-0 z-50 bg-ink/30 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="ai-modal-title">
-          <div className="card max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-xl animate-fade-in">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-ink/30 backdrop-blur-sm flex items-start justify-center p-4 sm:items-center" role="dialog" aria-modal="true" aria-labelledby="ai-modal-title">
+          <div className="card my-auto max-w-2xl w-full max-h-[calc(100dvh-2rem)] overflow-y-auto p-6 shadow-xl animate-fade-in">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-forest-light flex items-center justify-center">
