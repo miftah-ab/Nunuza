@@ -91,7 +91,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  let quotaReservation: { service: any; workspaceId: string; metric: string; periodStart: string } | null = null;
+  let quotaReservation: { service: any; reservationId: string } | null = null;
   let quotaCommitted = false;
   let uploadedPath: string | null = null;
   try {
@@ -153,7 +153,7 @@ export async function POST(request: Request) {
     const hourKey = now.toISOString().slice(0, 13).replace(/[-T:]/g, "");
     const metric = `image_generation:${hourKey}`;
     const hourlyImageLimit = getHourlyImageLimit(workspace.entitlement_type);
-    const { data: usageCount, error: usageError } = await service.rpc("reserve_usage_counter", {
+    const { data: reservationId, error: usageError } = await service.rpc("reserve_image_generation", {
       p_workspace_id: workspace.id,
       p_metric: metric,
       p_period_start: periodStart,
@@ -161,7 +161,7 @@ export async function POST(request: Request) {
       p_limit: hourlyImageLimit,
     });
     if (usageError) throw new Error("Image generation usage could not be verified.");
-    if (usageCount === null || usageCount === undefined) {
+    if (!reservationId) {
       return NextResponse.json(
         {
           error: workspace.entitlement_type === "internal_beta"
@@ -171,7 +171,7 @@ export async function POST(request: Request) {
         { status: 429 }
       );
     }
-    quotaReservation = { service, workspaceId: workspace.id, metric, periodStart };
+    quotaReservation = { service, reservationId: String(reservationId) };
 
     const prompt = buildPostVisualImagePrompt(post, visualBrief, IMAGE_STYLES[style], body.prompt);
     const generated = await generateCloudflareImage(prompt, IMAGE_DIMENSIONS[format]);
@@ -188,6 +188,16 @@ export async function POST(request: Request) {
     // Create the preview before attaching the image to the post. If signing
     // fails, cleanup removes the upload and releases the quota reservation.
     const previewUrl = await createPreviewUrl(path);
+
+    // Commit the reserved slot before attaching the image. If the post update
+    // fails, the finally block releases this exact reservation idempotently.
+    const { data: quotaCommittedResult, error: quotaCommitError } = await service.rpc(
+      "commit_image_generation_reservation",
+      { p_reservation_id: quotaReservation?.reservationId }
+    );
+    if (quotaCommitError || quotaCommittedResult !== true) {
+      throw new Error("Image generation quota could not be committed. Please retry.");
+    }
 
     const { data: updated, error: updateError } = await service
       .from("content_posts")
@@ -253,10 +263,8 @@ export async function POST(request: Request) {
     }
     if (quotaReservation && !quotaCommitted) {
       try {
-        const { error } = await quotaReservation.service.rpc("release_usage_counter", {
-          p_workspace_id: quotaReservation.workspaceId,
-          p_metric: quotaReservation.metric,
-          p_period_start: quotaReservation.periodStart,
+        const { error } = await quotaReservation.service.rpc("release_image_generation_reservation", {
+          p_reservation_id: quotaReservation.reservationId,
         });
         if (error) console.error("[image-generation] Failed to release image quota reservation.");
       } catch (releaseError) {
