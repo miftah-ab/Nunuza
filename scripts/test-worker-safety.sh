@@ -140,7 +140,7 @@ echo "ok: scheduled posts reserve the daily slot"
 
 # Ten published posts in the rolling week block the eleventh.
 WS3="10000000-0000-0000-0000-000000000003"
-q -c "INSERT INTO workspaces(id,max_posts_per_day,max_posts_per_7_days) VALUES ('$WS3',10,10)" >/dev/null
+q -c "INSERT INTO workspaces(id,max_posts_per_day,max_posts_per_7_days) VALUES ('$WS3',1,1)" >/dev/null
 q -c "INSERT INTO content_posts(id,workspace_id,status,published_at,updated_at)
 SELECT ('40000000-0000-0000-0000-' || lpad(g::text,12,'0'))::uuid,
        '$WS3','published',now() - (g * interval '12 hours'),now() - (g * interval '12 hours')
