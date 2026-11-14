@@ -119,7 +119,16 @@ export async function POST() {
       userRole: role ?? industry ?? company ?? "Professional",
     });
 
-    const ideas = generated.topics.slice(0, 8).map((topic, index) => ({
+    const rankedTopics = generated.topics
+      .map((topic, originalIndex) => ({
+        topic,
+        originalIndex,
+        rank: Number.isInteger(topic.rank) && topic.rank > 0 ? topic.rank : originalIndex + 1,
+      }))
+      .sort((a, b) => a.rank - b.rank || a.originalIndex - b.originalIndex)
+      .slice(0, 8);
+
+    const ideas = rankedTopics.map(({ topic }, index) => ({
       id: `idea-${index + 1}`,
       title: topic.title,
       angle: topic.angle,
