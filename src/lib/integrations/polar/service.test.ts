@@ -410,6 +410,76 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
     expect(ws?.entitlement_type).toBe("paid_active");
   });
 
+  it("ignores checkout events because only subscription snapshots change entitlements", async () => {
+    const result = await service.processWebhookEvent({
+      id: "evt_checkout_only",
+      type: "checkout.created",
+      created_at: new Date().toISOString(),
+      data: {} as any,
+    }, mockSupabase);
+
+    expect(result.status).toBe("skipped");
+    expect(dbTables.subscriptions).toHaveLength(0);
+    expect(dbTables.workspaces[0].entitlement_type).toBe("draft_only");
+  });
+
+  it("does not grant access for a different Polar product or price", async () => {
+    const result = await service.processWebhookEvent({
+      id: "evt_wrong_offer",
+      type: "subscription.active",
+      created_at: new Date().toISOString(),
+      data: {
+        id: "sub_wrong_offer",
+        status: "active",
+        product_id: "prod_nunuza_solo",
+        price_id: "price_not_nunuza",
+        customer_id: "cust_polar_wrong",
+        current_period_start: new Date().toISOString(),
+        current_period_end: new Date(Date.now() + 30 * 86400000).toISOString(),
+        trial_start: null,
+        trial_end: null,
+        cancel_at_period_end: false,
+        created_at: new Date().toISOString(),
+        modified_at: new Date().toISOString(),
+        metadata: { workspace_id: WORKSPACE_ID },
+      } as any,
+    }, mockSupabase);
+
+    expect(result.status).toBe("skipped");
+    expect(dbTables.subscriptions).toHaveLength(0);
+    expect(dbTables.workspaces[0].entitlement_type).toBe("draft_only");
+  });
+
+  it("refuses to reassign a Polar customer already linked to another workspace", async () => {
+    dbTables.billing_customers.push({
+      workspace_id: OTHER_WORKSPACE_ID,
+      polar_customer_id: "cust_polar_1",
+    });
+    const result = await service.processWebhookEvent({
+      id: "evt_customer_reassignment",
+      type: "subscription.active",
+      created_at: new Date().toISOString(),
+      data: {
+        id: "sub_reassignment",
+        status: "active",
+        product_id: "prod_nunuza_solo",
+        price_id: "price_29_mo",
+        customer_id: "cust_polar_1",
+        current_period_start: new Date().toISOString(),
+        current_period_end: new Date(Date.now() + 30 * 86400000).toISOString(),
+        trial_start: null,
+        trial_end: null,
+        cancel_at_period_end: false,
+        created_at: new Date().toISOString(),
+        modified_at: new Date().toISOString(),
+        metadata: { workspace_id: WORKSPACE_ID },
+      } as any,
+    }, mockSupabase);
+
+    expect(result.status).toBe("failed");
+    expect(dbTables.workspaces[0].entitlement_type).toBe("draft_only");
+  });
+
   it("handles duplicate webhook events idempotently", async () => {
     const event: PolarWebhookEvent = {
       id: "evt_duplicate_003",
