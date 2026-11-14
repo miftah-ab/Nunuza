@@ -279,6 +279,17 @@ NEXT=$(q -c "SELECT reserve_draft_usage('50000000-0000-0000-0000-000000000081','
 [ "$NEXT" = "t" ] || fail "released reservation must allow one new reservation"
 echo "ok: monthly draft usage is atomic and retry-idempotent"
 
+# Background jobs must reserve and release against the same paid billing
+# period metric, not the no-subscription calendar-month counter.
+PAID_JOB="50000000-0000-0000-0000-000000000082"
+PAID_JOB_METRIC="draft_items_created@2026-11-14T12:00:00.000Z"
+q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status) VALUES ('$PAID_JOB','$WS4','usage_reservation_test','queued')" >/dev/null
+[ "$(q -c "SELECT reserve_draft_usage('$PAID_JOB','$WS4',current_date,current_date+30,30,'$PAID_JOB_METRIC')")" = "t" ] || fail "background job should reserve paid billing-period quota"
+[ "$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$WS4' AND metric='$PAID_JOB_METRIC'")" = "1" ] || fail "background job reservation must increment the paid period metric"
+q -c "UPDATE agent_jobs SET status='failed_terminal' WHERE id='$PAID_JOB'" >/dev/null
+[ "$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$WS4' AND metric='$PAID_JOB_METRIC'")" = "0" ] || fail "terminal background job must release its exact paid period metric"
+echo "ok: background job quota reservations release against the correct billing period"
+
 # API draft creation reserves quota before generation and commits the post,
 # initial version, and counter in one transaction.
 QUOTA_WS="10000000-0000-0000-0000-000000000031"
@@ -324,9 +335,21 @@ if q -c "SELECT * FROM reserve_draft_usage_slot('$QUOTA_WS','$OTHER_OWNER',date_
 fi
 echo "ok: draft usage RPC verifies workspace ownership"
 
+# Different verified billing-cycle starts on the same UTC date must use
+# independent counters, rather than sharing a calendar-date bucket.
+PAID_METRIC_A="draft_items_created@2026-11-14T10:00:00.000Z"
+PAID_METRIC_B="draft_items_created@2026-11-14T16:00:00.000Z"
+PAID_RES_A=$(q -c "SELECT reservation_id FROM reserve_draft_usage_slot('$QUOTA_WS','$QUOTA_OWNER',current_date,current_date+30,30,'$PAID_METRIC_A')")
+PAID_RES_B=$(q -c "SELECT reservation_id FROM reserve_draft_usage_slot('$QUOTA_WS','$QUOTA_OWNER',current_date,current_date+30,30,'$PAID_METRIC_B')")
+[ -n "$PAID_RES_A" ] && [ -n "$PAID_RES_B" ] || fail "distinct paid billing periods must reserve independent slots"
+PAID_POST_A=$(q -c "SELECT id FROM create_draft_with_usage('$PAID_RES_A','$QUOTA_WS','$QUOTA_OWNER','Billing cycle A','A',NULL,NULL,'draft')")
+PAID_POST_B=$(q -c "SELECT id FROM create_draft_with_usage('$PAID_RES_B','$QUOTA_WS','$QUOTA_OWNER','Billing cycle B','B',NULL,NULL,'draft')")
+[ "$(q -c "SELECT count(*) FROM usage_counters WHERE workspace_id='$QUOTA_WS' AND metric IN ('$PAID_METRIC_A','$PAID_METRIC_B') AND count=1")" = "2" ] || fail "paid billing periods must have independent usage counters"
+echo "ok: paid billing-period keys remain distinct even when their UTC start date matches"
+
 # Only service_role may call privileged functions.
 [ "$(q -c "SELECT has_function_privilege('anon','public.claim_workspace_publish_slot(uuid,uuid)','EXECUTE')")" = "f" ] || fail "anon must not claim publish slots"
-[ "$(q -c "SELECT has_function_privilege('authenticated','public.reserve_draft_usage(uuid,uuid,date,date,integer)','EXECUTE')")" = "f" ] || fail "authenticated must not reserve usage"
+[ "$(q -c "SELECT has_function_privilege('authenticated','public.reserve_draft_usage(uuid,uuid,date,date,integer,text)','EXECUTE')")" = "f" ] || fail "authenticated must not reserve usage"
 [ "$(q -c "SELECT has_function_privilege('service_role','public.reserve_draft_usage(uuid,uuid,date,date,integer)','EXECUTE')")" = "t" ] || fail "service_role must reserve usage"
 [ "$(q -c "SELECT has_function_privilege('anon','public.begin_agent_job_execution(uuid,integer,timestamptz,timestamptz)','EXECUTE')")" = "f" ] || fail "anon must not begin job execution"
 [ "$(q -c "SELECT has_function_privilege('service_role','public.begin_agent_job_execution(uuid,integer,timestamptz,timestamptz)','EXECUTE')")" = "t" ] || fail "service_role must begin job execution"
