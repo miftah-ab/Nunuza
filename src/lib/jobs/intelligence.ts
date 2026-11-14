@@ -561,7 +561,7 @@ export async function executeAutonomousCycle(
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
   }
 
-  const quotaPeriod = await getDraftUsagePeriod(workspace.id, workspace.owner_user_id);
+  const quotaPeriod = await getDraftUsagePeriod(workspace.id, workspace.owner_user_id, supabase);
   const { data: usageData, error: usageError } = await supabase.rpc("get_draft_usage_status", {
     p_workspace_id: workspace.id,
     p_owner_user_id: workspace.owner_user_id,
