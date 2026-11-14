@@ -31,37 +31,37 @@ export class PolarService {
   mapPolarStatusToEntitlement(
     status: string,
     currentPeriodEnd: string | null,
-    cancelAtPeriodEnd: boolean
+    cancelAtPeriodEnd: boolean,
+    trialEnd: string | null = null
   ): EntitlementType {
-    const now = new Date();
+    const isFuture = (value: string | null) => {
+      if (!value) return false;
+      const timestamp = Date.parse(value);
+      return Number.isFinite(timestamp) && timestamp > Date.now();
+    };
 
     switch (status) {
       case "trialing":
-        return "paid_trial";
-
+        return isFuture(trialEnd) ? "paid_trial" : "inactive";
       case "active":
-        return "paid_active";
-
+        return isFuture(currentPeriodEnd) ? "paid_active" : "inactive";
+      // Polar's current past_due state is its recoverable payment-retry/grace
+      // state. Access ends when Polar changes the subscription to unpaid/revoked.
+      // Paid actions fetch the provider state before allowing work to proceed.
       case "past_due":
-        // Grace period: retains paid entitlement during payment recovery
         return "paid_active";
-
-      case "canceled": {
-        // If cancellation is scheduled for period end, retain access until then
-        if (cancelAtPeriodEnd && currentPeriodEnd && new Date(currentPeriodEnd) > now) {
-          return "paid_active";
-        }
-        return "expired";
-      }
-
+      case "canceled":
+        return cancelAtPeriodEnd && isFuture(currentPeriodEnd)
+          ? "paid_active"
+          : "inactive";
+      // Checkout is not complete yet; retain only the limited draft experience.
+      case "incomplete":
+        return "draft_only";
       case "incomplete_expired":
       case "unpaid":
       case "revoked":
-        return "suspended";
-
-      case "incomplete":
       default:
-        return "suspended";
+        return "inactive";
     }
   }
 
