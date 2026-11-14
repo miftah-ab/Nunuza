@@ -36,6 +36,7 @@ CREATE TABLE public.agent_jobs (
   status TEXT NOT NULL,
   idempotency_key TEXT NOT NULL DEFAULT gen_random_uuid()::TEXT,
   payload JSONB NOT NULL DEFAULT '{}'::JSONB,
+  scheduled_for TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   attempt_count INTEGER NOT NULL DEFAULT 0,
   lease_until TIMESTAMPTZ,
   finished_at TIMESTAMPTZ,
