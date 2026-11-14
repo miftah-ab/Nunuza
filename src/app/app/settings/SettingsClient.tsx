@@ -190,8 +190,8 @@ export function SettingsClient({
           <div>
             <h3 className="text-sm font-semibold text-ink">LinkedIn Publishing Limits</h3>
             <p className="text-xs text-ink-secondary mt-1">
-              Control how many approved posts Nunuza can publish or schedule for this workspace.
-              These limits apply across immediate publishing and scheduled posts.
+              Set the maximum number of approved posts Nunuza can publish or schedule for this workspace.
+              These limits apply across immediate publishing and scheduled posts. They are safety ceilings, not posting targets; prioritize useful content over volume.
             </p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
