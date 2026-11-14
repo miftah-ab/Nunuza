@@ -40,6 +40,8 @@ interface UpdateWorkspaceBody {
   paused?: boolean;
   displayName?: string;
   timezone?: string;
+  maxPostsPerDay?: number;
+  maxPostsPer7Days?: number;
 }
 
 export async function PATCH(request: Request) {
@@ -82,6 +84,25 @@ export async function PATCH(request: Request) {
 
     if (typeof body.name === "string" && body.name.trim().length > 0) {
       updates.name = body.name.trim().slice(0, 100);
+    }
+
+    if (body.maxPostsPerDay !== undefined || body.maxPostsPer7Days !== undefined) {
+      const dailyLimit = body.maxPostsPerDay ?? workspace.max_posts_per_day ?? 10;
+      const weeklyLimit = body.maxPostsPer7Days ?? workspace.max_posts_per_7_days ?? 50;
+
+      if (
+        !Number.isInteger(dailyLimit) || dailyLimit < 1 || dailyLimit > 10 ||
+        !Number.isInteger(weeklyLimit) || weeklyLimit < 1 || weeklyLimit > 50 ||
+        weeklyLimit < dailyLimit
+      ) {
+        return NextResponse.json(
+          { error: "Publishing limits must be 1–10 posts per day and 1–50 posts per 7 days. The weekly limit cannot be lower than the daily limit." },
+          { status: 400 }
+        );
+      }
+
+      updates.max_posts_per_day = dailyLimit;
+      updates.max_posts_per_7_days = weeklyLimit;
     }
 
     if (body.operating_mode) {
