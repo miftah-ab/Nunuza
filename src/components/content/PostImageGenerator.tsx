@@ -2,7 +2,7 @@
 
 import { userFacingError } from "@/lib/ui/error-message";
 import Image from "next/image";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { ImagePlus, Loader2, RefreshCw, Sparkles } from "lucide-react";
 
 type ImageStyle = "editorial" | "cinematic" | "illustration" | "3d" | "minimalist";
@@ -48,6 +48,20 @@ const formats: { value: ImageFormat; label: string; dimensions: string }[] = [
   { value: "square", label: "Square", dimensions: "1:1" },
 ];
 
+async function fetchVisualBrief(postId: string): Promise<VisualBrief> {
+  const response = await fetch("/api/generate/image", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "analyze", postId }),
+  });
+  const payload = (await response.json()) as ImageApiResponse;
+  if (!response.ok) throw new Error(payload.error || "Nunuza couldn’t analyze this post. Please try again.");
+  if (!payload.data?.visualBrief?.concept || !payload.data.visualBrief.subject) {
+    throw new Error("Nunuza couldn’t create a clear visual direction. Please try again.");
+  }
+  return payload.data.visualBrief;
+}
+
 export function PostImageGenerator({ postId, imagePath, onImageUpdated }: PostImageGeneratorProps) {
   const [prompt, setPrompt] = useState("");
   const [style, setStyle] = useState<ImageStyle>("editorial");
@@ -58,32 +72,32 @@ export function PostImageGenerator({ postId, imagePath, onImageUpdated }: PostIm
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const analyzePost = useCallback(async () => {
+  async function analyzePost() {
     setIsAnalyzing(true);
     setError(null);
     try {
-      const response = await fetch("/api/generate/image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "analyze", postId }),
-      });
-      const payload = (await response.json()) as ImageApiResponse;
-      if (!response.ok) throw new Error(payload.error || "Nunuza couldn’t analyze this post. Please try again.");
-      if (!payload.data?.visualBrief?.concept || !payload.data.visualBrief.subject) {
-        throw new Error("Nunuza couldn’t create a clear visual direction. Please try again.");
-      }
-      setVisualBrief(payload.data.visualBrief);
+      setVisualBrief(await fetchVisualBrief(postId));
     } catch (cause) {
       setVisualBrief(null);
       setError(userFacingError(cause, "Nunuza couldn’t analyze this post. Please try again."));
     } finally {
       setIsAnalyzing(false);
     }
-  }, [postId]);
+  }
 
   useEffect(() => {
-    void analyzePost();
-  }, [analyzePost]);
+    let active = true;
+    fetchVisualBrief(postId)
+      .then((brief) => { if (active) setVisualBrief(brief); })
+      .catch((cause: unknown) => {
+        if (active) {
+          setVisualBrief(null);
+          setError(userFacingError(cause, "Nunuza couldn’t analyze this post. Please try again."));
+        }
+      })
+      .finally(() => { if (active) setIsAnalyzing(false); });
+    return () => { active = false; };
+  }, [postId]);
 
   useEffect(() => {
     let active = true;
@@ -171,7 +185,7 @@ export function PostImageGenerator({ postId, imagePath, onImageUpdated }: PostIm
           </div>
           <button
             type="button"
-            onClick={() => void analyzePost()}
+            onClick={() => { void analyzePost(); }}
             disabled={isAnalyzing || isGenerating}
             className="text-xs font-medium text-forest hover:underline disabled:opacity-50"
           >
