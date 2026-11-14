@@ -4,9 +4,9 @@
  * Implements BED-04 & Phase 3 requirements:
  * - Groq is primary provider (llama-3.3-70b-versatile)
  * - OpenRouter is fallback (anthropic/claude-3-haiku)
- * - Deterministic Mock is used when neither is configured or in tests
- * - Clearly distinguishes mock outputs from real external AI generation
- * - Never silently falls back without logging provider & model used
+ * - Deterministic Mock is available only when explicitly injected by tests
+ * - Production requests fail closed when both real providers are unavailable
+ * - Never presents canned mock content as successful AI generation
  * - Validates input and output character boundaries (<= 3000 chars)
  */
 
@@ -25,12 +25,12 @@ import { normalizeLinkedInPostText } from "./plain-text";
 export class AiService {
   private primary: GroqProvider;
   private fallback: OpenRouterProvider;
-  private mock: MockAiProvider;
+  private mock?: MockAiProvider;
 
   constructor(primary?: GroqProvider, fallback?: OpenRouterProvider, mock?: MockAiProvider) {
     this.primary = primary ?? new GroqProvider();
     this.fallback = fallback ?? new OpenRouterProvider();
-    this.mock = mock ?? new MockAiProvider();
+    this.mock = mock;
   }
 
   async generateDraft(request: DraftGenerationRequest): Promise<DraftGenerationResult> {
@@ -58,10 +58,14 @@ export class AiService {
       }
     }
 
-    // 3. Offline / Deterministic Mock
-    // Transparently marks providerUsed as 'mock_deterministic'
-    console.warn("[ai] No external AI credentials configured or providers failed. Using deterministic mock.");
-    return this.normalizeDraftResult(await this.mock.generateDraft(request));
+    // Mocks are test-only and must be explicitly injected. Production never
+    // saves a canned template as if it were a real generated draft.
+    if (this.mock) {
+      return this.normalizeDraftResult(await this.mock.generateDraft(request));
+    }
+    throw new Error(
+      "AI_GENERATION_UNAVAILABLE: Nunuza could not reach its configured AI providers. Your draft was not created. Please try again shortly."
+    );
   }
 
   private normalizeDraftResult(result: DraftGenerationResult): DraftGenerationResult {
@@ -93,8 +97,10 @@ export class AiService {
       }
     }
 
-    // 3. Offline / Deterministic Mock
-    return this.mock.generatePlan(request);
+    if (this.mock) return this.mock.generatePlan(request);
+    throw new Error(
+      "AI_PLAN_UNAVAILABLE: Nunuza could not reach its configured AI providers. Your plan was not created. Please try again shortly."
+    );
   }
 }
 
