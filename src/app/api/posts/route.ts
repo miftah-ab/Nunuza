@@ -14,6 +14,7 @@ import { requireWorkspace } from "@/lib/auth/workspace";
 import { createClient } from "@/lib/supabase/server";
 import { ok, created, apiError, parseBody, requireFields } from "@/lib/api/respond";
 import type { PostStatus } from "@/types/database";
+import { reserveDraftUsage, createDraftWithUsage, releaseDraftUsage } from "@/lib/db/usage";
 
 // Statuses that draft_only workspaces may filter by (read)
 const DRAFT_READABLE_STATUSES: PostStatus[] = [
@@ -58,9 +59,11 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  let reservationId: string | null = null;
+  let reservationWorkspaceId: string | null = null;
+  let reservationOwnerId: string | null = null;
   try {
     const workspace = await requireWorkspace();
-    const supabase = await createClient();
 
     const body = await parseBody<{
       text?: string;
@@ -79,38 +82,65 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: missing }, { status: 400 });
     }
 
-    // Clamp status to allowed values
+    if (typeof body.text !== "string" || body.text.trim().length === 0 || body.text.length > 3000) {
+      return NextResponse.json({ error: "Post text must contain 1 to 3000 characters." }, { status: 400 });
+    }
+
+    // Clamp status to allowed values. A client cannot create approved/scheduled posts.
     const status: PostStatus =
       body.status && CREATABLE_STATUSES.includes(body.status)
         ? body.status
         : "draft";
 
-    // Enforce draft_only gate: only draft/needs_review allowed regardless of requested status
     const effectiveStatus: PostStatus =
       workspace.entitlement_type === "draft_only" &&
       !DRAFT_READABLE_STATUSES.includes(status)
         ? "draft"
         : status;
 
-    const { data, error } = await supabase
-      .from("content_posts")
-      .insert({
-        workspace_id: workspace.id,
-        text: body.text!,
+    // Manual drafts consume the same monthly allowance as AI-created drafts.
+    const reservation = await reserveDraftUsage(workspace.id, workspace.owner_user_id);
+    if (!reservation) {
+      const usage = await import("@/lib/db/usage").then(({ checkDraftLimit }) =>
+        checkDraftLimit(workspace.id, workspace.owner_user_id)
+      );
+      return NextResponse.json(
+        {
+          error: `Monthly limit reached (${usage.count}/${usage.limit} items). Resets on ${usage.resetsOn}.`,
+          code: "USAGE_LIMIT_EXCEEDED",
+        },
+        { status: 429 }
+      );
+    }
+
+    reservationId = reservation.reservationId;
+    reservationWorkspaceId = workspace.id;
+    reservationOwnerId = workspace.owner_user_id;
+
+    const data = await createDraftWithUsage(
+      reservationId,
+      workspace.id,
+      workspace.owner_user_id,
+      {
+        text: body.text.trim(),
         internal_title: body.internal_title ?? null,
         pillar: body.pillar ?? null,
         source_notes: body.source_notes ?? null,
-        status: effectiveStatus,
-        version: 1,
-        created_by: workspace.owner_user_id,
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
+      },
+      effectiveStatus as "draft" | "needs_review"
+    );
+    reservationId = null;
 
     return created(data);
   } catch (err) {
     return apiError(err);
+  } finally {
+    if (reservationId && reservationWorkspaceId && reservationOwnerId) {
+      try {
+        await releaseDraftUsage(reservationId, reservationWorkspaceId, reservationOwnerId);
+      } catch (releaseError) {
+        console.error("[usage] Failed to release manual draft reservation:", releaseError);
+      }
+    }
   }
 }
