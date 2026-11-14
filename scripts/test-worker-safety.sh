@@ -335,7 +335,8 @@ echo "ok: concurrent API draft creation enforces the monthly cap and commits pos
 
 # Releasing a failed request frees its reserved slot; an expired reservation
 # is also removed before the next reservation attempt.
-RELEASE_ID=$(q -c "SELECT reservation_id FROM reserve_draft_usage_slot('$QUOTA_WS','$QUOTA_OWNER',date_trunc('month',current_date)::DATE,(date_trunc('month',current_date)+interval '1 month - 1 day')::DATE,30)")
+RELEASE_ID=$(grep '^true:' "$OUT/api-quota-reservations.txt" | sed -n '2p' | cut -d: -f2)
+[ -n "$RELEASE_ID" ] || fail "expected a second active reservation to release"
 [ "$(q -c "SELECT release_draft_usage_slot('$RELEASE_ID','$QUOTA_WS','$QUOTA_OWNER')")" = "t" ] || fail "failed generation must release its reservation"
 EXPIRED_ID=$(q -c "SELECT reservation_id FROM reserve_draft_usage_slot('$QUOTA_WS','$QUOTA_OWNER',date_trunc('month',current_date)::DATE,(date_trunc('month',current_date)+interval '1 month - 1 day')::DATE,30)")
 q -c "UPDATE draft_usage_reservations SET expires_at=now()-interval '1 second' WHERE id='$EXPIRED_ID'" >/dev/null
