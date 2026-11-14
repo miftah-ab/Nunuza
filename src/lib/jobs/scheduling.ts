@@ -118,6 +118,7 @@ export async function schedulePost(
   }
 
   const job = scheduleResult.job as AgentJob;
+  const idempotencyKey = `publish-${workspace.id}-${postId}`;
   const updatedPost = scheduleResult.post as ContentPost;
   if (!job?.id || !updatedPost?.id || updatedPost.id !== postId || job.status !== "queued" || updatedPost.status !== "scheduled") {
     throw new Error("[scheduler] Atomic scheduling returned an invalid persisted result.");
