@@ -19,7 +19,7 @@ describe("AI Service & Generation Pipeline", () => {
     );
   });
 
-  it("uses deterministic mock provider when external API keys are absent", async () => {
+  it("uses a deterministic mock only when it is explicitly injected", async () => {
     const mock = new MockAiProvider();
     const service = new AiService(
       new GroqProvider(""),
@@ -38,6 +38,31 @@ describe("AI Service & Generation Pipeline", () => {
     expect(result.modelUsed).toBe("mock-deterministic-v1");
     expect(result.text).toContain("Bootstrapping a B2B SaaS");
     expect(result.text.length).toBeLessThanOrEqual(3000);
+  });
+
+  it("fails closed instead of returning canned content when no real provider is configured", async () => {
+    const service = new AiService(
+      new GroqProvider(""),
+      new OpenRouterProvider("")
+    );
+
+    await expect(service.generateDraft({ topic: "Production reliability" })).rejects.toThrow(
+      /AI_GENERATION_UNAVAILABLE/
+    );
+  });
+
+  it("fails closed for plans when no real provider or test mock is configured", async () => {
+    const service = new AiService(
+      new GroqProvider(""),
+      new OpenRouterProvider("")
+    );
+
+    await expect(service.generatePlan({
+      periodStart: "2026-11-01",
+      periodDays: 7,
+      cadencePerWeek: 3,
+      strategy: {},
+    })).rejects.toThrow(/AI_PLAN_UNAVAILABLE/);
   });
 
   it("transparently falls back to OpenRouter when Groq throws an error", async () => {
@@ -112,7 +137,7 @@ describe("AI Service & Generation Pipeline", () => {
   });
 
   it("generates a structured plan adhering to cadence bounds", async () => {
-    const service = new AiService();
+    const service = new AiService(new GroqProvider(""), new OpenRouterProvider(""), new MockAiProvider());
 
     const plan = await service.generatePlan({
       periodStart: "2026-11-01",
