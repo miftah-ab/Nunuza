@@ -60,6 +60,7 @@ CREATE TABLE public.content_posts (
   scheduled_at TIMESTAMPTZ,
   published_at TIMESTAMPTZ,
   agent_cycle_key TEXT,
+  telegram_job_id UUID,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE TABLE public.content_post_versions (
@@ -289,6 +290,19 @@ q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status) VALUES ('$PAID_JOB
 q -c "UPDATE agent_jobs SET status='failed_terminal' WHERE id='$PAID_JOB'" >/dev/null
 [ "$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$WS4' AND metric='$PAID_JOB_METRIC'")" = "0" ] || fail "terminal background job must release its exact paid period metric"
 echo "ok: background job quota reservations release against the correct billing period"
+
+# A Telegram job that saved a draft must not release the consumed quota
+# merely because its later notification/finalization step fails.
+TELEGRAM_JOB="50000000-0000-0000-0000-000000000084"
+TELEGRAM_POST="30000000-0000-0000-0000-000000000084"
+TELEGRAM_METRIC="draft_items_created@2026-11-14T13:00:00.000Z"
+q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status) VALUES ('$TELEGRAM_JOB','$WS4','telegram_content_generation','running')" >/dev/null
+[ "$(q -c "SELECT reserve_draft_usage('$TELEGRAM_JOB','$WS4',current_date,current_date+30,30,'$TELEGRAM_METRIC')")" = "t" ] || fail "Telegram job should reserve its billing-period quota"
+q -c "INSERT INTO content_posts(id,workspace_id,status,telegram_job_id) VALUES ('$TELEGRAM_POST','$WS4','draft','$TELEGRAM_JOB')" >/dev/null
+q -c "UPDATE agent_jobs SET status='failed_terminal' WHERE id='$TELEGRAM_JOB'" >/dev/null
+[ "$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$WS4' AND metric='$TELEGRAM_METRIC'")" = "1" ] || fail "saved Telegram draft must keep its consumed quota"
+[ "$(q -c "SELECT payload ? 'draft_usage_reserved_period' FROM agent_jobs WHERE id='$TELEGRAM_JOB'")" = "f" ] || fail "terminal Telegram job should clear reservation metadata"
+echo "ok: persisted Telegram drafts retain consumed quota after terminal job failure"
 
 # API draft creation reserves quota before generation and commits the post,
 # initial version, and counter in one transaction.
