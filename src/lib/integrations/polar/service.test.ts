@@ -125,6 +125,33 @@ describe("Polar Client & Seller Eligibility", () => {
     expect(missingPrice.isConfigured()).toBe(false);
   });
 
+  it("reuses the workspace Polar customer and exact configured price at checkout", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: "checkout_1",
+      url: "https://checkout.polar.sh/session_1",
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new PolarClient({
+      accessToken: "polar_test_token",
+      productId: "prod_nunuza_solo",
+      priceId: "price_29_mo",
+      server: "sandbox",
+    });
+
+    await client.createCheckoutSession({
+      workspaceId: WORKSPACE_ID,
+      userEmail: "owner@example.com",
+      customerId: "cust_existing",
+      successUrl: "https://nunuza.example/billing/success",
+    });
+
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(payload.customer_id).toBe("cust_existing");
+    expect(payload.customer_email).toBeUndefined();
+    expect(payload.product_price_id).toBe("price_29_mo");
+  });
+
   it("blocks checkout when Polar credentials or prices are unconfigured", async () => {
     const client = new PolarClient({
       accessToken: "",
