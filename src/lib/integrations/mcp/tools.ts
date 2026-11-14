@@ -9,7 +9,7 @@
  * Claude Manual mode. Approval changes review status only; scheduling is separate.
  */
 
-import { getCalendarMonthPeriod, incrementDraftCounter } from "@/lib/db/usage";
+import { checkDraftLimit, reserveDraftUsage, createDraftWithUsage, releaseDraftUsage } from "@/lib/db/usage";
 import { createServiceClient } from "@/lib/supabase/server";
 import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
 
@@ -331,21 +331,13 @@ export async function executeMcpTool(
     }
 
     case "get_performance_summary": {
-      const now = new Date();
-      const currentPeriod = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-
-      const { data: usage } = await supabase
-        .from("usage_counters")
-        .select("counter_value")
-        .eq("workspace_id", workspaceId)
-        .eq("period_key", currentPeriod)
-        .maybeSingle();
+      const usage = await checkDraftLimit(workspaceId, userId);
 
       const { count: draftCount } = await supabase
         .from("content_posts")
         .select("id", { count: "exact", head: true })
         .eq("workspace_id", workspaceId)
-        .eq("status", "draft");
+        .in("status", ["draft", "needs_review"]);
 
       const { count: publishedCount } = await supabase
         .from("content_posts")
@@ -354,9 +346,9 @@ export async function executeMcpTool(
         .eq("status", "published");
 
       return {
-        period_key: currentPeriod,
-        monthly_drafts_used: usage?.counter_value ?? 0,
-        monthly_drafts_limit: 30,
+        monthly_drafts_used: usage.count,
+        monthly_drafts_limit: usage.limit,
+        usage_resets_on: usage.resetsOn,
         pending_review_drafts: draftCount ?? 0,
         published_posts: publishedCount ?? 0,
         rate_limits: {
@@ -383,41 +375,57 @@ export async function executeMcpTool(
       if (!args.text || !args.text.trim()) {
         throw new Error("Text body is required to create a draft");
       }
-
-      // Check monthly 30-draft quota limit
-      const { periodStart, periodEnd } = getCalendarMonthPeriod();
-      const { data: usageRecord } = await supabase
-        .from("usage_counters")
-        .select("count")
-        .eq("workspace_id", workspaceId)
-        .eq("metric", "draft_items_created")
-        .eq("period_start", periodStart)
-        .maybeSingle();
-
-      const currentCount = usageRecord?.count ?? 0;
-      if (currentCount >= 30) {
-        throw new Error(`Monthly quota reached (${currentCount}/30). Draft generation is capped at 30 items per month.`);
+      if (args.text.length > 3000) {
+        throw new Error("Draft text cannot exceed 3,000 characters.");
       }
 
-      const { data, error } = await supabase
-        .from("content_posts")
-        .insert({
-          workspace_id: workspaceId,
-          text: args.text.trim(),
-          internal_title: args.hook ? args.hook.trim() : null,
-          status: "draft",
-          version: 1,
-          created_by: userId,
-        })
-        .select()
-        .single();
+      let data: any;
+      if (supabaseOverride) {
+        // Unit tests use an injected in-memory database. Production always
+        // takes the quota-reserved transactional path below.
+        const { data: mockData, error } = await supabase
+          .from("content_posts")
+          .insert({
+            workspace_id: workspaceId,
+            text: args.text.trim(),
+            internal_title: args.hook ? args.hook.trim() : null,
+            source_notes: args.prompt ? args.prompt.trim() : null,
+            status: "draft",
+            version: 1,
+            created_by: userId,
+          })
+          .select()
+          .single();
+        if (error || !mockData) {
+          throw new Error(`Failed to create draft: ${error?.message || "Unknown error"}`);
+        }
+        data = mockData;
+      } else {
+        const reservation = await reserveDraftUsage(workspaceId, userId);
+        if (!reservation) {
+          const usage = await checkDraftLimit(workspaceId, userId);
+          throw new Error(`Monthly quota reached (${usage.count}/${usage.limit}). It resets on ${usage.resetsOn}.`);
+        }
 
-      if (error || !data) {
-        throw new Error(`Failed to create draft: ${error?.message || "Unknown error"}`);
-      }
-
-      if (!supabaseOverride) {
-        await incrementDraftCounter(workspaceId);
+        let reservationId: string | null = reservation.reservationId;
+        try {
+          data = await createDraftWithUsage(
+            reservation.reservationId,
+            workspaceId,
+            userId,
+            {
+              text: args.text.trim(),
+              internal_title: args.hook ? args.hook.trim() : null,
+              source_notes: args.prompt ? args.prompt.trim() : null,
+            },
+            "draft"
+          );
+          reservationId = null;
+        } finally {
+          if (reservationId) {
+            await releaseDraftUsage(reservationId, workspaceId, userId);
+          }
+        }
       }
 
       await supabase.from("audit_events").insert({
@@ -433,15 +441,15 @@ export async function executeMcpTool(
       // same proactive Telegram update here instead of silently leaving the
       // connected user unaware. Notification failure must not undo a saved draft.
       const escapeMarkdownV2 = (value: string) =>
-        value.replace(/([_\*\[\]()~`>#+\-=|{}.!\\])/g, "\\$1");
+        value.replace(/([_\\*\\[\\]()~`>#+\\-=|{}.!\\\\])/g, "\\\\$1");
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://nunuza-xi.vercel.app";
-      const snippet = (data.text || "").slice(0, 500).replace(/\s+/g, " ").trim();
+      const snippet = (data.text || "").slice(0, 500).replace(/\\s+/g, " ").trim();
       const delivery = await notifyWorkspaceTelegram(workspaceId, {
         text:
-          "🔔 *New draft saved in Nunuza*\n\n" +
-          "*" + escapeMarkdownV2(data.internal_title || "LinkedIn draft") + "*\n\n" +
+          "🔔 *New draft saved in Nunuza*\\n\\n" +
+          "*" + escapeMarkdownV2(data.internal_title || "LinkedIn draft") + "*\\n\\n" +
           escapeMarkdownV2(snippet) +
-          "\n\nOpen Nunuza to review and approve it.",
+          "\\n\\nOpen Nunuza to review and approve it.",
         replyMarkup: {
           inline_keyboard: [[{ text: "📝 Review draft", url: appUrl + "/app/content?post=" + data.id }]],
         },

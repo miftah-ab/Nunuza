@@ -43,6 +43,84 @@ export function getCalendarMonthPeriod(date: Date = new Date()): {
   };
 }
 
+interface DraftUsagePeriod {
+  periodStart: string;
+  periodEnd: string;
+  metric: string;
+  resetsOn: string;
+}
+
+/**
+ * Resolve the quota window from verified server-side workspace/subscription
+ * records. Paid workspaces use the exact Polar billing-cycle start as part of
+ * the metric key; draft-only and beta workspaces use UTC calendar months.
+ */
+export async function getDraftUsagePeriod(
+  workspaceId: string,
+  ownerUserId: string,
+  supabaseOverride?: any
+): Promise<DraftUsagePeriod> {
+  const supabase = supabaseOverride ?? createServiceClient();
+  const { data: workspace, error: workspaceError } = await supabase
+    .from("workspaces")
+    .select("entitlement_type")
+    .eq("id", workspaceId)
+    .eq("owner_user_id", ownerUserId)
+    .single();
+
+  if (workspaceError || !workspace) {
+    throw new Error("[usage] Could not verify workspace entitlement for draft quota.");
+  }
+
+  if (workspace.entitlement_type === "paid_trial" || workspace.entitlement_type === "paid_active") {
+    const { data: subscription, error: subscriptionError } = await supabase
+      .from("subscriptions")
+      .select("current_period_start, current_period_end, trial_start, trial_end")
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+
+    if (subscriptionError || !subscription) {
+      throw new Error("[usage] Verified billing period is unavailable. Draft creation is temporarily blocked.");
+    }
+
+    const startValue = subscription.current_period_start ??
+      (workspace.entitlement_type === "paid_trial" ? subscription.trial_start : null);
+    const endValue = subscription.current_period_end ??
+      (workspace.entitlement_type === "paid_trial" ? subscription.trial_end : null);
+    const start = startValue ? new Date(startValue) : null;
+    const end = endValue ? new Date(endValue) : null;
+    const now = Date.now();
+
+    if (
+      !start || !end ||
+      !Number.isFinite(start.getTime()) ||
+      !Number.isFinite(end.getTime()) ||
+      end.getTime() <= start.getTime() ||
+      now < start.getTime() ||
+      now >= end.getTime()
+    ) {
+      throw new Error("[usage] Verified billing period is invalid or expired. Draft creation is temporarily blocked.");
+    }
+
+    return {
+      periodStart: start.toISOString().slice(0, 10),
+      periodEnd: end.toISOString().slice(0, 10),
+      metric: `${DRAFT_ITEMS_METRIC}@${start.toISOString()}`,
+      resetsOn: end.toISOString().slice(0, 10),
+    };
+  }
+
+  const { periodStart, periodEnd } = getCalendarMonthPeriod();
+  const now = new Date();
+  const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  return {
+    periodStart,
+    periodEnd,
+    metric: DRAFT_ITEMS_METRIC,
+    resetsOn: nextMonth.toISOString().slice(0, 10),
+  };
+}
+
 // ─── Limit check ─────────────────────────────────────────────────────────────
 
 export interface DraftLimitStatus {
@@ -60,26 +138,38 @@ export interface DraftLimitStatus {
  * Returns the current draft creation usage for this workspace/month.
  * Does NOT block — caller decides whether to proceed based on isAtLimit.
  */
-export async function checkDraftLimit(workspaceId: string): Promise<DraftLimitStatus> {
-  const supabase = await createClient();
-  const { periodStart, periodEnd } = getCalendarMonthPeriod();
+export async function checkDraftLimit(workspaceId: string, ownerUserId?: string): Promise<DraftLimitStatus> {
+  const supabase = createServiceClient();
+  let count = 0;
+  let resetsOn: string;
 
-  const { data, error } = await supabase
-    .from("usage_counters")
-    .select("count")
-    .eq("workspace_id", workspaceId)
-    .eq("metric", DRAFT_ITEMS_METRIC)
-    .eq("period_start", periodStart)
-    .maybeSingle();
-
-  if (error) throw new Error(`[usage] checkDraftLimit: ${error.message}`);
-
-  const count = data?.count ?? 0;
-
-  // Calculate reset date (first day of next month)
-  const now = new Date();
-  const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-  const resetsOn = nextMonth.toISOString().split("T")[0];
+  if (ownerUserId) {
+    const period = await getDraftUsagePeriod(workspaceId, ownerUserId);
+    const { data, error } = await supabase.rpc("get_draft_usage_status", {
+      p_workspace_id: workspaceId,
+      p_owner_user_id: ownerUserId,
+      p_period_start: period.periodStart,
+      p_metric: period.metric,
+    });
+    if (error) throw new Error(`[usage] checkDraftLimit: ${error.message}`);
+    const row = Array.isArray(data) ? data[0] : data;
+    count = Number(row?.used_count ?? 0) + Number(row?.reserved_count ?? 0);
+    resetsOn = period.resetsOn;
+  } else {
+    const { periodStart } = getCalendarMonthPeriod();
+    const { data, error } = await supabase
+      .from("usage_counters")
+      .select("count")
+      .eq("workspace_id", workspaceId)
+      .eq("metric", DRAFT_ITEMS_METRIC)
+      .eq("period_start", periodStart)
+      .maybeSingle();
+    if (error) throw new Error(`[usage] checkDraftLimit: ${error.message}`);
+    count = Number(data?.count ?? 0);
+    const now = new Date();
+    resetsOn = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))
+      .toISOString().split("T")[0];
+  }
 
   return {
     count,
@@ -87,6 +177,79 @@ export async function checkDraftLimit(workspaceId: string): Promise<DraftLimitSt
     isAtLimit: count >= MONTHLY_DRAFT_LIMIT,
     resetsOn,
   };
+}
+
+export interface DraftUsageReservation {
+  reservationId: string;
+  count: number;
+  limit: number;
+  resetsOn: string;
+}
+
+export async function reserveDraftUsage(
+  workspaceId: string,
+  ownerUserId: string
+): Promise<DraftUsageReservation | null> {
+  const supabase = createServiceClient();
+  const period = await getDraftUsagePeriod(workspaceId, ownerUserId);
+  const { data, error } = await supabase.rpc("reserve_draft_usage_slot", {
+    p_workspace_id: workspaceId,
+    p_owner_user_id: ownerUserId,
+    p_period_start: period.periodStart,
+    p_period_end: period.periodEnd,
+    p_limit: MONTHLY_DRAFT_LIMIT,
+    p_metric: period.metric,
+  });
+  if (error) throw new Error(`[usage] reserveDraftUsage: ${error.message}`);
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.allowed || typeof row.reservation_id !== "string") return null;
+
+  return {
+    reservationId: row.reservation_id,
+    count: Number(row.current_count),
+    limit: MONTHLY_DRAFT_LIMIT,
+    resetsOn: period.resetsOn,
+  };
+}
+
+export async function createDraftWithUsage(
+  reservationId: string,
+  workspaceId: string,
+  ownerUserId: string,
+  input: { text: string; internal_title?: string | null; pillar?: string | null; source_notes?: string | null },
+  status: "draft" | "needs_review" = "draft"
+) {
+  const supabase = createServiceClient();
+  const { data, error } = await supabase.rpc("create_draft_with_usage", {
+    p_reservation_id: reservationId,
+    p_workspace_id: workspaceId,
+    p_owner_user_id: ownerUserId,
+    p_text: input.text,
+    p_internal_title: input.internal_title ?? null,
+    p_pillar: input.pillar ?? null,
+    p_source_notes: input.source_notes ?? null,
+    p_status: status,
+  });
+  if (error) throw new Error(`[usage] createDraftWithUsage: ${error.message}`);
+  const post = Array.isArray(data) ? data[0] : data;
+  if (!post || typeof post !== "object" || !("id" in post)) {
+    throw new Error("[usage] Draft creation did not return a persisted post.");
+  }
+  return post as import("@/types/database").ContentPost;
+}
+
+export async function releaseDraftUsage(
+  reservationId: string,
+  workspaceId: string,
+  ownerUserId: string
+): Promise<void> {
+  const supabase = createServiceClient();
+  const { error } = await supabase.rpc("release_draft_usage_slot", {
+    p_reservation_id: reservationId,
+    p_workspace_id: workspaceId,
+    p_owner_user_id: ownerUserId,
+  });
+  if (error) throw new Error(`[usage] releaseDraftUsage: ${error.message}`);
 }
 
 /**
@@ -134,10 +297,11 @@ export async function incrementDraftCounter(workspaceId: string): Promise<number
   });
 
   if (error) {
-    // Log but don't throw — counter failure should not fail the post creation
-    console.error(`[usage] incrementDraftCounter: ${error.message}`);
-    return -1;
+    throw new Error(`[usage] incrementDraftCounter: ${error.message}`);
   }
-
-  return (data as number) ?? -1;
+  const count = Number(data);
+  if (!Number.isInteger(count) || count < 1) {
+    throw new Error("[usage] Draft usage counter could not be verified.");
+  }
+  return count;
 }

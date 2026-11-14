@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { aiService } from "@/lib/ai/service";
 import { assertNoExcludedPhrase, StrategyExclusionError } from "@/lib/ai/exclusions";
 import { assertVoiceConstraints, VoiceConstraintError } from "@/lib/ai/voice-constraints";
-import { getCalendarMonthPeriod } from "@/lib/db/usage";
+import { getDraftUsagePeriod } from "@/lib/db/usage";
 import type { AgentJob } from "@/types/database";
 import type { JobExecutionResult } from "@/lib/jobs/types";
 
@@ -458,14 +458,20 @@ export async function executeTelegramContentJob(
     assertVoiceConstraints(payload.text, voiceContext);
     assertNoExcludedPhrase(payload.text, strategy?.exclusions, "content request");
 
-    const { periodStart, periodEnd } = getCalendarMonthPeriod();
-    if (!existingPost) {
+    const quotaPeriod = !existingPost
+      ? await getDraftUsagePeriod(job.workspace_id, payload.ownerUserId, supabase)
+      : null;
+    if (!existingPost && quotaPeriod) {
       const { data: reserved, error: reserveError } = await supabase.rpc("reserve_draft_usage", {
-        p_job_id: job.id, p_workspace_id: job.workspace_id,
-        p_period_start: periodStart, p_period_end: periodEnd, p_limit: 30,
+        p_job_id: job.id,
+        p_workspace_id: job.workspace_id,
+        p_period_start: quotaPeriod.periodStart,
+        p_period_end: quotaPeriod.periodEnd,
+        p_limit: 30,
+        p_metric: quotaPeriod.metric,
       });
       if (reserveError) throw new Error("Could not reserve your monthly draft allowance.");
-      if (!reserved) return finishWithoutDraft("You've reached this workspace's monthly draft limit (30). It resets on the first day of next month. Your existing drafts are safe.");
+      if (!reserved) return finishWithoutDraft(`You've reached this workspace's monthly draft limit (30). It resets on ${quotaPeriod.resetsOn}. Your existing drafts are safe.`);
     }
 
     let post = existingPost ? null : await loadExistingPostByJob(supabase, job.workspace_id, job.id);

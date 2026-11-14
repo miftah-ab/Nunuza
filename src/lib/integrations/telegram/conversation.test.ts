@@ -56,6 +56,9 @@ class FakeQuery {
     return Promise.resolve({ data: null, error: null });
   }
   single() {
+    if (this.table === "workspaces") {
+      return Promise.resolve({ data: { id: this.filters.id, owner_user_id: this.filters.owner_user_id, entitlement_type: "internal_beta" }, error: null });
+    }
     if (this.table === "agent_jobs" && this.operation === "insert") {
       const job = { id: "job-12345678", status: "queued", workspace_id: this.payload.workspace_id, ...this.payload };
       this.db.jobs.push(job);
