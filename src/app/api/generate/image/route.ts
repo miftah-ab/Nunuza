@@ -191,9 +191,13 @@ export async function POST(request: Request) {
 
     // Commit the reserved slot before attaching the image. If the post update
     // fails, the finally block releases this exact reservation idempotently.
+    const currentQuotaReservation = quotaReservation;
+    if (!currentQuotaReservation) {
+      throw new Error("Image generation quota reservation was lost. Please retry.");
+    }
     const { data: quotaCommittedResult, error: quotaCommitError } = await service.rpc(
       "commit_image_generation_reservation",
-      { p_reservation_id: quotaReservation?.reservationId }
+      { p_reservation_id: currentQuotaReservation.reservationId }
     );
     if (quotaCommitError || quotaCommittedResult !== true) {
       throw new Error("Image generation quota could not be committed. Please retry.");
