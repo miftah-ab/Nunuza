@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildCycleNotificationMessage,\n  buildLearningProfile,
+  buildCycleNotificationMessage,
+  buildLearningProfile,
   isAutonomousEntitlementEligible,
   isAutonomousWorkspaceActive,
   isDuplicateOpportunity,
