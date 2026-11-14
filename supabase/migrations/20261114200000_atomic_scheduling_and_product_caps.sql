@@ -198,3 +198,118 @@ REVOKE EXECUTE ON FUNCTION public.schedule_post_atomic(UUID, UUID, UUID, TIMESTA
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.schedule_post_atomic(UUID, UUID, UUID, TIMESTAMPTZ)
   TO service_role;
+
+
+-- The worker-side publish claim must enforce the same workspace-selected
+-- limits and access gates as scheduling. This closes the gap where a user
+-- lowered their limits or paused a workspace after scheduling.
+CREATE OR REPLACE FUNCTION public.claim_workspace_publish_slot(
+  p_workspace_id UUID,
+  p_post_id UUID
+)
+RETURNS TABLE(allowed BOOLEAN, reason TEXT)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_now TIMESTAMPTZ := NOW();
+  v_workspace public.workspaces%ROWTYPE;
+  v_day_start TIMESTAMPTZ;
+  v_day_end TIMESTAMPTZ;
+  v_week_start TIMESTAMPTZ;
+  v_daily_count INTEGER;
+  v_weekly_count INTEGER;
+  v_post_status public.post_status;
+  v_scheduled_at TIMESTAMPTZ;
+BEGIN
+  IF p_workspace_id IS NULL OR p_post_id IS NULL THEN
+    RAISE EXCEPTION 'workspace_id and post_id are required';
+  END IF;
+
+  SELECT * INTO v_workspace
+    FROM public.workspaces
+   WHERE id = p_workspace_id
+   FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN QUERY SELECT FALSE, 'WORKSPACE_NOT_FOUND'::TEXT;
+    RETURN;
+  END IF;
+  IF v_workspace.entitlement_type::TEXT NOT IN ('internal_beta', 'paid_trial', 'paid_active') THEN
+    RETURN QUERY SELECT FALSE, 'ENTITLEMENT_REQUIRED'::TEXT;
+    RETURN;
+  END IF;
+  IF v_workspace.paused_at IS NOT NULL THEN
+    RETURN QUERY SELECT FALSE, 'WORKSPACE_PAUSED'::TEXT;
+    RETURN;
+  END IF;
+
+  SELECT status, scheduled_at
+    INTO v_post_status, v_scheduled_at
+    FROM public.content_posts
+   WHERE id = p_post_id AND workspace_id = p_workspace_id
+   FOR UPDATE;
+
+  IF NOT FOUND OR v_post_status NOT IN ('approved', 'scheduled') THEN
+    RETURN QUERY SELECT FALSE, 'POST_NOT_ELIGIBLE'::TEXT;
+    RETURN;
+  END IF;
+  IF v_post_status = 'scheduled' AND (v_scheduled_at IS NULL OR v_scheduled_at > v_now) THEN
+    RETURN QUERY SELECT FALSE, 'POST_NOT_DUE'::TEXT;
+    RETURN;
+  END IF;
+
+  v_day_start := date_trunc('day', v_now AT TIME ZONE 'UTC') AT TIME ZONE 'UTC';
+  v_day_end := v_day_start + INTERVAL '1 day';
+  v_week_start := v_now - INTERVAL '7 days';
+
+  SELECT COUNT(*)::INTEGER INTO v_daily_count
+    FROM public.content_posts AS p
+   WHERE p.workspace_id = p_workspace_id
+     AND p.id <> p_post_id
+     AND (
+       (p.status = 'published' AND p.published_at >= v_day_start AND p.published_at < v_day_end)
+       OR (p.status IN ('publishing', 'needs_reconciliation') AND p.updated_at >= v_day_start AND p.updated_at < v_day_end)
+       OR (p.status = 'scheduled' AND p.scheduled_at >= v_day_start AND p.scheduled_at < v_day_end)
+     );
+
+  IF v_daily_count >= v_workspace.max_posts_per_day THEN
+    RETURN QUERY SELECT FALSE, 'DAILY_CAP_REACHED'::TEXT;
+    RETURN;
+  END IF;
+
+  SELECT COUNT(*)::INTEGER INTO v_weekly_count
+    FROM public.content_posts AS p
+   WHERE p.workspace_id = p_workspace_id
+     AND p.id <> p_post_id
+     AND (
+       (p.status = 'published' AND p.published_at >= v_week_start AND p.published_at <= v_now)
+       OR (p.status IN ('publishing', 'needs_reconciliation') AND p.updated_at >= v_week_start AND p.updated_at <= v_now)
+       OR (p.status = 'scheduled' AND p.scheduled_at >= v_week_start AND p.scheduled_at <= v_now + INTERVAL '7 days')
+     );
+
+  IF v_weekly_count >= v_workspace.max_posts_per_7_days THEN
+    RETURN QUERY SELECT FALSE, 'WEEKLY_CAP_REACHED'::TEXT;
+    RETURN;
+  END IF;
+
+  UPDATE public.content_posts
+     SET status = 'publishing', updated_at = v_now
+   WHERE id = p_post_id
+     AND workspace_id = p_workspace_id
+     AND status = v_post_status;
+
+  IF NOT FOUND THEN
+    RETURN QUERY SELECT FALSE, 'POST_ALREADY_CLAIMED'::TEXT;
+    RETURN;
+  END IF;
+
+  RETURN QUERY SELECT TRUE, NULL::TEXT;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.claim_workspace_publish_slot(UUID, UUID)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.claim_workspace_publish_slot(UUID, UUID)
+  TO service_role;
