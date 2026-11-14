@@ -3,19 +3,18 @@
  *
  * Implements Phase 3 draft generation pipeline:
  * 1. Derives workspace strictly from session via requireWorkspace()
- * 2. Enforces monthly usage limit (30 workflow items/month, BED-02)
+ * 2. Atomically reserves one monthly draft slot before generation
  * 3. Enriches prompt with workspace voice profile and content strategy
- * 4. Calls AI service (Groq -> OpenRouter -> Deterministic Mock)
- * 5. Saves draft to content_posts and appends post version
- * 6. Increments atomic usage counter and creates audit event
+ * 4. Calls AI service (Groq -> OpenRouter)
+ * 5. Atomically creates the draft, version, and usage record
+ * 6. Releases the reservation if generation or persistence fails
  */
 
 import { NextResponse } from "next/server";
 import { requireWorkspace } from "@/lib/auth/workspace";
 import { ok, apiError, parseBody } from "@/lib/api/respond";
 import { aiService } from "@/lib/ai/service";
-import { checkDraftLimit, incrementDraftCounter } from "@/lib/db/usage";
-import { createPost } from "@/lib/db/posts";
+import { checkDraftLimit, reserveDraftUsage, createDraftWithUsage, releaseDraftUsage } from "@/lib/db/usage";
 import { getVoiceProfile, getContentStrategy, logAuditEvent } from "@/lib/db/workspace";
 import { createClient } from "@/lib/supabase/server";
 import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
@@ -30,6 +29,9 @@ interface GenerateDraftBody {
 }
 
 export async function POST(request: Request) {
+  let reservationId: string | null = null;
+  let reservationWorkspaceId: string | null = null;
+  let reservationOwnerId: string | null = null;
   try {
     const workspace = await requireWorkspace();
     const body = await parseBody<GenerateDraftBody>(request);
@@ -41,9 +43,11 @@ export async function POST(request: Request) {
       );
     }
 
-    // 1. Enforce monthly draft quota (30 items/month)
-    const usage = await checkDraftLimit(workspace.id);
-    if (usage.isAtLimit) {
+    // Reserve quota atomically before spending tokens. Concurrent requests cannot
+    // pass the same final slot, and abandoned requests release it in finally.
+    const reservation = await reserveDraftUsage(workspace.id, workspace.owner_user_id);
+    if (!reservation) {
+      const usage = await checkDraftLimit(workspace.id, workspace.owner_user_id);
       return NextResponse.json(
         {
           error: `Monthly limit reached (${usage.count}/${usage.limit} items). Resets on ${usage.resetsOn}.`,
@@ -52,6 +56,9 @@ export async function POST(request: Request) {
         { status: 429 }
       );
     }
+    reservationId = reservation.reservationId;
+    reservationWorkspaceId = workspace.id;
+    reservationOwnerId = workspace.owner_user_id;
 
     // 2. Fetch context: voice profile, strategy, and user profile
     const supabase = await createClient();
@@ -108,16 +115,20 @@ export async function POST(request: Request) {
     assertNoExcludedPhrase(generationResult.text, strategy?.exclusions, "generated draft");
     assertVoiceConstraints(generationResult.text, voiceContext);
 
-    // 4. Persist post to DB in draft status
-    const post = await createPost(workspace.id, workspace.owner_user_id, {
-      text: generationResult.text,
-      internal_title: generationResult.internalTitle,
-      pillar: generationResult.pillar ?? body.pillar,
-      source_notes: body.notes,
-    });
-
-    // 5. Increment atomic usage counter
-    await incrementDraftCounter(workspace.id);
+    // Create the post, initial version, and consumed usage count in one DB
+    // transaction. The reservation is deleted only if all three writes succeed.
+    const post = await createDraftWithUsage(
+      reservationId!,
+      workspace.id,
+      workspace.owner_user_id,
+      {
+        text: generationResult.text,
+        internal_title: generationResult.internalTitle,
+        pillar: generationResult.pillar ?? body.pillar,
+        source_notes: body.notes,
+      }
+    );
+    reservationId = null;
 
     // 6. Record audit event
     await logAuditEvent({
@@ -165,5 +176,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: err.message }, { status: 422 });
     }
     return apiError(err);
+  } finally {
+    if (reservationId && reservationWorkspaceId && reservationOwnerId) {
+      try {
+        await releaseDraftUsage(reservationId, reservationWorkspaceId, reservationOwnerId);
+      } catch (releaseError) {
+        // The reservation expires automatically after 15 minutes; log without
+        // masking the original generation error.
+        console.error("[usage] Failed to release draft reservation:", releaseError);
+      }
+    }
   }
 }
