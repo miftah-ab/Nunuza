@@ -459,7 +459,7 @@ export async function executeTelegramContentJob(
     assertNoExcludedPhrase(payload.text, strategy?.exclusions, "content request");
 
     const quotaPeriod = !existingPost
-      ? await getDraftUsagePeriod(job.workspace_id, payload.ownerUserId)
+      ? await getDraftUsagePeriod(job.workspace_id, payload.ownerUserId, supabase)
       : null;
     if (!existingPost && quotaPeriod) {
       const { data: reserved, error: reserveError } = await supabase.rpc("reserve_draft_usage", {
