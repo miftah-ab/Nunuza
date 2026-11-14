@@ -14,7 +14,8 @@ export type PolarSubscriptionStatus =
   | "active"
   | "past_due"
   | "canceled"
-  | "unpaid";
+  | "unpaid"
+  | "revoked";
 
 export interface PolarSubscriptionCustomer {
   id: string;
@@ -37,7 +38,8 @@ export interface PolarSubscriptionData {
   canceled_at: string | null;
   ended_at: string | null;
   created_at: string;
-  updated_at: string;
+  modified_at?: string | null;
+  updated_at?: string | null;
   metadata?: Record<string, string>;
 }
 
@@ -45,6 +47,7 @@ export type PolarWebhookEventType =
   | "subscription.created"
   | "subscription.updated"
   | "subscription.active"
+  | "subscription.past_due"
   | "subscription.canceled"
   | "subscription.revoked"
   | "checkout.created"
