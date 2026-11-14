@@ -1133,8 +1133,8 @@ export function ContentManager({
 
       {/* Edit Post Modal */}
       {editingPost && (
-        <div className="fixed inset-0 z-50 bg-ink/30 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
-          <div className="card max-w-xl w-full p-6 shadow-xl animate-fade-in">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-ink/30 backdrop-blur-sm flex items-start justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
+          <div className="card my-auto max-h-[calc(100dvh-2rem)] max-w-xl w-full overflow-y-auto overscroll-contain p-6 shadow-xl animate-fade-in">
             <div className="flex items-center justify-between mb-5">
               <div>
                 <h2 id="edit-modal-title" className="text-base font-bold text-ink">Edit Post</h2>
