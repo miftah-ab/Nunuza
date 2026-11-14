@@ -34,13 +34,19 @@ export class VisualPlanningError extends Error {
 }
 
 const MAX_FIELD_LENGTH = 300;
-// Ling is the primary free multimodal planner and supports strict JSON Schema.
-// Gemma is the secondary free fallback; use JSON mode because its route does not
-// guarantee strict JSON Schema support.
-const FREE_MODELS = [
-  "inclusionai/ling-3.2-flash:free",
-  "google/gemma-4-26b-a4b-it:free",
-] as const;
+// These free routes were selected for current availability and structured-output support.
+// Cohere does not accept response_format, so its JSON response is validated locally.
+// Keep provider data collection disabled: user drafts must not be sent to training providers.
+interface FreeModelConfig {
+  id: string;
+  structuredOutput: boolean;
+}
+
+const FREE_MODELS: FreeModelConfig[] = [
+  { id: "baidu/ernie-5.5-flash-preview:free", structuredOutput: true },
+  { id: "cohere/north-mini-code:free", structuredOutput: false },
+  { id: "particle-ai/particle-1:free", structuredOutput: true },
+];
 
 function cleanText(value: unknown, fallback = ""): string {
   if (typeof value !== "string") return fallback;
@@ -101,7 +107,7 @@ function parseBrief(raw: string): PostVisualBrief {
 async function requestBrief(
   apiKey: string,
   post: PostForVisualAnalysis,
-  model: (typeof FREE_MODELS)[number]
+  model: FreeModelConfig
 ): Promise<PostVisualBrief> {
   const system = [
     "You are an award-winning editorial art director and visual storyteller for a premium business magazine.",
@@ -149,12 +155,15 @@ async function requestBrief(
       "X-Title": "Nunuza LinkedIn Assistant",
     },
     body: JSON.stringify({
-      model,
+      model: model.id,
       messages: [{ role: "system", content: system }, { role: "user", content: user }],
       temperature: 0.25,
-      provider: { require_parameters: true },
-      response_format: model === "inclusionai/ling-3.2-flash:free"
-        ? {
+      provider: {
+        require_parameters: model.structuredOutput,
+        data_collection: "deny",
+      },
+      ...(model.structuredOutput ? {
+        response_format: {
             type: "json_schema",
             json_schema: {
               name: "editorial_art_direction",
@@ -166,11 +175,11 @@ async function requestBrief(
                 additionalProperties: false,
               },
             },
-          }
-        : { type: "json_object" },
-      max_tokens: 4000,
+          },
+      } : {}),
+      max_tokens: 2200,
     }),
-    signal: AbortSignal.timeout(35_000),
+    signal: AbortSignal.timeout(12_000),
   });
 
   if (!response.ok) {
@@ -238,8 +247,8 @@ export async function createPostVisualBrief(post: PostForVisualAnalysis): Promis
       return await requestBrief(apiKey, post, model);
     } catch (error) {
       const reason = error instanceof Error ? error.message.slice(0, 300) : "Unknown provider error";
-      failures.push(`${model}: ${reason}`);
-      console.warn("[image-generation] Free art director attempt failed.", { model, reason });
+      failures.push(`${model.id}: ${reason}`);
+      console.warn("[image-generation] Free art director attempt failed.", { model: model.id, reason });
     }
   }
 
