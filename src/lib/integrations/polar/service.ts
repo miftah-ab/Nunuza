@@ -283,6 +283,112 @@ export class PolarService {
   }
 
   /**
+   * Re-fetch the provider's current subscription before any paid operation.
+   * Polar's past_due status represents its configured retry/grace state; the
+   * provider changes it to unpaid/revoked when that grace is exhausted.
+   */
+  async getVerifiedWorkspaceEntitlement(
+    workspaceId: string,
+    supabaseOverride?: any
+  ): Promise<EntitlementType> {
+    const supabase = supabaseOverride || createServiceClient();
+    const { data: workspace, error: workspaceError } = await supabase
+      .from("workspaces")
+      .select("id, entitlement_type, access_mode")
+      .eq("id", workspaceId)
+      .maybeSingle();
+
+    if (workspaceError || !workspace) {
+      throw new Error("Workspace entitlement could not be verified.");
+    }
+
+    if (workspace.access_mode === "private_beta" || workspace.entitlement_type === "internal_beta") {
+      return "internal_beta";
+    }
+
+    const { data: subscription, error: subscriptionError } = await supabase
+      .from("subscriptions")
+      .select("id, polar_subscription_id, product_id, price_id, status, trial_start, trial_end, current_period_start, current_period_end, cancel_at_period_end")
+      .eq("workspace_id", workspaceId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (subscriptionError) {
+      throw new Error("Workspace subscription could not be verified.");
+    }
+
+    if (!subscription) {
+      const hasPaidEntitlement = ["paid_trial", "paid_active"].includes(workspace.entitlement_type);
+      if (hasPaidEntitlement) {
+        const { error } = await supabase
+          .from("workspaces")
+          .update({ entitlement_type: "inactive" })
+          .eq("id", workspaceId);
+        if (error) throw new Error("Expired workspace entitlement could not be revoked.");
+        return "inactive";
+      }
+      return (workspace.entitlement_type || "inactive") as EntitlementType;
+    }
+
+    if (!this.polarClient.isConfigured()) {
+      throw new Error("Polar billing is not fully configured; paid access is paused.");
+    }
+
+    const liveSubscription = await this.polarClient.getSubscription(
+      subscription.polar_subscription_id
+    ) as PolarSubscriptionData;
+
+    if (
+      liveSubscription?.id !== subscription.polar_subscription_id ||
+      !this.polarClient.matchesConfiguredOffer(liveSubscription?.product_id, liveSubscription?.price_id)
+    ) {
+      throw new Error("The provider subscription does not match the configured Nunuza offer.");
+    }
+
+    const entitlement = this.mapPolarStatusToEntitlement(
+      liveSubscription.status,
+      liveSubscription.current_period_end,
+      liveSubscription.cancel_at_period_end,
+      liveSubscription.trial_end
+    );
+    const now = new Date().toISOString();
+    const providerModifiedAt =
+      liveSubscription.modified_at || liveSubscription.updated_at || now;
+
+    const { error: subscriptionUpdateError } = await supabase
+      .from("subscriptions")
+      .update({
+        status: liveSubscription.status,
+        trial_start: liveSubscription.trial_start,
+        trial_end: liveSubscription.trial_end,
+        current_period_start: liveSubscription.current_period_start,
+        current_period_end: liveSubscription.current_period_end,
+        cancel_at_period_end: liveSubscription.cancel_at_period_end,
+        entitlement_snapshot: entitlement,
+        provider_verified_at: now,
+        provider_modified_at: providerModifiedAt,
+        updated_at: now,
+      })
+      .eq("id", subscription.id)
+      .eq("workspace_id", workspaceId);
+
+    if (subscriptionUpdateError) {
+      throw new Error("Verified subscription state could not be saved.");
+    }
+
+    const { error: workspaceUpdateError } = await supabase
+      .from("workspaces")
+      .update({ entitlement_type: entitlement })
+      .eq("id", workspaceId);
+    if (workspaceUpdateError) {
+      throw new Error("Verified workspace entitlement could not be saved.");
+    }
+
+    return entitlement;
+  }
+
+  /**
    * Retrieves verified billing details for a workspace.
    */
   async getBillingDetails(
