@@ -316,8 +316,8 @@ for n in $(seq 1 64); do
   ) >> "$OUT/api-quota-reservations.txt" &
 done
 wait
-API_RESERVED=$(grep -c '^t:' "$OUT/api-quota-reservations.txt" || true)
-API_DENIED=$(grep -c '^f:' "$OUT/api-quota-reservations.txt" || true)
+API_RESERVED=$(grep -c '^true:' "$OUT/api-quota-reservations.txt" || true)
+API_DENIED=$(grep -c '^false:' "$OUT/api-quota-reservations.txt" || true)
 [ "$API_RESERVED" = "30" ] || fail "API quota must grant exactly 30 concurrent reservations, got $API_RESERVED"
 [ "$API_DENIED" = "34" ] || fail "API quota must deny remaining concurrent reservations, got $API_DENIED"
 RESERVATION_ID=$(grep '^t:' "$OUT/api-quota-reservations.txt" | head -n 1 | cut -d: -f2)
