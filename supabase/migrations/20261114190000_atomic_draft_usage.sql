@@ -386,12 +386,13 @@ SET search_path = public
 AS $function$
 DECLARE
   v_workspace_id UUID;
+  v_job_type TEXT;
   v_payload JSONB;
   v_period_start DATE;
   v_metric TEXT;
   v_cycle_date TEXT;
 BEGIN
-  SELECT workspace_id, payload INTO v_workspace_id, v_payload
+  SELECT workspace_id, job_type, payload INTO v_workspace_id, v_job_type, v_payload
     FROM public.agent_jobs WHERE id = p_job_id FOR UPDATE;
   IF NOT FOUND OR NOT (v_payload ? 'draft_usage_reserved_period') THEN
     RETURN;
@@ -402,6 +403,18 @@ BEGIN
     SELECT 1 FROM public.content_posts
      WHERE workspace_id = v_workspace_id
        AND agent_cycle_key = v_workspace_id::TEXT || ':' || v_cycle_date
+  ) THEN
+    UPDATE public.agent_jobs
+       SET payload = payload - 'draft_usage_reserved_period' - 'draft_usage_reserved_metric',
+           updated_at = NOW()
+     WHERE id = p_job_id;
+    RETURN;
+  END IF;
+
+  IF v_job_type = 'telegram_content_generation' AND EXISTS (
+    SELECT 1 FROM public.content_posts
+     WHERE workspace_id = v_workspace_id
+       AND telegram_job_id = p_job_id
   ) THEN
     UPDATE public.agent_jobs
        SET payload = payload - 'draft_usage_reserved_period' - 'draft_usage_reserved_metric',
