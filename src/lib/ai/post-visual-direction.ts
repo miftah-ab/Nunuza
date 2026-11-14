@@ -113,8 +113,29 @@ async function requestBrief(
       model,
       messages: [{ role: "system", content: system }, { role: "user", content: user }],
       temperature: 0.45,
-      response_format: { type: "json_object" },
-      max_tokens: 700,
+      provider: { require_parameters: true },
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "post_visual_brief",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: {
+              concept: { type: "string" },
+              subject: { type: "string" },
+              metaphor: { type: "string" },
+              composition: { type: "string" },
+              palette: { type: "string" },
+              mood: { type: "string" },
+              avoid: { type: "array", items: { type: "string" }, maxItems: 8 },
+            },
+            required: ["concept", "subject", "metaphor", "composition", "palette", "mood", "avoid"],
+            additionalProperties: false,
+          },
+        },
+      },
+      max_tokens: 1200,
     }),
     signal: AbortSignal.timeout(25_000),
   });
@@ -124,14 +145,36 @@ async function requestBrief(
     throw new Error(`HTTP ${response.status}: ${providerBody || response.statusText}`);
   }
 
-  let payload: { choices?: Array<{ message?: { content?: string } }> };
+  let payload: {
+    model?: string;
+    choices?: Array<{
+      finish_reason?: string;
+      message?: {
+        content?: string | Array<{ type?: string; text?: string }>;
+        refusal?: string;
+      };
+    }>;
+  };
   try {
     payload = (await response.json()) as typeof payload;
   } catch {
-    throw new Error("Provider returned invalid JSON.");
+    throw new Error("Provider returned an invalid response envelope.");
   }
-  const raw = payload.choices?.[0]?.message?.content;
-  if (!raw) throw new Error("Visual planning returned an empty response.");
+  const choice = payload.choices?.[0];
+  const content = choice?.message?.content;
+  const raw = typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content.filter((part) => part.type === "text" && typeof part.text === "string").map((part) => part.text).join("\\n")
+      : "";
+  if (!raw.trim()) {
+    const details = [
+      payload.model ? `model=${payload.model}` : null,
+      choice?.finish_reason ? `finish_reason=${choice.finish_reason}` : null,
+      choice?.message?.refusal ? "provider_refusal=true" : null,
+    ].filter(Boolean).join(", ");
+    throw new Error(`Visual planning returned an empty response${details ? ` (${details})` : ""}.`);
+  }
   return validateBrief(parseBrief(raw));
 }
 
@@ -141,24 +184,30 @@ export async function createPostVisualBrief(post: PostForVisualAnalysis): Promis
     throw new Error("Visual planning is temporarily unavailable. Please try again later.");
   }
 
-  try {
-    return await requestBrief(
-      "https://openrouter.ai/api/v1/chat/completions",
-      openRouterKey,
-      OPENROUTER_FREE_MODEL,
-      post
-    );
-  } catch (error) {
-    const reason = error instanceof Error ? error.message.slice(0, 500) : "Unknown provider error";
-    console.error("[image-generation] OpenRouter free visual planning failed", {
-      model: OPENROUTER_FREE_MODEL,
-      reason,
-    });
-    throw new VisualPlanningError(
-      "Nunuza’s visual planner is temporarily unavailable. Please try again in a moment.",
-      [`OpenRouter free: ${reason}`]
-    );
+  const failures: string[] = [];
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      return await requestBrief(
+        "https://openrouter.ai/api/v1/chat/completions",
+        openRouterKey,
+        OPENROUTER_FREE_MODEL,
+        post
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message.slice(0, 500) : "Unknown provider error";
+      failures.push(`OpenRouter free attempt ${attempt}: ${reason}`);
+      console.error("[image-generation] OpenRouter free visual planning attempt failed", {
+        model: OPENROUTER_FREE_MODEL,
+        attempt,
+        reason,
+      });
+    }
   }
+
+  throw new VisualPlanningError(
+    "Nunuza’s visual planner is temporarily unavailable. Please try again in a moment.",
+    failures
+  );
 }
 
 export function buildPostVisualImagePrompt(
