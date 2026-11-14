@@ -57,7 +57,7 @@ describe("post visual art direction", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(init.body));
-    expect(body.model).toBe("openrouter/free");
+    expect(body.model).toBe("inclusionai/ling-3.2-flash:free");
     expect(body.max_tokens).toBe(4000);
     expect(body.response_format.json_schema.strict).toBe(true);
     expect(body.messages[1].content).toContain("FULL POST BODY");
@@ -76,7 +76,8 @@ describe("post visual art direction", () => {
     expect(brief).toEqual(validBrief);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const secondBody = JSON.parse(String((fetchMock.mock.calls[1] as [string, RequestInit])[1].body));
-    expect(secondBody.model).toBe("dots-studio/dots-3-note-preview:free");
+    expect(secondBody.model).toBe("google/gemma-4-26b-a4b-it:free");
+    expect(secondBody.response_format).toEqual({ type: "json_object" });
   });
 
   it("fails instead of generating from a generic fallback when all free planners fail", async () => {
