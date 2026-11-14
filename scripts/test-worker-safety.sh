@@ -325,6 +325,11 @@ EXPIRED_ID=$(q -c "SELECT reservation_id FROM reserve_draft_usage_slot('$QUOTA_W
 q -c "UPDATE draft_usage_reservations SET expires_at=now()-interval '1 second' WHERE id='$EXPIRED_ID'" >/dev/null
 NEXT_ID=$(q -c "SELECT reservation_id FROM reserve_draft_usage_slot('$QUOTA_WS','$QUOTA_OWNER',date_trunc('month',current_date)::DATE,(date_trunc('month',current_date)+interval '1 month - 1 day')::DATE,30)")
 [ -n "$NEXT_ID" ] || fail "expired reservation must not permanently consume quota"
+MIXED_JOB="50000000-0000-0000-0000-000000000083"
+q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status) VALUES ('$MIXED_JOB','$QUOTA_WS','mixed_quota_test','queued')" >/dev/null
+MIXED_RESULT=$(q -c "SELECT reserve_draft_usage('$MIXED_JOB','$QUOTA_WS',date_trunc('month',current_date)::DATE,(date_trunc('month',current_date)+interval '1 month - 1 day')::DATE,30,'draft_items_created')")
+[ "$MIXED_RESULT" = "f" ] || fail "background jobs must count API-held draft reservations before reserving"
+echo "ok: API and background draft creation share one atomic quota pool"
 echo "ok: failed and expired draft reservations release quota"
 
 # Wrong workspace owner cannot reserve draft usage.
