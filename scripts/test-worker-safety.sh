@@ -317,6 +317,28 @@ if q -c "UPDATE workspaces SET max_posts_per_7_days=8 WHERE id='$SCHEDULE_WS'" >
 fi
 echo "ok: database constraints prevent raising product publishing caps"
 
+# The atomic scheduling RPC enforces owner, entitlement, and pause gates
+# independently of the application-layer checks.
+DRAFT_SCHEDULE_WS="10000000-0000-0000-0000-000000000047"
+DRAFT_SCHEDULE_OWNER="70000000-0000-0000-0000-000000000047"
+DRAFT_SCHEDULE_POST="30000000-0000-0000-0000-000000000047"
+q -c "INSERT INTO workspaces(id,owner_user_id,entitlement_type) VALUES ('$DRAFT_SCHEDULE_WS','$DRAFT_SCHEDULE_OWNER','draft_only')" >/dev/null
+q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES ('$DRAFT_SCHEDULE_POST','$DRAFT_SCHEDULE_WS','approved')" >/dev/null
+DRAFT_SCHEDULE_RESULT=$(q -c "SELECT schedule_post_atomic('$DRAFT_SCHEDULE_WS','$DRAFT_SCHEDULE_POST','$DRAFT_SCHEDULE_OWNER','$SCHEDULE_TIME'::timestamptz)->>'reason'")
+[ "$DRAFT_SCHEDULE_RESULT" = "ENTITLEMENT_REQUIRED" ] || fail "draft_only workspace must not schedule"
+
+PAUSED_SCHEDULE_WS="10000000-0000-0000-0000-000000000048"
+PAUSED_SCHEDULE_OWNER="70000000-0000-0000-0000-000000000048"
+PAUSED_SCHEDULE_POST="30000000-0000-0000-0000-000000000048"
+q -c "INSERT INTO workspaces(id,owner_user_id,paused_at) VALUES ('$PAUSED_SCHEDULE_WS','$PAUSED_SCHEDULE_OWNER',now())" >/dev/null
+q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES ('$PAUSED_SCHEDULE_POST','$PAUSED_SCHEDULE_WS','approved')" >/dev/null
+PAUSED_SCHEDULE_RESULT=$(q -c "SELECT schedule_post_atomic('$PAUSED_SCHEDULE_WS','$PAUSED_SCHEDULE_POST','$PAUSED_SCHEDULE_OWNER','$SCHEDULE_TIME'::timestamptz)->>'reason'")
+[ "$PAUSED_SCHEDULE_RESULT" = "WORKSPACE_PAUSED" ] || fail "paused workspace must not schedule"
+
+OWNER_SCHEDULE_RESULT=$(q -c "SELECT schedule_post_atomic('$SCHEDULE_WS','$SCHEDULE_POST','70000000-0000-0000-0000-000000000099','$SCHEDULE_TIME'::timestamptz)->>'reason'")
+[ "$OWNER_SCHEDULE_RESULT" = "WORKSPACE_ACCESS_DENIED" ] || fail "non-owner must not schedule a workspace post"
+echo "ok: database scheduling RPC enforces owner, entitlement, and pause gates"
+
 # Only service_role may call privileged functions.
 # The migration defaults every existing and new workspace to 10/day and 50/7 days.
 DEFAULT_WS="10000000-0000-0000-0000-000000000005"
@@ -368,6 +390,9 @@ echo "ok: monthly draft usage is atomic and retry-idempotent"
 [ "$(q -c "SELECT has_function_privilege('anon','public.cancel_scheduled_post_atomic(uuid,uuid)','EXECUTE')")" = "f" ] || fail "anon must not cancel scheduled posts"
 [ "$(q -c "SELECT has_function_privilege('authenticated','public.cancel_scheduled_post_atomic(uuid,uuid)','EXECUTE')")" = "f" ] || fail "authenticated must not cancel scheduled posts"
 [ "$(q -c "SELECT has_function_privilege('service_role','public.cancel_scheduled_post_atomic(uuid,uuid)','EXECUTE')")" = "t" ] || fail "service_role must cancel scheduled posts"
+[ "$(q -c "SELECT has_function_privilege('anon','public.schedule_post_atomic(uuid,uuid,uuid,timestamptz)','EXECUTE')")" = "f" ] || fail "anon must not schedule posts"
+[ "$(q -c "SELECT has_function_privilege('authenticated','public.schedule_post_atomic(uuid,uuid,uuid,timestamptz)','EXECUTE')")" = "f" ] || fail "authenticated must not call privileged schedule RPC"
+[ "$(q -c "SELECT has_function_privilege('service_role','public.schedule_post_atomic(uuid,uuid,uuid,timestamptz)','EXECUTE')")" = "t" ] || fail "service_role must schedule posts"
 echo "ok: worker-only execution grants enforced"
 
 echo "ALL WORKER SAFETY CHECKS PASSED"
