@@ -12,6 +12,7 @@ import { apiError, parseBody } from "@/lib/api/respond";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getPost } from "@/lib/db/posts";
 import { logAuditEvent } from "@/lib/db/workspace";
+import { createPostVisualBrief, buildPostVisualImagePrompt, type PostVisualBrief } from "@/lib/ai/post-visual-direction";
 import {
   CloudflareImageError,
   CLOUDFLARE_IMAGE_MODEL,
@@ -45,7 +46,9 @@ type ImageStyle = keyof typeof IMAGE_STYLES;
 type ImageFormat = "portrait" | "landscape" | "square";
 
 interface GenerateImageBody {
+  action?: "analyze" | "generate";
   postId: string;
+  visualBrief?: PostVisualBrief;
   prompt?: string;
   style?: ImageStyle;
   format?: ImageFormat;
@@ -56,31 +59,6 @@ const IMAGE_DIMENSIONS: Record<ImageFormat, ImageDimensions> = {
   landscape: { width: 1280, height: 720 },
   square: { width: 1024, height: 1024 },
 };
-
-function buildImagePrompt(
-  post: { internal_title: string | null; text: string },
-  direction?: string,
-  style: ImageStyle = "editorial"
-) {
-  const subject = (post.internal_title || post.text.slice(0, 180)).replace(/\s+/g, " ").trim();
-  const context = post.text.replace(/\s+/g, " ").slice(0, 2_000).trim();
-  const userDirection = direction?.trim();
-
-  return [
-    "Create one exceptional, publication-ready visual for the LinkedIn post described below.",
-    "VISUAL CONCEPT: Translate the post's central insight into one memorable, concrete scene or visual metaphor. Make the subject instantly understandable at feed size. Prefer a specific, surprising visual idea over a literal generic stock-photo scene.",
-    `ART DIRECTION: ${IMAGE_STYLES[style]}`,
-    "COMPOSITION: Establish one dominant focal point, foreground/midground/background depth, intentional framing, balanced visual weight, and clean negative space. The composition must feel designed by an experienced editorial art director, not like a generic AI image.",
-    "SUBJECT ACCURACY (NON-NEGOTIABLE): Depict the requested subject, object, place, product, animal, architecture, landscape, diagram, or concept directly. Never substitute a person, face, model, portrait, office worker, or generic business meeting for the requested subject. Do not include any human or human-like figure unless the user explicitly asks for one. Do not invent named people, brands, products, statistics, logos, events, or factual claims.",
-    "CRAFT: Photorealistic detail when appropriate to the selected style, coherent anatomy and object geometry, natural hands and reflections, consistent lighting, believable perspective, refined texture, no visual glitches.",
-    "OUTPUT: Image only. No text, lettering, captions, numbers, logos, watermarks, borders, UI mockups, split panels, or collage layouts. Typography can be added separately by the product.",
-    `POST TITLE: ${subject}`,
-    `POST CONTENT: ${context}`,
-    userDirection
-      ? `USER'S REQUESTED SUBJECT AND CREATIVE DIRECTION (HIGHEST PRIORITY; FOLLOW LITERALLY): ${userDirection}`
-      : "CREATIVE DIRECTION: Identify the specific subject and central idea from the post, then visualize that subject directly. Do not use a generic human portrait, office worker, laptop, or handshake as a substitute.",
-  ].join("\n");
-}
 
 async function createPreviewUrl(path: string) {
   const service = createServiceClient();
@@ -141,6 +119,30 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Add post text before generating an image." }, { status: 422 });
     }
 
+    const style = body.style ?? "editorial";
+    const format = body.format ?? "portrait";
+
+    // The agent first interprets the post and proposes a visual direction.
+    // Analysis is a lightweight text operation and does not consume image quota.
+    const visualBrief = body.action === "analyze" || !body.visualBrief
+      ? await createPostVisualBrief(post)
+      : body.visualBrief;
+    const requiredBriefFields: (keyof Omit<PostVisualBrief, "avoid">)[] = [
+      "concept", "subject", "metaphor", "composition", "palette", "mood",
+    ];
+    if (
+      JSON.stringify(visualBrief).length > 4_000 ||
+      requiredBriefFields.some((field) => typeof visualBrief[field] !== "string" || visualBrief[field].length > 420) ||
+      !Array.isArray(visualBrief.avoid) ||
+      visualBrief.avoid.length > 8 ||
+      visualBrief.avoid.some((item) => typeof item !== "string" || item.length > 420)
+    ) {
+      return NextResponse.json({ error: "The visual direction is invalid. Analyze the post again." }, { status: 400 });
+    }
+    if (body.action === "analyze") {
+      return NextResponse.json({ data: { visualBrief } });
+    }
+
     const service = createServiceClient();
     const now = new Date();
     const periodStart = now.toISOString().slice(0, 10);
@@ -164,9 +166,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const style = body.style ?? "editorial";
-    const format = body.format ?? "portrait";
-    const prompt = buildImagePrompt(post, body.prompt, style);
+    const prompt = buildPostVisualImagePrompt(post, visualBrief, IMAGE_STYLES[style], body.prompt);
     const generated = await generateCloudflareImage(prompt, IMAGE_DIMENSIONS[format]);
     const path = `${workspace.id}/${post.id}/${crypto.randomUUID()}.jpg`;
 
