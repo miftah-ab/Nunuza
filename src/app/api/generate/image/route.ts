@@ -125,7 +125,16 @@ export async function POST(request: Request) {
     // The agent first interprets the post and proposes a visual direction.
     // Analysis is a lightweight text operation and does not consume image quota.
     const visualBrief = body.visualBrief ?? await createPostVisualBrief(post);
-    if (JSON.stringify(visualBrief).length > 4_000 || !visualBrief.concept || !visualBrief.subject || !visualBrief.composition) {
+    const requiredBriefFields: (keyof Omit<PostVisualBrief, "avoid">)[] = [
+      "concept", "subject", "metaphor", "composition", "palette", "mood",
+    ];
+    if (
+      JSON.stringify(visualBrief).length > 4_000 ||
+      requiredBriefFields.some((field) => typeof visualBrief[field] !== "string" || visualBrief[field].length > 420) ||
+      !Array.isArray(visualBrief.avoid) ||
+      visualBrief.avoid.length > 8 ||
+      visualBrief.avoid.some((item) => typeof item !== "string" || item.length > 420)
+    ) {
       return NextResponse.json({ error: "The visual direction is invalid. Analyze the post again." }, { status: 400 });
     }
     if (body.action === "analyze") {
