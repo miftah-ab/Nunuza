@@ -158,10 +158,45 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
     ).rejects.toThrow("Daily scheduling limit reached. Your limit is 1 post(s) per day.");
   });
 
-  it("cancelScheduledPost returns post to approved status", async () => {
+  it("atomically cancels a queued publishing job before resetting the post to approved", async () => {
     const { requireWorkspace } = await import("@/lib/auth/workspace");
     const { getPost } = await import("@/lib/db/posts");
-    const { createClient } = await import("@/lib/supabase/server");
+    const rpc = vi.fn().mockResolvedValue({
+      data: [{ success: true, reason: null }],
+      error: null,
+    });
+
+    vi.mocked(requireWorkspace).mockResolvedValue(betaWorkspace);
+    vi.mocked(getPost)
+      .mockResolvedValueOnce({
+        ...sampleApprovedPost,
+        status: "scheduled",
+        scheduled_at: new Date().toISOString(),
+      })
+      .mockResolvedValueOnce({
+        ...sampleApprovedPost,
+        status: "approved",
+        scheduled_at: null,
+      });
+    vi.mocked(createServiceClient).mockReturnValue({ rpc } as any);
+
+    const result = await cancelScheduledPost("ws-beta", "post-101");
+
+    expect(rpc).toHaveBeenCalledWith("cancel_scheduled_post_atomic", {
+      p_workspace_id: "ws-beta",
+      p_post_id: "post-101",
+    });
+    expect(result.status).toBe("approved");
+    expect(result.scheduled_at).toBeNull();
+  });
+
+  it("does not reset the post when the publishing job is already running", async () => {
+    const { requireWorkspace } = await import("@/lib/auth/workspace");
+    const { getPost } = await import("@/lib/db/posts");
+    const rpc = vi.fn().mockResolvedValue({
+      data: [{ success: false, reason: "JOB_NOT_CANCELLABLE" }],
+      error: null,
+    });
 
     vi.mocked(requireWorkspace).mockResolvedValue(betaWorkspace);
     vi.mocked(getPost).mockResolvedValue({
@@ -169,30 +204,12 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
       status: "scheduled",
       scheduled_at: new Date().toISOString(),
     });
+    vi.mocked(createServiceClient).mockReturnValue({ rpc } as any);
 
-    const mockSupabase = {
-      from: vi.fn().mockReturnValue({
-        update: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
-              in: vi.fn().mockResolvedValue({ error: null }),
-              select: vi.fn().mockReturnValue({
-                single: vi.fn().mockResolvedValue({
-                  data: { ...sampleApprovedPost, status: "approved", scheduled_at: null },
-                  error: null,
-                }),
-              }),
-            }),
-          }),
-        }),
-      }),
-    };
-
-    vi.mocked(createClient).mockResolvedValue(mockSupabase as any);
-
-    const result = await cancelScheduledPost("ws-beta", "post-101");
-    expect(result.status).toBe("approved");
-    expect(result.scheduled_at).toBeNull();
+    await expect(cancelScheduledPost("ws-beta", "post-101")).rejects.toThrow(
+      "already being processed or requires reconciliation"
+    );
+    expect(getPost).toHaveBeenCalledTimes(1);
   });
 
   describe("executePublishJob (confirmed publication only)", () => {
