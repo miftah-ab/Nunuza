@@ -5,7 +5,7 @@
  * Use requireWorkspace() from lib/auth/workspace.ts before calling these.
  */
 
-import { createServiceClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { Workspace, VoiceProfile, ContentStrategy } from "@/types/database";
 
 // ─── Workspace ────────────────────────────────────────────────────────────────
