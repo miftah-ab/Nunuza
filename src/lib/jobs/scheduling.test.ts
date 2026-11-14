@@ -121,41 +121,64 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
     ).rejects.toThrow(ForbiddenError);
   });
 
-  it("enforces daily cap of at most 1 scheduled post per calendar day", async () => {
+  it("creates the publishing job and scheduled post through one atomic RPC", async () => {
     const { requireWorkspace } = await import("@/lib/auth/workspace");
     const { getPost } = await import("@/lib/db/posts");
-    const { createClient } = await import("@/lib/supabase/server");
+    const rpc = vi.fn().mockResolvedValue({
+      data: {
+        success: true,
+        job: { id: "job-scheduled-1", status: "queued" },
+        post: { ...sampleApprovedPost, status: "scheduled", scheduled_at: "2026-11-15T10:00:00.000Z" },
+      },
+      error: null,
+    });
 
     vi.mocked(requireWorkspace).mockResolvedValue(betaWorkspace);
     vi.mocked(getPost).mockResolvedValue(sampleApprovedPost);
+    vi.mocked(createServiceClient).mockReturnValue({ rpc } as any);
 
-    // Mock query returning an existing scheduled post on that same day
-    const mockSupabase = {
-      from: vi.fn().mockReturnValue({
-        select: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
-              neq: vi.fn().mockReturnValue({
-                gte: vi.fn().mockReturnValue({
-                  lt: vi.fn().mockResolvedValue({
-                    data: [{ id: "existing-scheduled-post" }],
-                    error: null,
-                  }),
-                }),
-              }),
-            }),
-          }),
-        }),
-      }),
-    };
+    const result = await schedulePost("ws-beta", "post-101", "2026-11-15T10:00:00.000Z");
 
-    vi.mocked(createClient).mockResolvedValue(mockSupabase as any);
+    expect(rpc).toHaveBeenCalledWith("schedule_post_atomic", {
+      p_workspace_id: "ws-beta",
+      p_post_id: "post-101",
+      p_owner_user_id: "user-1",
+      p_scheduled_for: "2026-11-15T10:00:00.000Z",
+    });
+    expect(result.job.status).toBe("queued");
+    expect(result.post.status).toBe("scheduled");
+  });
 
-    const futureDate = new Date(Date.now() + 3600000).toISOString();
+  it("fails closed when the database refuses a schedule at the daily cap", async () => {
+    const { requireWorkspace } = await import("@/lib/auth/workspace");
+    const { getPost } = await import("@/lib/db/posts");
+    const rpc = vi.fn().mockResolvedValue({
+      data: { success: false, reason: "DAILY_CAP_REACHED" },
+      error: null,
+    });
 
-    await expect(
-      schedulePost("ws-beta", "post-101", futureDate)
-    ).rejects.toThrow("Daily scheduling limit reached. Your limit is 1 post(s) per day.");
+    vi.mocked(requireWorkspace).mockResolvedValue(betaWorkspace);
+    vi.mocked(getPost).mockResolvedValue(sampleApprovedPost);
+    vi.mocked(createServiceClient).mockReturnValue({ rpc } as any);
+
+    await expect(schedulePost("ws-beta", "post-101", "2026-11-15T10:00:00.000Z"))
+      .rejects.toThrow("daily LinkedIn scheduling limit");
+  });
+
+  it("never re-queues a publishing job that needs reconciliation", async () => {
+    const { requireWorkspace } = await import("@/lib/auth/workspace");
+    const { getPost } = await import("@/lib/db/posts");
+    const rpc = vi.fn().mockResolvedValue({
+      data: { success: false, reason: "JOB_STATE_NOT_RESCHEDULABLE" },
+      error: null,
+    });
+
+    vi.mocked(requireWorkspace).mockResolvedValue(betaWorkspace);
+    vi.mocked(getPost).mockResolvedValue(sampleApprovedPost);
+    vi.mocked(createServiceClient).mockReturnValue({ rpc } as any);
+
+    await expect(schedulePost("ws-beta", "post-101", "2026-11-15T10:00:00.000Z"))
+      .rejects.toThrow("already running, completed, or requires reconciliation");
   });
 
   it("atomically cancels a queued publishing job before resetting the post to approved", async () => {
