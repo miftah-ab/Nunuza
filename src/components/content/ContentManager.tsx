@@ -925,7 +925,7 @@ export function ContentManager({
             <section className="mb-5">
               <div className="mb-2">
                 <h3 className="text-sm font-semibold text-ink">Post ideas selected for your audience</h3>
-                <p className="text-xs text-ink-secondary">Choose one, or use the first recommendation and let Nunuza write it.</p>
+                <p className="text-xs text-ink-secondary">Ranked from strongest opportunity to least relevant. Nunuza selects the top recommendation by default.</p>
               </div>
               {isLoadingIdeas && topicIdeas.length === 0 ? (
                 <div className="flex items-center gap-2 rounded-lg border border-border p-4 text-xs text-ink-secondary">
@@ -942,9 +942,12 @@ export function ContentManager({
                       className={`w-full rounded-lg border p-3 text-left transition-colors ${selectedIdeaId === idea.id ? "border-forest bg-forest-light/40" : "border-border hover:border-forest/50"}`}
                     >
                       <div className="flex items-start gap-2">
-                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface text-[10px] font-semibold text-ink-secondary">{index + 1}</span>
+                        <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${index === 0 ? "bg-forest text-white" : "bg-surface text-ink-secondary"}`}>{index + 1}</span>
                         <span className="min-w-0 flex-1">
-                          <span className="block text-xs font-semibold text-ink">{idea.title}</span>
+                          <span className="flex flex-wrap items-center gap-2 text-xs font-semibold text-ink">
+                            {idea.title}
+                            {index === 0 && <span className="rounded-full bg-forest-light px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-forest">Best opportunity</span>}
+                          </span>
                           <span className="mt-1 block text-[11px] leading-relaxed text-ink-secondary">{idea.angle}</span>
                           <span className="mt-1 block text-[10px] text-ink-muted">{idea.reason}</span>
                           <span className="mt-1 block text-[10px] text-forest">{idea.pillar} · {idea.targetFormat}</span>

@@ -79,6 +79,7 @@ export class MockAiProvider implements AiProvider {
       const targetFormat = formats[i % formats.length];
 
       topics.push({
+        rank: i + 1,
         dayOffset,
         date: postDate.toISOString().split("T")[0],
         pillar,

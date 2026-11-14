@@ -47,6 +47,7 @@ export interface DraftGenerationResult {
 }
 
 export interface PlanTopicIdea {
+  rank: number; // 1 = strongest recommendation; higher numbers are lower priority
   dayOffset: number; // 0 = first day of period, etc.
   date: string;
   pillar: string;
