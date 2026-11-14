@@ -55,7 +55,7 @@ interface DraftUsagePeriod {
  * records. Paid workspaces use the exact Polar billing-cycle start as part of
  * the metric key; draft-only and beta workspaces use UTC calendar months.
  */
-export export async function getDraftUsagePeriod(
+export async function getDraftUsagePeriod(
   workspaceId: string,
   ownerUserId: string,
   supabaseOverride?: any
