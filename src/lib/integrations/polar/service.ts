@@ -398,13 +398,17 @@ export class PolarService {
     const supabase = supabaseOverride || createServiceClient();
     const entitlement = await this.getVerifiedWorkspaceEntitlement(workspaceId, supabase);
 
-    const { data: subscription } = await supabase
+    const { data: subscription, error: subscriptionError } = await supabase
       .from("subscriptions")
       .select("polar_subscription_id, status, trial_end, current_period_end, cancel_at_period_end")
       .eq("workspace_id", workspaceId)
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    if (subscriptionError) {
+      throw new Error("Billing subscription details could not be loaded.");
+    }
 
     const accessMode = entitlement === "internal_beta" ? "private_beta" : "commercial";
 
