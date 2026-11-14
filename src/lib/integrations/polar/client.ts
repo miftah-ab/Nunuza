@@ -129,6 +129,7 @@ export class PolarClient {
         Authorization: `Bearer ${this.accessToken}`,
       },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10_000),
     });
 
     if (!response.ok) {
@@ -161,6 +162,7 @@ export class PolarClient {
         headers: {
           Authorization: `Bearer ${this.accessToken}`,
         },
+        signal: AbortSignal.timeout(8_000),
       }
     );
 
