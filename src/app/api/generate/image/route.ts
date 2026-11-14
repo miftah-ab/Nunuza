@@ -134,7 +134,7 @@ export async function POST(request: Request) {
       JSON.stringify(visualBrief).length > 6_000 ||
       requiredBriefFields.some((field) => typeof visualBrief[field] !== "string" || visualBrief[field].length > 420) ||
       !Array.isArray(visualBrief.avoid) ||
-      visualBrief.avoid.length > 8 ||
+      visualBrief.avoid.length > 6 ||
       visualBrief.avoid.some((item) => typeof item !== "string" || item.length > 420)
     ) {
       return NextResponse.json({ error: "The visual direction is invalid. Analyze the post again." }, { status: 400 });
