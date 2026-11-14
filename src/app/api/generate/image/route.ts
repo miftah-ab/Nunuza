@@ -12,7 +12,7 @@ import { apiError, parseBody } from "@/lib/api/respond";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getPost } from "@/lib/db/posts";
 import { logAuditEvent } from "@/lib/db/workspace";
-import { createPostVisualBrief, buildPostVisualImagePrompt, type PostVisualBrief } from "@/lib/ai/post-visual-direction";
+import { createPostVisualBrief, buildPostVisualImagePrompt, VisualPlanningError, type PostVisualBrief } from "@/lib/ai/post-visual-direction";
 import {
   CloudflareImageError,
   CLOUDFLARE_IMAGE_MODEL,
@@ -220,6 +220,10 @@ export async function POST(request: Request) {
       },
     }, { status: 201 });
   } catch (error) {
+    if (error instanceof VisualPlanningError) {
+      console.error("[image-generation] All visual planning providers failed", error.providerFailures);
+      return NextResponse.json({ error: error.message }, { status: 503 });
+    }
     if (error instanceof CloudflareImageError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }

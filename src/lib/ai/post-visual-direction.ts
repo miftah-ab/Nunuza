@@ -23,6 +23,13 @@ interface PostForVisualAnalysis {
 
 const MAX_FIELD_LENGTH = 250;
 
+export class VisualPlanningError extends Error {
+  constructor(message: string, readonly providerFailures: string[]) {
+    super(message);
+    this.name = "VisualPlanningError";
+  }
+}
+
 function cleanText(value: unknown, fallback: string): string {
   if (typeof value !== "string") return fallback;
   return value.replace(/[\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_FIELD_LENGTH) || fallback;
@@ -105,16 +112,20 @@ async function requestBrief(
       response_format: { type: "json_object" },
       max_tokens: 700,
     }),
-    signal: AbortSignal.timeout(12_000),
+    signal: AbortSignal.timeout(25_000),
   });
 
   if (!response.ok) {
-    throw new Error(`Visual planning provider returned HTTP ${response.status}.`);
+    const providerBody = (await response.text()).slice(0, 400);
+    throw new Error(`HTTP ${response.status}: ${providerBody || response.statusText}`);
   }
 
-  const payload = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
+  let payload: { choices?: Array<{ message?: { content?: string } }> };
+  try {
+    payload = (await response.json()) as typeof payload;
+  } catch {
+    throw new Error("Provider returned invalid JSON.");
+  }
   const raw = payload.choices?.[0]?.message?.content;
   if (!raw) throw new Error("Visual planning returned an empty response.");
   return validateBrief(parseBrief(raw));
@@ -134,8 +145,12 @@ export async function createPostVisualBrief(post: PostForVisualAnalysis): Promis
         post
       );
     } catch (error) {
-      failures.push(error instanceof Error ? error.message : "Primary visual planner failed.");
-      console.warn("[image-generation] Primary visual planner failed; trying fallback.");
+      const reason = error instanceof Error ? error.message.slice(0, 500) : "Unknown provider error";
+      failures.push(`Groq: ${reason}`);
+      console.error("[image-generation] Groq visual planning failed", {
+        model: process.env.GROQ_DEFAULT_MODEL?.trim() || "llama-3.3-70b-versatile",
+        reason,
+      });
     }
   }
 
@@ -148,15 +163,22 @@ export async function createPostVisualBrief(post: PostForVisualAnalysis): Promis
         post
       );
     } catch (error) {
-      failures.push(error instanceof Error ? error.message : "Fallback visual planner failed.");
-      console.warn("[image-generation] Fallback visual planner failed.");
+      const reason = error instanceof Error ? error.message.slice(0, 500) : "Unknown provider error";
+      failures.push(`OpenRouter: ${reason}`);
+      console.error("[image-generation] OpenRouter visual planning failed", {
+        model: process.env.OPENROUTER_DEFAULT_MODEL?.trim() || "anthropic/claude-3-haiku",
+        reason,
+      });
     }
   }
 
   if (!groqKey && !openRouterKey) {
     throw new Error("Visual planning is temporarily unavailable. Please try again later.");
   }
-  throw new Error("Nunuza couldn’t understand this post well enough to design its image. Please try again.");
+  throw new VisualPlanningError(
+    "Nunuza’s visual planner is temporarily unavailable. Please try again in a moment.",
+    failures
+  );
 }
 
 export function buildPostVisualImagePrompt(
