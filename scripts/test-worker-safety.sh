@@ -123,7 +123,7 @@ DAILY=$(q -c "SELECT allowed FROM claim_workspace_publish_slot('$WS2','30000000-
 [ "$DAILY" = "f" ] || fail "scheduled post must reserve the daily slot"
 echo "ok: scheduled posts reserve the daily slot"
 
-# Seven published posts in the rolling week block an eighth.
+# Ten published posts in the rolling week block the eleventh.
 WS3="10000000-0000-0000-0000-000000000003"
 q -c "INSERT INTO workspaces(id,max_posts_per_day,max_posts_per_7_days) VALUES ('$WS3',10,10)" >/dev/null
 q -c "INSERT INTO content_posts(id,workspace_id,status,published_at,updated_at)
@@ -131,9 +131,9 @@ SELECT ('40000000-0000-0000-0000-' || lpad(g::text,12,'0'))::uuid,
        '$WS3','published',now() - (g * interval '12 hours'),now() - (g * interval '12 hours')
 FROM generate_series(0,9) g" >/dev/null
 q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES
-('40000000-0000-0000-0000-000000000008','$WS3','approved')" >/dev/null
-WEEK=$(q -c "SELECT allowed FROM claim_workspace_publish_slot('$WS3','40000000-0000-0000-0000-000000000008')")
-[ "$WEEK" = "f" ] || fail "seven posts in rolling week must block eighth"
+('40000000-0000-0000-0000-000000000011','$WS3','approved')" >/dev/null
+WEEK=$(q -c "SELECT allowed FROM claim_workspace_publish_slot('$WS3','40000000-0000-0000-0000-000000000011')")
+[ "$WEEK" = "f" ] || fail "ten posts in rolling week must block eleventh"
 echo "ok: rolling seven-day cap enforced"
 
 # The migration defaults every existing and new workspace to 10/day and 50/7 days.
