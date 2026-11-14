@@ -396,12 +396,7 @@ export class PolarService {
     supabaseOverride?: any
   ): Promise<BillingDetails> {
     const supabase = supabaseOverride || createServiceClient();
-
-    const { data: workspace } = await supabase
-      .from("workspaces")
-      .select("entitlement_type")
-      .eq("id", workspaceId)
-      .single();
+    const entitlement = await this.getVerifiedWorkspaceEntitlement(workspaceId, supabase);
 
     const { data: subscription } = await supabase
       .from("subscriptions")
@@ -409,7 +404,6 @@ export class PolarService {
       .eq("workspace_id", workspaceId)
       .maybeSingle();
 
-    const entitlement = (workspace?.entitlement_type as EntitlementType) ?? "suspended";
     const accessMode = entitlement === "internal_beta" ? "private_beta" : "commercial";
 
     return {
