@@ -57,14 +57,15 @@ describe("post visual art direction", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(init.body));
-    expect(body.model).toBe("inclusionai/ling-3.2-flash:free");
-    expect(body.max_tokens).toBe(4000);
+    expect(body.model).toBe("baidu/ernie-5.5-flash-preview:free");
+    expect(body.max_tokens).toBe(2200);
     expect(body.response_format.json_schema.strict).toBe(true);
+    expect(body.provider.data_collection).toBe("deny");
     expect(body.messages[1].content).toContain("FULL POST BODY");
     expect(body.messages[1].content).toContain("The goal is not to be seen by everyone");
   });
 
-  it("tries a second free model if the free router is unavailable", async () => {
+  it("falls back to Cohere when the primary free model is unavailable", async () => {
     process.env.OPENROUTER_API_KEY = "test-openrouter-key";
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
@@ -76,14 +77,34 @@ describe("post visual art direction", () => {
     expect(brief).toEqual(validBrief);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const secondBody = JSON.parse(String((fetchMock.mock.calls[1] as [string, RequestInit])[1].body));
-    expect(secondBody.model).toBe("google/gemma-4-26b-a4b-it:free");
-    expect(secondBody.response_format).toEqual({ type: "json_object" });
+    expect(secondBody.model).toBe("cohere/north-mini-code:free");
+    expect(secondBody.response_format).toBeUndefined();
+    expect(secondBody.provider.data_collection).toBe("deny");
+  });
+
+  it("uses the third free model when both primary routes are unavailable", async () => {
+    process.env.OPENROUTER_API_KEY = "test-openrouter-key";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
+      .mockResolvedValueOnce(new Response("temporarily unavailable", { status: 503 }))
+      .mockResolvedValueOnce(providerResponse(validBrief));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const brief = await createPostVisualBrief(post);
+
+    expect(brief).toEqual(validBrief);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const thirdBody = JSON.parse(String((fetchMock.mock.calls[2] as [string, RequestInit])[1].body));
+    expect(thirdBody.model).toBe("particle-ai/particle-1:free");
+    expect(thirdBody.response_format.json_schema.strict).toBe(true);
+    expect(thirdBody.provider.data_collection).toBe("deny");
   });
 
   it("fails instead of generating from a generic fallback when all free planners fail", async () => {
     process.env.OPENROUTER_API_KEY = "test-openrouter-key";
     vi.stubGlobal("fetch", vi.fn()
       .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
+      .mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
       .mockResolvedValueOnce(new Response("unavailable", { status: 503 })));
 
     await expect(createPostVisualBrief(post)).rejects.toThrow(
