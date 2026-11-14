@@ -136,88 +136,12 @@ WEEK=$(q -c "SELECT allowed FROM claim_workspace_publish_slot('$WS3','40000000-0
 [ "$WEEK" = "f" ] || fail "seven posts in rolling week must block eighth"
 echo "ok: rolling seven-day cap enforced"
 
-# Workspace defaults permit ten posts per day, then enforce the configured cap.
-WS5="10000000-0000-0000-0000-000000000005"
-q -c "INSERT INTO workspaces(id) VALUES ('$WS5')" >/dev/null
-for n in $(seq 1 11); do
-  ID=$(printf "41000000-0000-0000-0000-%012d" "$n")
-  q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES ('$ID','$WS5','approved')" >/dev/null
-done
-for n in $(seq 1 11); do
-  ID=$(printf "41000000-0000-0000-0000-%012d" "$n")
-  psql -At -c "SELECT allowed FROM claim_workspace_publish_slot('$WS5','$ID')" > "$OUT/default-daily-$n.txt" &
-done
-wait
-DEFAULT_DAILY_ALLOWED=$(cat "$OUT"/default-daily-*.txt | grep -c '^t"10000000-0000-0000-0000-000000000004"
-q -c "INSERT INTO workspaces(id) VALUES ('$WS4')" >/dev/null
-for n in $(seq 1 80); do
-  ID=$(printf "50000000-0000-0000-0000-%012d" "$n")
-  q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status) VALUES ('$ID','$WS4','usage_reservation_test','queued')" >/dev/null
-done
-for w in $(seq 1 8); do
-  (
-    for n in $(seq 1 10); do
-      INDEX=$(( (w - 1) * 10 + n ))
-      ID=$(printf "50000000-0000-0000-0000-%012d" "$INDEX")
-      psql -At -c "SELECT reserve_draft_usage('$ID','$WS4',current_date,current_date + 30,30)"
-    done
-  ) > "$OUT/usage-$w.txt" &
-done
-wait
-RESERVED=$(cat "$OUT"/usage-*.txt | grep -c '^t$' || true)
-COUNT=$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$WS4' AND metric='draft_items_created'")
-[ "$RESERVED" = "30" ] || fail "expected exactly 30 successful usage reservations, got $RESERVED"
-[ "$COUNT" = "30" ] || fail "expected usage counter 30, got $COUNT"
-SAME=$(q -c "SELECT reserve_draft_usage('50000000-0000-0000-0000-000000000001','$WS4',current_date,current_date + 30,30)")
-[ "$SAME" = "t" ] || fail "retrying the same job reservation must remain successful"
-COUNT_AFTER_RETRY=$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$WS4' AND metric='draft_items_created'")
-[ "$COUNT_AFTER_RETRY" = "30" ] || fail "same-job retry must not increment usage twice"
-q -c "UPDATE agent_jobs SET status='failed_terminal' WHERE id='50000000-0000-0000-0000-000000000001'" >/dev/null
-COUNT_AFTER_TERMINAL=$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$WS4' AND metric='draft_items_created'")
-[ "$COUNT_AFTER_TERMINAL" = "29" ] || fail "terminal job must release its unused draft reservation"
-q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status) VALUES ('50000000-0000-0000-0000-000000000081','$WS4','usage_reservation_test','queued')" >/dev/null
-NEXT=$(q -c "SELECT reserve_draft_usage('50000000-0000-0000-0000-000000000081','$WS4',current_date,current_date + 30,30)")
-[ "$NEXT" = "t" ] || fail "released reservation must allow one new reservation"
-echo "ok: monthly draft usage is atomic and retry-idempotent"
-
-# Only service_role may call privileged functions.
-[ "$(q -c "SELECT has_function_privilege('anon','public.claim_workspace_publish_slot(uuid,uuid)','EXECUTE')")" = "f" ] || fail "anon must not claim publish slots"
-[ "$(q -c "SELECT has_function_privilege('authenticated','public.reserve_draft_usage(uuid,uuid,date,date,integer)','EXECUTE')")" = "f" ] || fail "authenticated must not reserve usage"
-[ "$(q -c "SELECT has_function_privilege('service_role','public.reserve_draft_usage(uuid,uuid,date,date,integer)','EXECUTE')")" = "t" ] || fail "service_role must reserve usage"
-[ "$(q -c "SELECT has_function_privilege('anon','public.begin_agent_job_execution(uuid,integer,timestamptz,timestamptz)','EXECUTE')")" = "f" ] || fail "anon must not begin job execution"
-[ "$(q -c "SELECT has_function_privilege('service_role','public.begin_agent_job_execution(uuid,integer,timestamptz,timestamptz)','EXECUTE')")" = "t" ] || fail "service_role must begin job execution"
-echo "ok: worker-only execution grants enforced"
-
-echo "ALL WORKER SAFETY CHECKS PASSED"
- || true)
-[ "$DEFAULT_DAILY_ALLOWED" = "10" ] || fail "default daily limit should allow 10 of 11 concurrent posts, got $DEFAULT_DAILY_ALLOWED"
-echo "ok: workspace default allows ten daily posts"
-
-# The default rolling weekly limit is 50; spread scheduled posts across seven dates
-# so the daily limit does not mask the weekly limit.
-WS6="10000000-0000-0000-0000-000000000006"
-q -c "INSERT INTO workspaces(id) VALUES ('$WS6')" >/dev/null
-q >/dev/null <<SQL
-DO \$\$
-DECLARE
-  i INTEGER;
-  day_offset INTEGER;
-  post_id UUID;
-BEGIN
-  FOR i IN 1..50 LOOP
-    day_offset := (i - 1) / 8;
-    post_id := ('42000000-0000-0000-0000-' || lpad(i::text,12,'0'))::uuid;
-    INSERT INTO content_posts(id,workspace_id,status,scheduled_at)
-    VALUES (post_id,'$WS6','scheduled',
-      date_trunc('day', now()) + (day_offset * interval '1 day') + interval '23 hours');
-  END LOOP;
-END
-\$\$;
-SQL
-q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES ('42000000-0000-0000-0000-000000000051','$WS6','approved')" >/dev/null
-WEEKLY_DEFAULT=$(q -c "SELECT allowed FROM claim_workspace_publish_slot('$WS6','42000000-0000-0000-0000-000000000051')")
-[ "$WEEKLY_DEFAULT" = "f" ] || fail "default rolling weekly limit should block the 51st post"
-echo "ok: workspace default enforces 50 posts per rolling 7 days"
+# The migration defaults every existing and new workspace to 10/day and 50/7 days.
+DEFAULT_WS="10000000-0000-0000-0000-000000000005"
+q -c "INSERT INTO workspaces(id) VALUES ('$DEFAULT_WS')" >/dev/null
+DEFAULT_LIMITS=$(q -c "SELECT max_posts_per_day || ':' || max_posts_per_7_days FROM workspaces WHERE id='$DEFAULT_WS'")
+[ "$DEFAULT_LIMITS" = "10:50" ] || fail "expected workspace publishing defaults 10:50, got $DEFAULT_LIMITS"
+echo "ok: configurable publishing defaults are 10/day and 50/7 days"
 
 # 80 distinct jobs race for a monthly cap of 30. Repeating one job's reservation
 # is idempotent and does not consume another slot.
