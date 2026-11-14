@@ -899,20 +899,17 @@ export function ContentManager({
               {peopleSearches.length > 0 ? (
                 <div className="grid gap-2 sm:grid-cols-3">
                   {peopleSearches.map((search) => (
-                    <a
+                    <div
                       key={search.id}
-                      href={search.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="rounded-lg border border-border p-3 hover:border-forest/50 hover:bg-forest-light/30 transition-colors"
+                      className="rounded-lg border border-border p-3 hover:border-forest/50 transition-colors"
                     >
                       <span className="block text-xs font-semibold text-ink">{search.label}</span>
                       <span className="mt-1 block text-[11px] leading-relaxed text-ink-secondary">{search.description}</span>
                       <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-medium text-forest">
-                        <span>Search LinkedIn ↗</span>
-                        <a href={search.publicProfileUrl} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2" onClick={(event) => event.stopPropagation()}>Public profile results ↗</a>
+                        <a href={search.url} target="_blank" rel="noopener noreferrer" className="hover:underline">Search LinkedIn ↗</a>
+                        <a href={search.publicProfileUrl} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">Public profile results ↗</a>
                       </span>
-                    </a>
+                    </div>
                   ))}
                 </div>
               ) : (
