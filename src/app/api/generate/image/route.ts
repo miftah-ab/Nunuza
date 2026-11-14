@@ -128,7 +128,8 @@ export async function POST(request: Request) {
       ? await createPostVisualBrief(post)
       : body.visualBrief;
     const requiredBriefFields: (keyof Omit<PostVisualBrief, "avoid">)[] = [
-      "concept", "subject", "metaphor", "composition", "palette", "mood",
+      "centralMessage", "visualConcept", "subject", "action", "setting",
+      "visualDetails", "composition", "lightingAndPalette", "textTreatment",
     ];
     if (
       JSON.stringify(visualBrief).length > 6_000 ||
