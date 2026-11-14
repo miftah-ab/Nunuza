@@ -6,6 +6,7 @@ set -euo pipefail
 MIGRATION="supabase/migrations/0010_worker_safety_reservations.sql"
 LIMIT_MIGRATION="supabase/migrations/20261114082730_configurable_publishing_limits.sql"
 CANCEL_MIGRATION="supabase/migrations/20261114170000_atomic_scheduled_post_cancel.sql"
+DRAFT_USAGE_MIGRATION="supabase/migrations/20261114190000_atomic_draft_usage.sql"
 OUT="$(mktemp -d)"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 q() { psql -v ON_ERROR_STOP=1 -At "$@"; }
@@ -24,8 +25,10 @@ CREATE TYPE post_status AS ENUM (
   'draft','needs_review','approved','scheduled','publishing','published',
   'failed','rejected','canceled','needs_reconciliation'
 );
+CREATE TABLE public.profiles (id UUID PRIMARY KEY);
 CREATE TABLE public.workspaces (
   id UUID PRIMARY KEY,
+  owner_user_id UUID,
   max_posts_per_day INTEGER NOT NULL DEFAULT 10,
   max_posts_per_7_days INTEGER NOT NULL DEFAULT 50
 );
@@ -45,13 +48,29 @@ CREATE TABLE public.agent_jobs (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE TABLE public.content_posts (
-  id UUID PRIMARY KEY,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID NOT NULL REFERENCES public.workspaces(id),
+  created_by UUID,
+  text TEXT NOT NULL DEFAULT '',
+  internal_title TEXT,
+  pillar TEXT,
+  source_notes TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
   status post_status NOT NULL,
   scheduled_at TIMESTAMPTZ,
   published_at TIMESTAMPTZ,
   agent_cycle_key TEXT,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE public.content_post_versions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID NOT NULL REFERENCES public.workspaces(id),
+  post_id UUID NOT NULL REFERENCES public.content_posts(id) ON DELETE CASCADE,
+  version_number INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  change_source TEXT NOT NULL,
+  changed_by UUID,
+  UNIQUE(post_id, version_number)
 );
 CREATE TABLE public.usage_counters (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -68,7 +87,8 @@ SQL
 q -f "$MIGRATION" >/dev/null
 q -f "$LIMIT_MIGRATION" >/dev/null
 q -f "$CANCEL_MIGRATION" >/dev/null
-echo "worker, configurable publishing-limit, and atomic cancellation migrations applied"
+q -f "$DRAFT_USAGE_MIGRATION" >/dev/null
+echo "worker, publishing-limit, cancellation, and draft-usage migrations applied"
 
 # A workspace may have one active autonomous cycle, but can start another
 # after the previous cycle reaches a terminal state.
@@ -258,6 +278,48 @@ q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status) VALUES ('50000000-
 NEXT=$(q -c "SELECT reserve_draft_usage('50000000-0000-0000-0000-000000000081','$WS4',current_date,current_date + 30,30)")
 [ "$NEXT" = "t" ] || fail "released reservation must allow one new reservation"
 echo "ok: monthly draft usage is atomic and retry-idempotent"
+
+# API draft creation reserves quota before generation and commits the post,
+# initial version, and counter in one transaction.
+QUOTA_WS="10000000-0000-0000-0000-000000000031"
+QUOTA_OWNER="70000000-0000-0000-0000-000000000031"
+q -c "INSERT INTO profiles(id) VALUES ('$QUOTA_OWNER')" >/dev/null
+q -c "INSERT INTO workspaces(id,owner_user_id) VALUES ('$QUOTA_WS','$QUOTA_OWNER')" >/dev/null
+for n in $(seq 1 64); do
+  (
+    psql -At -c "SELECT allowed || ':' || COALESCE(reservation_id::TEXT,'') FROM reserve_draft_usage_slot('$QUOTA_WS','$QUOTA_OWNER',date_trunc('month',current_date)::DATE,(date_trunc('month',current_date)+interval '1 month - 1 day')::DATE,30)"
+  ) >> "$OUT/api-quota-reservations.txt" &
+done
+wait
+API_RESERVED=$(grep -c '^t:' "$OUT/api-quota-reservations.txt" || true)
+API_DENIED=$(grep -c '^f:' "$OUT/api-quota-reservations.txt" || true)
+[ "$API_RESERVED" = "30" ] || fail "API quota must grant exactly 30 concurrent reservations, got $API_RESERVED"
+[ "$API_DENIED" = "34" ] || fail "API quota must deny remaining concurrent reservations, got $API_DENIED"
+RESERVATION_ID=$(grep '^t:' "$OUT/api-quota-reservations.txt" | head -n 1 | cut -d: -f2)
+CREATED_POST=$(q -c "SELECT id FROM create_draft_with_usage('$RESERVATION_ID','$QUOTA_WS','$QUOTA_OWNER','A tested draft','Test title',NULL,NULL,'draft')")
+[ -n "$CREATED_POST" ] || fail "atomic draft creation must return a post ID"
+[ "$(q -c "SELECT count(*) FROM content_post_versions WHERE post_id='$CREATED_POST' AND version_number=1")" = "1" ] || fail "initial version must be committed with the draft"
+[ "$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$QUOTA_WS' AND metric='draft_items_created'")" = "1" ] || fail "draft usage must increment in the same transaction"
+[ "$(q -c "SELECT count(*) FROM draft_usage_reservations WHERE id='$RESERVATION_ID'")" = "0" ] || fail "committed reservation must be removed"
+echo "ok: concurrent API draft creation enforces the monthly cap and commits post/version/usage atomically"
+
+# Releasing a failed request frees its reserved slot; an expired reservation
+# is also removed before the next reservation attempt.
+RELEASE_ID=$(q -c "SELECT reservation_id FROM reserve_draft_usage_slot('$QUOTA_WS','$QUOTA_OWNER',date_trunc('month',current_date)::DATE,(date_trunc('month',current_date)+interval '1 month - 1 day')::DATE,30)")
+[ "$(q -c "SELECT release_draft_usage_slot('$RELEASE_ID','$QUOTA_WS','$QUOTA_OWNER')")" = "t" ] || fail "failed generation must release its reservation"
+EXPIRED_ID=$(q -c "SELECT reservation_id FROM reserve_draft_usage_slot('$QUOTA_WS','$QUOTA_OWNER',date_trunc('month',current_date)::DATE,(date_trunc('month',current_date)+interval '1 month - 1 day')::DATE,30)")
+q -c "UPDATE draft_usage_reservations SET expires_at=now()-interval '1 second' WHERE id='$EXPIRED_ID'" >/dev/null
+NEXT_ID=$(q -c "SELECT reservation_id FROM reserve_draft_usage_slot('$QUOTA_WS','$QUOTA_OWNER',date_trunc('month',current_date)::DATE,(date_trunc('month',current_date)+interval '1 month - 1 day')::DATE,30)")
+[ -n "$NEXT_ID" ] || fail "expired reservation must not permanently consume quota"
+echo "ok: failed and expired draft reservations release quota"
+
+# Wrong workspace owner cannot reserve draft usage.
+OTHER_OWNER="70000000-0000-0000-0000-000000000032"
+q -c "INSERT INTO profiles(id) VALUES ('$OTHER_OWNER')" >/dev/null
+if q -c "SELECT * FROM reserve_draft_usage_slot('$QUOTA_WS','$OTHER_OWNER',date_trunc('month',current_date)::DATE,(date_trunc('month',current_date)+interval '1 month - 1 day')::DATE,30)" >/dev/null 2>&1; then
+  fail "non-owner must not reserve draft quota"
+fi
+echo "ok: draft usage RPC verifies workspace ownership"
 
 # Only service_role may call privileged functions.
 [ "$(q -c "SELECT has_function_privilege('anon','public.claim_workspace_publish_slot(uuid,uuid)','EXECUTE')")" = "f" ] || fail "anon must not claim publish slots"
