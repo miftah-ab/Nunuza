@@ -31,7 +31,7 @@ CREATE OR REPLACE FUNCTION public.reserve_image_generation(
 RETURNS UUID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
   v_reservation_id UUID;
@@ -110,7 +110,7 @@ CREATE OR REPLACE FUNCTION public.commit_image_generation_reservation(
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
   v_updated INTEGER;
@@ -130,7 +130,7 @@ CREATE OR REPLACE FUNCTION public.release_image_generation_reservation(
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
   v_workspace_id UUID;
