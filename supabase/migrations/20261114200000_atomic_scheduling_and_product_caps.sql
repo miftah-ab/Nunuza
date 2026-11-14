@@ -34,7 +34,7 @@ CREATE OR REPLACE FUNCTION public.schedule_post_atomic(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
   v_workspace public.workspaces%ROWTYPE;
