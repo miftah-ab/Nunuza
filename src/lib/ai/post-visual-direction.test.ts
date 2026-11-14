@@ -60,6 +60,7 @@ describe("post visual direction", () => {
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe("dots-studio/dots-3-note-preview:free");
     expect(body.max_tokens).toBe(1600);
+    expect(body.reasoning.effort).toBe("minimal");
     expect(body.response_format.json_schema.strict).toBe(true);
   });
 
