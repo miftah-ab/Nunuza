@@ -75,13 +75,14 @@ BEGIN
   SELECT COALESCE(count, 0) INTO v_used
     FROM public.usage_counters
    WHERE workspace_id = p_workspace_id
-     AND metric = 'draft_items_created'
+     AND metric = p_metric
      AND period_start = p_period_start;
 
   SELECT COUNT(*)::INTEGER INTO v_reserved
     FROM public.draft_usage_reservations
    WHERE workspace_id = p_workspace_id
      AND period_start = p_period_start
+     AND metric = p_metric
      AND status = 'reserved'
      AND expires_at > NOW();
 
