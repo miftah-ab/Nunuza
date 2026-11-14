@@ -287,7 +287,7 @@ q -c "INSERT INTO profiles(id) VALUES ('$QUOTA_OWNER')" >/dev/null
 q -c "INSERT INTO workspaces(id,owner_user_id) VALUES ('$QUOTA_WS','$QUOTA_OWNER')" >/dev/null
 for n in $(seq 1 64); do
   (
-    psql -At -c "SELECT allowed || ':' || COALESCE(reservation_id::TEXT,'') FROM reserve_draft_usage_slot('$QUOTA_WS','$QUOTA_OWNER',date_trunc('month',current_date)::DATE,(date_trunc('month',current_date)+interval '1 month - 1 day')::DATE,30)"
+    psql -At -c "SELECT allowed::TEXT || ':' || COALESCE(reservation_id::TEXT,'') FROM reserve_draft_usage_slot('$QUOTA_WS','$QUOTA_OWNER',date_trunc('month',current_date)::DATE,(date_trunc('month',current_date)+interval '1 month - 1 day')::DATE,30)"
   ) >> "$OUT/api-quota-reservations.txt" &
 done
 wait
