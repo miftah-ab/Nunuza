@@ -250,38 +250,36 @@ export async function cancelScheduledPost(
     throw new Error(`Post is not in scheduled status (current: ${post.status}).`);
   }
 
-  let supabase: any;
-  try {
-    supabase = createServiceClient();
-  } catch {
-    // fallback
+  // Cancellation and the job-state check must happen in one database transaction.
+  // If a worker already claimed the job, the RPC refuses to reset the post to approved.
+  const supabase = createServiceClient();
+  const { data: cancelResult, error: cancelError } = await supabase.rpc(
+    "cancel_scheduled_post_atomic",
+    {
+      p_workspace_id: workspace.id,
+      p_post_id: postId,
+    }
+  );
+
+  if (cancelError) {
+    throw new Error(`[scheduler] Failed to cancel post: ${cancelError.message}`);
   }
-  if (!supabase) {
-    supabase = await createClient();
+
+  const result = Array.isArray(cancelResult) ? cancelResult[0] : cancelResult;
+  if (!result?.success) {
+    const reason = String(result?.reason ?? "CANCELLATION_NOT_CONFIRMED");
+    if (reason === "JOB_NOT_CANCELLABLE") {
+      throw new Error("This post is already being processed or requires reconciliation. Nunuza did not change its status.");
+    }
+    if (reason === "PUBLISH_JOB_NOT_FOUND") {
+      throw new Error("Nunuza could not find the scheduled publishing job. The post was not changed.");
+    }
+    throw new Error("Nunuza could not safely cancel this scheduled post. The post was not changed.");
   }
 
-  // Cancel any queued or retryable jobs for this post
-  await supabase
-    .from("agent_jobs")
-    .update({ status: "canceled" })
-    .eq("workspace_id", workspace.id)
-    .eq("idempotency_key", `publish-${workspace.id}-${postId}`)
-    .in("status", ["queued", "failed_retryable", "waiting_for_approval"]);
-
-  // Reset post status back to approved
-  const { data: updatedPost, error } = await supabase
-    .from("content_posts")
-    .update({
-      status: "approved",
-      scheduled_at: null,
-    })
-    .eq("id", postId)
-    .eq("workspace_id", workspace.id)
-    .select()
-    .single();
-
-  if (error) {
-    throw new Error(`[scheduler] Failed to cancel post: ${error.message}`);
+  const updatedPost = await getPost(workspace.id, postId);
+  if (!updatedPost || updatedPost.status !== "approved" || updatedPost.scheduled_at !== null) {
+    throw new Error("[scheduler] Cancellation committed but the updated post could not be verified.");
   }
 
   await logAuditEvent({

@@ -5,6 +5,7 @@ set -euo pipefail
 
 MIGRATION="supabase/migrations/0010_worker_safety_reservations.sql"
 LIMIT_MIGRATION="supabase/migrations/20261114082730_configurable_publishing_limits.sql"
+CANCEL_MIGRATION="supabase/migrations/20261114170000_atomic_scheduled_post_cancel.sql"
 OUT="$(mktemp -d)"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 q() { psql -v ON_ERROR_STOP=1 -At "$@"; }
@@ -33,9 +34,14 @@ CREATE TABLE public.agent_jobs (
   workspace_id UUID NOT NULL REFERENCES public.workspaces(id),
   job_type TEXT NOT NULL,
   status TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL DEFAULT gen_random_uuid()::TEXT,
   payload JSONB NOT NULL DEFAULT '{}'::JSONB,
+  scheduled_for TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   attempt_count INTEGER NOT NULL DEFAULT 0,
   lease_until TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ,
+  last_error_code TEXT,
+  safe_error_message TEXT,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE TABLE public.content_posts (
@@ -61,7 +67,8 @@ SQL
 
 q -f "$MIGRATION" >/dev/null
 q -f "$LIMIT_MIGRATION" >/dev/null
-echo "worker and configurable publishing-limit migrations applied"
+q -f "$CANCEL_MIGRATION" >/dev/null
+echo "worker, configurable publishing-limit, and atomic cancellation migrations applied"
 
 # A workspace may have one active autonomous cycle, but can start another
 # after the previous cycle reaches a terminal state.
@@ -136,6 +143,81 @@ WEEK=$(q -c "SELECT allowed FROM claim_workspace_publish_slot('$WS3','40000000-0
 [ "$WEEK" = "f" ] || fail "ten posts in rolling week must block eleventh"
 echo "ok: rolling seven-day cap enforced"
 
+# Cancellation must atomically win against a queued job and reset its post.
+CANCEL_WS="10000000-0000-0000-0000-000000000021"
+CANCEL_POST="30000000-0000-0000-0000-000000000021"
+CANCEL_JOB="60000000-0000-0000-0000-000000000021"
+q -c "INSERT INTO workspaces(id) VALUES ('$CANCEL_WS')" >/dev/null
+q -c "INSERT INTO content_posts(id,workspace_id,status,scheduled_at)
+VALUES ('$CANCEL_POST','$CANCEL_WS','scheduled',now() + interval '1 day')" >/dev/null
+q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status,idempotency_key,scheduled_for)
+VALUES ('$CANCEL_JOB','$CANCEL_WS','publish_post','queued','publish-$CANCEL_WS-$CANCEL_POST',now())" >/dev/null
+CANCELED=$(q -c "SELECT success FROM cancel_scheduled_post_atomic('$CANCEL_WS','$CANCEL_POST')")
+[ "$CANCELED" = "t" ] || fail "queued scheduled post should cancel atomically"
+[ "$(q -c "SELECT status FROM agent_jobs WHERE id='$CANCEL_JOB'")" = "canceled" ] || fail "cancel must stop the queued publishing job"
+[ "$(q -c "SELECT status::TEXT || ':' || (scheduled_at IS NULL)::TEXT FROM content_posts WHERE id='$CANCEL_POST'")" = "approved:true" ] || fail "cancel must reset the post only after canceling its job"
+echo "ok: queued job cancellation and post reset commit together"
+
+# A running job belongs to the worker; cancellation must not make its post eligible.
+RUNNING_WS="10000000-0000-0000-0000-000000000022"
+RUNNING_POST="30000000-0000-0000-0000-000000000022"
+RUNNING_JOB="60000000-0000-0000-0000-000000000022"
+q -c "INSERT INTO workspaces(id) VALUES ('$RUNNING_WS')" >/dev/null
+q -c "INSERT INTO content_posts(id,workspace_id,status,scheduled_at)
+VALUES ('$RUNNING_POST','$RUNNING_WS','scheduled',now() + interval '1 day')" >/dev/null
+q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status,idempotency_key,scheduled_for)
+VALUES ('$RUNNING_JOB','$RUNNING_WS','publish_post','running','publish-$RUNNING_WS-$RUNNING_POST',now())" >/dev/null
+RUNNING_CANCEL=$(q -c "SELECT success FROM cancel_scheduled_post_atomic('$RUNNING_WS','$RUNNING_POST')")
+[ "$RUNNING_CANCEL" = "f" ] || fail "running job must not be canceled by user path"
+[ "$(q -c "SELECT status FROM agent_jobs WHERE id='$RUNNING_JOB'")" = "running" ] || fail "running job state must remain unchanged"
+[ "$(q -c "SELECT status FROM content_posts WHERE id='$RUNNING_POST'")" = "scheduled" ] || fail "running job post must remain scheduled, never approved"
+echo "ok: cancellation refuses jobs already claimed by a worker"
+
+# Ambiguous publication is human-reconciliation-only and must never be reset.
+RECON_WS="10000000-0000-0000-0000-000000000023"
+RECON_POST="30000000-0000-0000-0000-000000000023"
+RECON_JOB="60000000-0000-0000-0000-000000000023"
+q -c "INSERT INTO workspaces(id) VALUES ('$RECON_WS')" >/dev/null
+q -c "INSERT INTO content_posts(id,workspace_id,status,scheduled_at)
+VALUES ('$RECON_POST','$RECON_WS','scheduled',now() + interval '1 day')" >/dev/null
+q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status,idempotency_key,scheduled_for)
+VALUES ('$RECON_JOB','$RECON_WS','publish_post','needs_reconciliation','publish-$RECON_WS-$RECON_POST',now())" >/dev/null
+RECON_CANCEL=$(q -c "SELECT success FROM cancel_scheduled_post_atomic('$RECON_WS','$RECON_POST')")
+[ "$RECON_CANCEL" = "f" ] || fail "needs_reconciliation job must not be canceled automatically"
+[ "$(q -c "SELECT status FROM content_posts WHERE id='$RECON_POST'")" = "scheduled" ] || fail "reconciliation post must not become publishable again"
+echo "ok: ambiguous publication cannot be silently re-queued"
+
+# Race a worker claim against cancellation. The only valid outcomes are:
+# worker wins => running/scheduled; cancellation wins => canceled/approved.
+RACE_WS="10000000-0000-0000-0000-000000000024"
+RACE_POST="30000000-0000-0000-0000-000000000024"
+RACE_JOB="60000000-0000-0000-0000-000000000024"
+q -c "INSERT INTO workspaces(id) VALUES ('$RACE_WS')" >/dev/null
+q -c "INSERT INTO content_posts(id,workspace_id,status,scheduled_at)
+VALUES ('$RACE_POST','$RACE_WS','scheduled',now() + interval '1 day')" >/dev/null
+q -c "INSERT INTO agent_jobs(id,workspace_id,job_type,status,idempotency_key,scheduled_for)
+VALUES ('$RACE_JOB','$RACE_WS','publish_post','queued','publish-$RACE_WS-$RACE_POST',now())" >/dev/null
+(
+  psql -v ON_ERROR_STOP=1 -At <<SQL
+BEGIN;
+UPDATE agent_jobs SET status='running' WHERE id='$RACE_JOB' AND status='queued';
+SELECT pg_sleep(0.2);
+COMMIT;
+SQL
+) > "$OUT/cancel-race-claim.txt" &
+(
+  sleep 0.05
+  psql -v ON_ERROR_STOP=1 -At -c "SELECT success FROM cancel_scheduled_post_atomic('$RACE_WS','$RACE_POST')"
+) > "$OUT/cancel-race-cancel.txt" &
+wait
+RACE_STATE=$(q -c "SELECT j.status || ':' || p.status FROM agent_jobs j JOIN content_posts p ON p.id='$RACE_POST' WHERE j.id='$RACE_JOB'")
+case "$RACE_STATE" in
+  "running:scheduled"|"canceled:approved") ;;
+  *) fail "worker/cancel race reached unsafe state: $RACE_STATE" ;;
+esac
+echo "ok: worker claim and cancellation serialize without a publish-after-cancel state"
+
+# Only service_role may call privileged functions.
 # The migration defaults every existing and new workspace to 10/day and 50/7 days.
 DEFAULT_WS="10000000-0000-0000-0000-000000000005"
 q -c "INSERT INTO workspaces(id) VALUES ('$DEFAULT_WS')" >/dev/null
@@ -183,6 +265,9 @@ echo "ok: monthly draft usage is atomic and retry-idempotent"
 [ "$(q -c "SELECT has_function_privilege('service_role','public.reserve_draft_usage(uuid,uuid,date,date,integer)','EXECUTE')")" = "t" ] || fail "service_role must reserve usage"
 [ "$(q -c "SELECT has_function_privilege('anon','public.begin_agent_job_execution(uuid,integer,timestamptz,timestamptz)','EXECUTE')")" = "f" ] || fail "anon must not begin job execution"
 [ "$(q -c "SELECT has_function_privilege('service_role','public.begin_agent_job_execution(uuid,integer,timestamptz,timestamptz)','EXECUTE')")" = "t" ] || fail "service_role must begin job execution"
+[ "$(q -c "SELECT has_function_privilege('anon','public.cancel_scheduled_post_atomic(uuid,uuid)','EXECUTE')")" = "f" ] || fail "anon must not cancel scheduled posts"
+[ "$(q -c "SELECT has_function_privilege('authenticated','public.cancel_scheduled_post_atomic(uuid,uuid)','EXECUTE')")" = "f" ] || fail "authenticated must not cancel scheduled posts"
+[ "$(q -c "SELECT has_function_privilege('service_role','public.cancel_scheduled_post_atomic(uuid,uuid)','EXECUTE')")" = "t" ] || fail "service_role must cancel scheduled posts"
 echo "ok: worker-only execution grants enforced"
 
 echo "ALL WORKER SAFETY CHECKS PASSED"
