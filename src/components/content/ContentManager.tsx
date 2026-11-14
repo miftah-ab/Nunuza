@@ -976,6 +976,8 @@ export function ContentManager({
                   onChange={(e) => {
                     setAiTopic(e.target.value);
                     setSelectedIdeaId(null);
+                    setAiPillar("");
+                    setAiNotes("");
                   }}
                   className="input-field text-sm"
                 />
