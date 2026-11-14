@@ -214,12 +214,116 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
         if (["processed", "duplicate"].includes(existing.processing_status)) {
           return { data: [{ claimed: false, reason: "ALREADY_PROCESSED" }], error: null };
         }
+        if (existing.processing_status === "pending") {
+          return { data: [{ claimed: false, reason: "IN_PROGRESS" }], error: null };
+        }
         existing.processing_status = "pending";
         existing.processing_started_at = new Date().toISOString();
         existing.attempt_count = (existing.attempt_count || 0) + 1;
         return { data: [{ claimed: true, reason: "RECLAIMED" }], error: null };
       }),
     };
+  });
+
+  it("maps Polar lifecycle dates and incomplete states fail-closed", () => {
+    const future = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const past = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    expect(service.mapPolarStatusToEntitlement("trialing", future, false, future)).toBe("paid_trial");
+    expect(service.mapPolarStatusToEntitlement("trialing", future, false, past)).toBe("inactive");
+    expect(service.mapPolarStatusToEntitlement("active", past, false, null)).toBe("inactive");
+    expect(service.mapPolarStatusToEntitlement("active", future, false, null)).toBe("paid_active");
+    expect(service.mapPolarStatusToEntitlement("past_due", past, false, null)).toBe("paid_active");
+    expect(service.mapPolarStatusToEntitlement("canceled", future, true, null)).toBe("paid_active");
+    expect(service.mapPolarStatusToEntitlement("canceled", future, false, null)).toBe("inactive");
+    expect(service.mapPolarStatusToEntitlement("incomplete", null, false, null)).toBe("draft_only");
+    expect(service.mapPolarStatusToEntitlement("revoked", null, false, null)).toBe("inactive");
+  });
+
+  it("asks Polar again before paid access and revokes an unpaid subscription", async () => {
+    const polarClient = new PolarClient({
+      accessToken: "test-token",
+      productId: "prod_nunuza_solo",
+      priceId: "price_29_mo",
+      server: "sandbox",
+    });
+    vi.spyOn(polarClient, "getSubscription").mockResolvedValue({
+      id: "sub_polar_100",
+      status: "unpaid",
+      product_id: "prod_nunuza_solo",
+      price_id: "price_29_mo",
+      customer_id: "cust_polar_1",
+      current_period_start: null,
+      current_period_end: null,
+      trial_start: null,
+      trial_end: null,
+      cancel_at_period_end: false,
+      created_at: new Date().toISOString(),
+      modified_at: new Date().toISOString(),
+    } as any);
+    service = new PolarService(polarClient);
+    dbTables.workspaces[0].entitlement_type = "paid_active";
+    dbTables.subscriptions.push({
+      id: "sub-row-1",
+      workspace_id: WORKSPACE_ID,
+      polar_subscription_id: "sub_polar_100",
+      product_id: "prod_nunuza_solo",
+      price_id: "price_29_mo",
+      status: "active",
+      trial_start: null,
+      trial_end: null,
+      current_period_start: null,
+      current_period_end: null,
+      cancel_at_period_end: false,
+      updated_at: new Date().toISOString(),
+    });
+
+    const entitlement = await service.getVerifiedWorkspaceEntitlement(WORKSPACE_ID, mockSupabase);
+    expect(entitlement).toBe("inactive");
+    expect(dbTables.workspaces[0].entitlement_type).toBe("inactive");
+    expect(dbTables.subscriptions[0].provider_verified_at).toBeTruthy();
+  });
+
+  it("fails closed when the provider cannot verify a paid subscription", async () => {
+    const polarClient = new PolarClient({
+      accessToken: "test-token",
+      productId: "prod_nunuza_solo",
+      priceId: "price_29_mo",
+      server: "sandbox",
+    });
+    vi.spyOn(polarClient, "getSubscription").mockRejectedValue(new Error("Polar unavailable"));
+    service = new PolarService(polarClient);
+    dbTables.workspaces[0].entitlement_type = "paid_active";
+    dbTables.subscriptions.push({
+      id: "sub-row-1",
+      workspace_id: WORKSPACE_ID,
+      polar_subscription_id: "sub_polar_100",
+      product_id: "prod_nunuza_solo",
+      price_id: "price_29_mo",
+      status: "active",
+    });
+
+    await expect(service.getVerifiedWorkspaceEntitlement(WORKSPACE_ID, mockSupabase))
+      .rejects.toThrow("Polar unavailable");
+  });
+
+  it("returns a retryable failure for a webhook event already being processed", async () => {
+    dbTables.billing_webhook_events.push({
+      provider_event_id: "evt_in_progress",
+      type: "subscription.active",
+      processing_status: "pending",
+      processing_started_at: new Date().toISOString(),
+    });
+    const event: PolarWebhookEvent = {
+      id: "evt_in_progress",
+      type: "subscription.active",
+      created_at: new Date().toISOString(),
+      data: {} as any,
+    };
+
+    const result = await service.processWebhookEvent(event, mockSupabase);
+    expect(result.status).toBe("failed");
+    expect(result.reason).toContain("retry later");
   });
 
   it("processes subscription.created with trialing -> elevates entitlement to paid_trial", async () => {
