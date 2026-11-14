@@ -29,7 +29,7 @@ function profileValue(profile: Record<string, unknown> | null, keys: string[]): 
 }
 
 function makePeopleSearches(audience: string, industry: string, workspaceName: string) {
-  const niche = industry || workspaceName || audience || "your industry";
+  const niche = industry || audience || workspaceName || "your industry";
   const target = audience || niche;
   const searches = [
     {
