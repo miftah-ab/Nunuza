@@ -668,9 +668,9 @@ export function ContentManager({
               key={post.id}
               className="card p-5 hover:border-forest/40 transition-colors flex flex-col justify-between gap-3"
             >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2.5 mb-1.5">
+              <div className="flex min-w-0 items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2.5 mb-1.5">
                     {getStatusBadge(post.status)}
                     {post.pillar && (
                       <span className="text-xs bg-forest-light px-2 py-0.5 rounded text-forest font-medium">
@@ -681,18 +681,19 @@ export function ContentManager({
                       v{post.version} • {new Date(post.updated_at).toLocaleDateString()}
                     </span>
                   </div>
-                  <h3 className="font-semibold text-ink text-sm">
+                  <h3 className="break-words [overflow-wrap:anywhere] font-semibold text-ink text-sm">
                     {post.internal_title ?? "Untitled Post"}
                   </h3>
                 </div>
 
-                <div className="flex items-center gap-1.5">
+                <div className="flex shrink-0 items-center gap-1.5" aria-label="Post actions">
                   <button
                     onClick={() => setEditingPost(post)}
-                    className="p-1.5 text-ink-secondary hover:text-forest rounded hover:bg-forest-light"
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-forest-light hover:text-forest focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2"
                     title="Edit post"
+                    aria-label="Edit post"
                   >
-                    <Edit3 size={15} />
+                    <Edit3 size={16} />
                   </button>
                   {post.post_format && post.post_format !== "text" && ["draft", "needs_review", "approved"].includes(post.status) && (
                     <button
