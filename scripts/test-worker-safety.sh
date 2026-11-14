@@ -342,12 +342,12 @@ OWNER_SCHEDULE_RESULT=$(q -c "SELECT schedule_post_atomic('$SCHEDULE_WS','$SCHED
 echo "ok: database scheduling RPC enforces owner, entitlement, and pause gates"
 
 # Only service_role may call privileged functions.
-# The migration defaults every existing and new workspace to 10/day and 50/7 days.
+# The migration defaults every existing and new workspace to the product ceiling of 1/day and 7/7 days.
 DEFAULT_WS="10000000-0000-0000-0000-000000000005"
 q -c "INSERT INTO workspaces(id) VALUES ('$DEFAULT_WS')" >/dev/null
 DEFAULT_LIMITS=$(q -c "SELECT max_posts_per_day::text || ':' || max_posts_per_7_days::text FROM workspaces WHERE id='$DEFAULT_WS'")
 [ "$DEFAULT_LIMITS" = "1:7" ] || fail "expected product publishing defaults 1:7, got $DEFAULT_LIMITS"
-echo "ok: configurable publishing defaults are 10/day and 50/7 days"
+echo "ok: product publishing defaults are 1/day and 7/7 days"
 
 # 80 distinct jobs race for a monthly cap of 30. Repeating one job's reservation
 # is idempotent and does not consume another slot.
