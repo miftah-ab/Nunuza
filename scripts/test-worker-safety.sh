@@ -128,7 +128,7 @@ WS3="10000000-0000-0000-0000-000000000003"
 q -c "INSERT INTO workspaces(id,max_posts_per_day,max_posts_per_7_days) VALUES ('$WS3',10,10)" >/dev/null
 q -c "INSERT INTO content_posts(id,workspace_id,status,published_at,updated_at)
 SELECT ('40000000-0000-0000-0000-' || lpad(g::text,12,'0'))::uuid,
-       '$WS3','published',now() - (g || ' days')::interval,now() - (g || ' days')::interval
+       '$WS3','published',now() - (g * interval '12 hours'),now() - (g * interval '12 hours')
 FROM generate_series(0,9) g" >/dev/null
 q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES
 ('40000000-0000-0000-0000-000000000008','$WS3','approved')" >/dev/null
