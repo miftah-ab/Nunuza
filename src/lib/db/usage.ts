@@ -43,6 +43,83 @@ export function getCalendarMonthPeriod(date: Date = new Date()): {
   };
 }
 
+interface DraftUsagePeriod {
+  periodStart: string;
+  periodEnd: string;
+  metric: string;
+  resetsOn: string;
+}
+
+/**
+ * Resolve the quota window from verified server-side workspace/subscription
+ * records. Paid workspaces use the exact Polar billing-cycle start as part of
+ * the metric key; draft-only and beta workspaces use UTC calendar months.
+ */
+async function getDraftUsagePeriod(
+  workspaceId: string,
+  ownerUserId: string
+): Promise<DraftUsagePeriod> {
+  const supabase = createServiceClient();
+  const { data: workspace, error: workspaceError } = await supabase
+    .from("workspaces")
+    .select("entitlement_type")
+    .eq("id", workspaceId)
+    .eq("owner_user_id", ownerUserId)
+    .single();
+
+  if (workspaceError || !workspace) {
+    throw new Error("[usage] Could not verify workspace entitlement for draft quota.");
+  }
+
+  if (workspace.entitlement_type === "paid_trial" || workspace.entitlement_type === "paid_active") {
+    const { data: subscription, error: subscriptionError } = await supabase
+      .from("subscriptions")
+      .select("current_period_start, current_period_end, trial_start, trial_end")
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+
+    if (subscriptionError || !subscription) {
+      throw new Error("[usage] Verified billing period is unavailable. Draft creation is temporarily blocked.");
+    }
+
+    const startValue = subscription.current_period_start ??
+      (workspace.entitlement_type === "paid_trial" ? subscription.trial_start : null);
+    const endValue = subscription.current_period_end ??
+      (workspace.entitlement_type === "paid_trial" ? subscription.trial_end : null);
+    const start = startValue ? new Date(startValue) : null;
+    const end = endValue ? new Date(endValue) : null;
+    const now = Date.now();
+
+    if (
+      !start || !end ||
+      !Number.isFinite(start.getTime()) ||
+      !Number.isFinite(end.getTime()) ||
+      end.getTime() <= start.getTime() ||
+      now < start.getTime() ||
+      now >= end.getTime()
+    ) {
+      throw new Error("[usage] Verified billing period is invalid or expired. Draft creation is temporarily blocked.");
+    }
+
+    return {
+      periodStart: start.toISOString().slice(0, 10),
+      periodEnd: end.toISOString().slice(0, 10),
+      metric: `${DRAFT_ITEMS_METRIC}@${start.toISOString()}`,
+      resetsOn: end.toISOString().slice(0, 10),
+    };
+  }
+
+  const { periodStart, periodEnd } = getCalendarMonthPeriod();
+  const now = new Date();
+  const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  return {
+    periodStart,
+    periodEnd,
+    metric: DRAFT_ITEMS_METRIC,
+    resetsOn: nextMonth.toISOString().slice(0, 10),
+  };
+}
+
 // ─── Limit check ─────────────────────────────────────────────────────────────
 
 export interface DraftLimitStatus {
@@ -61,20 +138,24 @@ export interface DraftLimitStatus {
  * Does NOT block — caller decides whether to proceed based on isAtLimit.
  */
 export async function checkDraftLimit(workspaceId: string, ownerUserId?: string): Promise<DraftLimitStatus> {
-  const { periodStart } = getCalendarMonthPeriod();
   const supabase = createServiceClient();
-
   let count = 0;
+  let resetsOn: string;
+
   if (ownerUserId) {
+    const period = await getDraftUsagePeriod(workspaceId, ownerUserId);
     const { data, error } = await supabase.rpc("get_draft_usage_status", {
       p_workspace_id: workspaceId,
       p_owner_user_id: ownerUserId,
-      p_period_start: periodStart,
+      p_period_start: period.periodStart,
+      p_metric: period.metric,
     });
     if (error) throw new Error(`[usage] checkDraftLimit: ${error.message}`);
     const row = Array.isArray(data) ? data[0] : data;
     count = Number(row?.used_count ?? 0) + Number(row?.reserved_count ?? 0);
+    resetsOn = period.resetsOn;
   } else {
+    const { periodStart, periodEnd } = getCalendarMonthPeriod();
     const { data, error } = await supabase
       .from("usage_counters")
       .select("count")
@@ -84,11 +165,10 @@ export async function checkDraftLimit(workspaceId: string, ownerUserId?: string)
       .maybeSingle();
     if (error) throw new Error(`[usage] checkDraftLimit: ${error.message}`);
     count = Number(data?.count ?? 0);
+    const now = new Date();
+    resetsOn = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))
+      .toISOString().split("T")[0];
   }
-
-  const now = new Date();
-  const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-  const resetsOn = nextMonth.toISOString().split("T")[0];
 
   return {
     count,
@@ -110,26 +190,24 @@ export async function reserveDraftUsage(
   ownerUserId: string
 ): Promise<DraftUsageReservation | null> {
   const supabase = createServiceClient();
-  const { periodStart, periodEnd } = getCalendarMonthPeriod();
+  const period = await getDraftUsagePeriod(workspaceId, ownerUserId);
   const { data, error } = await supabase.rpc("reserve_draft_usage_slot", {
     p_workspace_id: workspaceId,
     p_owner_user_id: ownerUserId,
-    p_period_start: periodStart,
-    p_period_end: periodEnd,
+    p_period_start: period.periodStart,
+    p_period_end: period.periodEnd,
     p_limit: MONTHLY_DRAFT_LIMIT,
+    p_metric: period.metric,
   });
   if (error) throw new Error(`[usage] reserveDraftUsage: ${error.message}`);
   const row = Array.isArray(data) ? data[0] : data;
   if (!row?.allowed || typeof row.reservation_id !== "string") return null;
 
-  const now = new Date();
-  const resetsOn = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))
-    .toISOString().split("T")[0];
   return {
     reservationId: row.reservation_id,
     count: Number(row.current_count),
     limit: MONTHLY_DRAFT_LIMIT,
-    resetsOn,
+    resetsOn: period.resetsOn,
   };
 }
 
