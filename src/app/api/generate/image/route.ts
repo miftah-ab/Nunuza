@@ -91,6 +91,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  let quotaReservation: { service: any; workspaceId: string; metric: string; periodStart: string } | null = null;
+  let quotaCommitted = false;
+  let uploadedPath: string | null = null;
   try {
     const workspace = await requireWorkspace();
     const body = await parseBody<GenerateImageBody>(request);
@@ -148,15 +151,17 @@ export async function POST(request: Request) {
     const now = new Date();
     const periodStart = now.toISOString().slice(0, 10);
     const hourKey = now.toISOString().slice(0, 13).replace(/[-T:]/g, "");
-    const { data: usageCount, error: usageError } = await service.rpc("increment_usage_counter", {
+    const metric = `image_generation:${hourKey}`;
+    const hourlyImageLimit = getHourlyImageLimit(workspace.entitlement_type);
+    const { data: usageCount, error: usageError } = await service.rpc("reserve_usage_counter", {
       p_workspace_id: workspace.id,
-      p_metric: `image_generation:${hourKey}`,
+      p_metric: metric,
       p_period_start: periodStart,
       p_period_end: periodStart,
+      p_limit: hourlyImageLimit,
     });
     if (usageError) throw new Error("Image generation usage could not be verified.");
-    const hourlyImageLimit = getHourlyImageLimit(workspace.entitlement_type);
-    if (Number(usageCount) > hourlyImageLimit) {
+    if (usageCount === null || usageCount === undefined) {
       return NextResponse.json(
         {
           error: workspace.entitlement_type === "internal_beta"
@@ -166,6 +171,7 @@ export async function POST(request: Request) {
         { status: 429 }
       );
     }
+    quotaReservation = { service, workspaceId: workspace.id, metric, periodStart };
 
     const prompt = buildPostVisualImagePrompt(post, visualBrief, IMAGE_STYLES[style], body.prompt);
     const generated = await generateCloudflareImage(prompt, IMAGE_DIMENSIONS[format]);
@@ -177,6 +183,11 @@ export async function POST(request: Request) {
       upsert: false,
     });
     if (uploadError) throw new Error("Generated image could not be saved. Please retry.");
+    uploadedPath = path;
+
+    // Create the preview before attaching the image to the post. If signing
+    // fails, cleanup removes the upload and releases the quota reservation.
+    const previewUrl = await createPreviewUrl(path);
 
     const { data: updated, error: updateError } = await service
       .from("content_posts")
@@ -194,9 +205,10 @@ export async function POST(request: Request) {
       .single();
 
     if (updateError || !updated) {
-      await service.storage.from(BUCKET).remove([path]);
       throw new Error("We couldn’t add the image to your draft. Please try again.");
     }
+    quotaCommitted = true;
+    uploadedPath = null;
 
     if (post.image_path && post.image_path !== path && post.image_path.startsWith(`${workspace.id}/`)) {
       await service.storage.from(BUCKET).remove([post.image_path]);
@@ -215,7 +227,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       data: {
         imagePath: updated.image_path,
-        previewUrl: await createPreviewUrl(updated.image_path),
+        previewUrl,
         model: CLOUDFLARE_IMAGE_MODEL,
         status: updated.status,
       },
@@ -229,5 +241,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
     return apiError(error);
+  } finally {
+    const service = quotaReservation?.service;
+    if (uploadedPath && service) {
+      try {
+        const { error } = await service.storage.from(BUCKET).remove([uploadedPath]);
+        if (error) console.error("[image-generation] Failed to clean up unattached image upload.");
+      } catch (cleanupError) {
+        console.error("[image-generation] Failed to clean up unattached image upload.", cleanupError);
+      }
+    }
+    if (quotaReservation && !quotaCommitted) {
+      try {
+        const { error } = await quotaReservation.service.rpc("release_usage_counter", {
+          p_workspace_id: quotaReservation.workspaceId,
+          p_metric: quotaReservation.metric,
+          p_period_start: quotaReservation.periodStart,
+        });
+        if (error) console.error("[image-generation] Failed to release image quota reservation.");
+      } catch (releaseError) {
+        console.error("[image-generation] Failed to release image quota reservation.", releaseError);
+      }
+    }
   }
 }
