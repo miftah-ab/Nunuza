@@ -40,12 +40,16 @@ const MAX_FIELD_LENGTH = 300;
 interface FreeModelConfig {
   id: string;
   structuredOutput: boolean;
+  timeoutMs: number;
 }
 
+// Verified free OpenRouter routes with general instruction capability. The old
+// fallback list included code-specialized models that frequently produced
+// incomplete art direction for editorial-image tasks.
 const FREE_MODELS: FreeModelConfig[] = [
-  { id: "baidu/ernie-5.5-flash-preview:free", structuredOutput: true },
-  { id: "cohere/north-mini-code:free", structuredOutput: false },
-  { id: "particle-ai/particle-1:free", structuredOutput: true },
+  { id: "google/gemma-4-31b-it:free", structuredOutput: false, timeoutMs: 10_000 },
+  { id: "google/gemma-4-26b-a4b-it:free", structuredOutput: true, timeoutMs: 10_000 },
+  { id: "baidu/ernie-5.5-flash-preview:free", structuredOutput: true, timeoutMs: 6_000 },
 ];
 
 function cleanText(value: unknown, fallback = ""): string {
@@ -178,9 +182,9 @@ async function requestBrief(
             },
           },
       } : {}),
-      max_tokens: 2200,
+      max_tokens: 1600,
     }),
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(model.timeoutMs),
   });
 
   if (!response.ok) {
