@@ -277,3 +277,132 @@ GRANT EXECUTE ON FUNCTION public.reserve_draft_usage_slot(UUID, UUID, DATE, DATE
 GRANT EXECUTE ON FUNCTION public.create_draft_with_usage(UUID, UUID, UUID, TEXT, TEXT, TEXT, TEXT, public.post_status) TO service_role;
 GRANT EXECUTE ON FUNCTION public.release_draft_usage_slot(UUID, UUID, UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION public.get_draft_usage_status(UUID, UUID, DATE, TEXT) TO service_role;
+
+-- Keep the existing durable agent-job reservation mechanism aligned with the
+-- same verified quota-period metric used by synchronous and MCP generation.
+DROP FUNCTION IF EXISTS public.reserve_draft_usage(UUID, UUID, DATE, DATE, INTEGER);
+
+CREATE OR REPLACE FUNCTION public.reserve_draft_usage(
+  p_job_id UUID,
+  p_workspace_id UUID,
+  p_period_start DATE,
+  p_period_end DATE,
+  p_limit INTEGER DEFAULT 30,
+  p_metric TEXT DEFAULT 'draft_items_created'
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  v_count INTEGER;
+  v_job_workspace UUID;
+  v_payload JSONB;
+  v_reserved_period DATE;
+  v_reserved_metric TEXT;
+BEGIN
+  IF p_limit IS NULL OR p_limit < 1 OR p_metric IS NULL
+     OR p_metric NOT LIKE 'draft_items_created%' THEN
+    RAISE EXCEPTION 'Invalid draft usage reservation arguments';
+  END IF;
+
+  SELECT workspace_id, payload INTO v_job_workspace, v_payload
+    FROM public.agent_jobs WHERE id = p_job_id FOR UPDATE;
+  IF NOT FOUND OR v_job_workspace <> p_workspace_id THEN
+    RAISE EXCEPTION 'agent job does not belong to the requested workspace';
+  END IF;
+
+  IF v_payload ? 'draft_usage_reserved_period' THEN
+    v_reserved_period := (v_payload->>'draft_usage_reserved_period')::DATE;
+    v_reserved_metric := COALESCE(v_payload->>'draft_usage_reserved_metric', 'draft_items_created');
+    IF v_reserved_period = p_period_start AND v_reserved_metric = p_metric THEN
+      RETURN TRUE;
+    END IF;
+    UPDATE public.usage_counters
+       SET count = GREATEST(count - 1, 0), updated_at = NOW()
+     WHERE workspace_id = p_workspace_id
+       AND metric = v_reserved_metric
+       AND period_start = v_reserved_period;
+  END IF;
+
+  INSERT INTO public.usage_counters (workspace_id, metric, period_start, period_end, count)
+  VALUES (p_workspace_id, p_metric, p_period_start, p_period_end, 1)
+  ON CONFLICT (workspace_id, metric, period_start)
+  DO UPDATE SET
+    count = public.usage_counters.count + 1,
+    period_end = EXCLUDED.period_end,
+    updated_at = NOW()
+  WHERE public.usage_counters.count < p_limit
+  RETURNING count INTO v_count;
+
+  IF v_count IS NULL THEN
+    UPDATE public.agent_jobs
+       SET payload = payload - 'draft_usage_reserved_period' - 'draft_usage_reserved_metric',
+           updated_at = NOW()
+     WHERE id = p_job_id;
+    RETURN FALSE;
+  END IF;
+
+  UPDATE public.agent_jobs
+     SET payload = jsonb_set(
+       jsonb_set(payload, '{draft_usage_reserved_period}', to_jsonb(p_period_start::TEXT), TRUE),
+       '{draft_usage_reserved_metric}', to_jsonb(p_metric), TRUE
+     ),
+     updated_at = NOW()
+   WHERE id = p_job_id;
+  RETURN TRUE;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.release_draft_usage(p_job_id UUID)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  v_workspace_id UUID;
+  v_payload JSONB;
+  v_period_start DATE;
+  v_metric TEXT;
+  v_cycle_date TEXT;
+BEGIN
+  SELECT workspace_id, payload INTO v_workspace_id, v_payload
+    FROM public.agent_jobs WHERE id = p_job_id FOR UPDATE;
+  IF NOT FOUND OR NOT (v_payload ? 'draft_usage_reserved_period') THEN
+    RETURN;
+  END IF;
+
+  v_cycle_date := v_payload->>'cycleDate';
+  IF v_cycle_date IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.content_posts
+     WHERE workspace_id = v_workspace_id
+       AND agent_cycle_key = v_workspace_id::TEXT || ':' || v_cycle_date
+  ) THEN
+    UPDATE public.agent_jobs
+       SET payload = payload - 'draft_usage_reserved_period' - 'draft_usage_reserved_metric',
+           updated_at = NOW()
+     WHERE id = p_job_id;
+    RETURN;
+  END IF;
+
+  v_period_start := (v_payload->>'draft_usage_reserved_period')::DATE;
+  v_metric := COALESCE(v_payload->>'draft_usage_reserved_metric', 'draft_items_created');
+  UPDATE public.usage_counters
+     SET count = GREATEST(count - 1, 0), updated_at = NOW()
+   WHERE workspace_id = v_workspace_id
+     AND metric = v_metric
+     AND period_start = v_period_start;
+
+  UPDATE public.agent_jobs
+     SET payload = payload - 'draft_usage_reserved_period' - 'draft_usage_reserved_metric',
+         updated_at = NOW()
+   WHERE id = p_job_id;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.reserve_draft_usage(UUID, UUID, DATE, DATE, INTEGER, TEXT)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.reserve_draft_usage(UUID, UUID, DATE, DATE, INTEGER, TEXT)
+  TO service_role;
