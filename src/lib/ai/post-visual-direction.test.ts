@@ -46,7 +46,7 @@ describe("post visual art direction", () => {
     await expect(createPostVisualBrief(post)).rejects.toBeInstanceOf(VisualPlanningError);
   });
 
-  it("uses ERNIE first and returns a detailed, structured brief", async () => {
+  it("uses Gemma 4 31B first and returns a detailed art-direction brief", async () => {
     process.env.OPENROUTER_API_KEY = "test-openrouter-key";
     const fetchMock = vi.fn().mockResolvedValue(providerResponse(validBrief));
     vi.stubGlobal("fetch", fetchMock);
@@ -57,15 +57,15 @@ describe("post visual art direction", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(init.body));
-    expect(body.model).toBe("baidu/ernie-5.5-flash-preview:free");
-    expect(body.max_tokens).toBe(2200);
-    expect(body.response_format.json_schema.strict).toBe(true);
+    expect(body.model).toBe("google/gemma-4-31b-it:free");
+    expect(body.max_tokens).toBe(1600);
+    expect(body.response_format).toBeUndefined();
     expect(body.provider.data_collection).toBe("deny");
     expect(body.messages[1].content).toContain("FULL POST BODY");
     expect(body.messages[1].content).toContain("The goal is not to be seen by everyone");
   });
 
-  it("falls back to Cohere when the primary free model is unavailable", async () => {
+  it("falls back to Gemma 4 26B when the primary free model is unavailable", async () => {
     process.env.OPENROUTER_API_KEY = "test-openrouter-key";
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
@@ -77,8 +77,8 @@ describe("post visual art direction", () => {
     expect(brief).toEqual(validBrief);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const secondBody = JSON.parse(String((fetchMock.mock.calls[1] as [string, RequestInit])[1].body));
-    expect(secondBody.model).toBe("cohere/north-mini-code:free");
-    expect(secondBody.response_format).toBeUndefined();
+    expect(secondBody.model).toBe("google/gemma-4-26b-a4b-it:free");
+    expect(secondBody.response_format.json_schema.strict).toBe(true);
     expect(secondBody.provider.data_collection).toBe("deny");
   });
 
@@ -95,7 +95,7 @@ describe("post visual art direction", () => {
     expect(brief).toEqual(validBrief);
     expect(fetchMock).toHaveBeenCalledTimes(3);
     const thirdBody = JSON.parse(String((fetchMock.mock.calls[2] as [string, RequestInit])[1].body));
-    expect(thirdBody.model).toBe("particle-ai/particle-1:free");
+    expect(thirdBody.model).toBe("baidu/ernie-5.5-flash-preview:free");
     expect(thirdBody.response_format.json_schema.strict).toBe(true);
     expect(thirdBody.provider.data_collection).toBe("deny");
   });
