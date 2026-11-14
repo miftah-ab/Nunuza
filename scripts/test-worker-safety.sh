@@ -4,7 +4,7 @@
 set -euo pipefail
 
 MIGRATION="supabase/migrations/0010_worker_safety_reservations.sql"
-LIMIT_MIGRATION="supabase/migrations/0022_configurable_publishing_limits.sql"
+LIMIT_MIGRATION="supabase/migrations/20261114120000_configurable_publishing_limits.sql"
 OUT="$(mktemp -d)"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 q() { psql -v ON_ERROR_STOP=1 -At "$@"; }
