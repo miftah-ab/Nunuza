@@ -14,6 +14,7 @@ import { userFacingError } from "@/lib/ui/error-message";
  */
 
 import React, { useState } from "react";
+import { createPortal } from "react-dom";
 import { PostImageGenerator } from "@/components/content/PostImageGenerator";
 import { MediaPostComposer } from "@/components/content/MediaPostComposer";
 import type { ContentPost, PostStatus, Workspace } from "@/types/database";
@@ -1132,8 +1133,8 @@ export function ContentManager({
       )}
 
       {/* Edit Post Modal */}
-      {editingPost && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-ink/30 backdrop-blur-sm flex items-start justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
+      {editingPost && typeof document !== "undefined" && createPortal((
+        <div className="fixed inset-0 z-[100] overflow-y-auto bg-ink/30 backdrop-blur-sm flex items-start justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
           <div className="card my-auto max-h-[calc(100dvh-2rem)] max-w-xl w-full overflow-y-auto overscroll-contain p-6 shadow-xl animate-fade-in">
             <div className="flex items-center justify-between mb-5">
               <div>
@@ -1245,7 +1246,7 @@ export function ContentManager({
             </div>
           </div>
         </div>
-      )}
+      ), document.body)}
 
       {/* In-app confirmation for destructive actions */}
       {confirmation && (
