@@ -29,6 +29,8 @@ const workspace: Workspace = {
   entitlement_type: "draft_only",
   operating_mode: "approval_required",
   paused_at: null,
+  max_posts_per_day: 10,
+  max_posts_per_7_days: 50,
   created_at: "2026-01-01T00:00:00.000Z",
   updated_at: "2026-01-01T00:00:00.000Z",
 };
