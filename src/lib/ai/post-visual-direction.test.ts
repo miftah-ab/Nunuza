@@ -46,7 +46,7 @@ describe("post visual art direction", () => {
     await expect(createPostVisualBrief(post)).rejects.toBeInstanceOf(VisualPlanningError);
   });
 
-  it("tries the free router first and returns a detailed, structured brief", async () => {
+  it("uses ERNIE first and returns a detailed, structured brief", async () => {
     process.env.OPENROUTER_API_KEY = "test-openrouter-key";
     const fetchMock = vi.fn().mockResolvedValue(providerResponse(validBrief));
     vi.stubGlobal("fetch", fetchMock);
