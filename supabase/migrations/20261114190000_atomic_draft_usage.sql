@@ -301,6 +301,7 @@ DECLARE
   v_payload JSONB;
   v_reserved_period DATE;
   v_reserved_metric TEXT;
+  v_active_api_reservations INTEGER := 0;
 BEGIN
   IF p_limit IS NULL OR p_limit < 1 OR p_metric IS NULL
      OR p_metric NOT LIKE 'draft_items_created%' THEN
@@ -311,6 +312,12 @@ BEGIN
     FROM public.agent_jobs WHERE id = p_job_id FOR UPDATE;
   IF NOT FOUND OR v_job_workspace <> p_workspace_id THEN
     RAISE EXCEPTION 'agent job does not belong to the requested workspace';
+  END IF;
+
+  -- Serialize background reservations with API reservations and commits.
+  PERFORM 1 FROM public.workspaces WHERE id = p_workspace_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'workspace does not exist';
   END IF;
 
   IF v_payload ? 'draft_usage_reserved_period' THEN
@@ -326,6 +333,14 @@ BEGIN
        AND period_start = v_reserved_period;
   END IF;
 
+  SELECT COUNT(*)::INTEGER INTO v_active_api_reservations
+    FROM public.draft_usage_reservations
+   WHERE workspace_id = p_workspace_id
+     AND period_start = p_period_start
+     AND metric = p_metric
+     AND status = 'reserved'
+     AND expires_at > NOW();
+
   INSERT INTO public.usage_counters (workspace_id, metric, period_start, period_end, count)
   VALUES (p_workspace_id, p_metric, p_period_start, p_period_end, 1)
   ON CONFLICT (workspace_id, metric, period_start)
@@ -333,7 +348,7 @@ BEGIN
     count = public.usage_counters.count + 1,
     period_end = EXCLUDED.period_end,
     updated_at = NOW()
-  WHERE public.usage_counters.count < p_limit
+  WHERE public.usage_counters.count + v_active_api_reservations < p_limit
   RETURNING count INTO v_count;
 
   IF v_count IS NULL THEN
