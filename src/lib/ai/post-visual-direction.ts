@@ -251,8 +251,9 @@ export function buildPostVisualImagePrompt(
   styleDirection: string,
   userDirection?: string
 ): string {
+  const detail = (value: string) => value.slice(0, 220);
   const avoid = brief.avoid.length
-    ? brief.avoid.slice(0, 6).map((item) => item.slice(0, 100)).join("; ")
+    ? brief.avoid.slice(0, 6).map((item) => item.slice(0, 80)).join("; ")
     : "generic stock imagery, unrelated objects, decorative business clichés";
 
   const textRule = /no text|without text|none/i.test(brief.textTreatment)
@@ -261,15 +262,15 @@ export function buildPostVisualImagePrompt(
 
   return [
     "Create one premium, modern, publication-ready editorial image for a LinkedIn post. You are the image-production artist executing a finished art director's brief. Do not reinterpret the subject or substitute a generic business image.",
-    "THE POST'S ACTUAL MESSAGE: " + brief.centralMessage,
-    "THE CREATIVE CONCEPT: " + brief.visualConcept,
-    "EXACT PRIMARY SUBJECT: " + brief.subject,
-    "VISIBLE ACTION: " + brief.action,
-    "SCENE / ENVIRONMENT: " + brief.setting,
-    "SPECIFIC VISUAL DETAILS AND PROPS: " + brief.visualDetails,
-    "COMPOSITION / SPATIAL RELATIONSHIPS: " + brief.composition,
-    "LIGHTING AND COLOR DIRECTION: " + brief.lightingAndPalette,
-    "RENDERING STYLE: " + styleDirection,
+    "THE POST'S ACTUAL MESSAGE: " + detail(brief.centralMessage),
+    "THE CREATIVE CONCEPT: " + detail(brief.visualConcept),
+    "EXACT PRIMARY SUBJECT: " + detail(brief.subject),
+    "VISIBLE ACTION: " + detail(brief.action),
+    "SCENE / ENVIRONMENT: " + detail(brief.setting),
+    "SPECIFIC VISUAL DETAILS AND PROPS: " + detail(brief.visualDetails),
+    "COMPOSITION / SPATIAL RELATIONSHIPS: " + detail(brief.composition),
+    "LIGHTING AND COLOR DIRECTION: " + detail(brief.lightingAndPalette),
+    "RENDERING STYLE: " + styleDirection.slice(0, 250),
     textRule,
     "AVOID THESE SPECIFIC MISTAKES: " + avoid,
     userDirection?.trim()
@@ -278,6 +279,6 @@ export function buildPostVisualImagePrompt(
     "QUALITY STANDARD: contemporary editorial campaign quality; deliberate visual hierarchy; one immediately readable focal point; sophisticated composition; authentic physical detail; intentional depth; polished light and color; strong thumbnail readability; no cheap template aesthetics.",
     "SOURCE-FAITHFULNESS: the post is the source of truth. Do not invent factual claims, people, products, brands, locations, events, metrics, or results. Artistic lighting, camera choices, and non-factual set dressing are allowed.",
     "OUTPUT: one coherent image, edge-to-edge. No collage, split screen, panels, borders, watermarks, signatures, random UI, charts, icons, or decorative symbols unless explicitly named in the art direction.",
-    "POST SOURCE FOR CONTEXT: " + post.text.replace(/\s+/g, " ").slice(0, 1100),
+    "POST SOURCE FOR CONTEXT: " + post.text.replace(/\s+/g, " ").slice(0, 700),
   ].filter(Boolean).join("\n");
 }
