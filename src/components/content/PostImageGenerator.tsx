@@ -9,12 +9,15 @@ type ImageStyle = "editorial" | "cinematic" | "illustration" | "3d" | "minimalis
 type ImageFormat = "portrait" | "landscape" | "square";
 
 interface VisualBrief {
-  concept: string;
+  centralMessage: string;
+  visualConcept: string;
   subject: string;
-  metaphor: string;
+  action: string;
+  setting: string;
+  visualDetails: string;
   composition: string;
-  palette: string;
-  mood: string;
+  lightingAndPalette: string;
+  textTreatment: string;
   avoid: string[];
 }
 
@@ -56,7 +59,7 @@ async function fetchVisualBrief(postId: string): Promise<VisualBrief> {
   });
   const payload = (await response.json()) as ImageApiResponse;
   if (!response.ok) throw new Error(payload.error || "Nunuza couldn’t analyze this post. Please try again.");
-  if (!payload.data?.visualBrief?.concept || !payload.data.visualBrief.subject) {
+  if (!payload.data?.visualBrief?.centralMessage || !payload.data.visualBrief.subject || !payload.data.visualBrief.action) {
     throw new Error("Nunuza couldn’t create a clear visual direction. Please try again.");
   }
   return payload.data.visualBrief;
@@ -196,9 +199,15 @@ export function PostImageGenerator({ postId, imagePath, onImageUpdated }: PostIm
           <p className="flex items-center gap-2 text-xs text-ink-secondary"><Loader2 size={13} className="animate-spin" /> Finding the strongest visual idea in your post...</p>
         ) : visualBrief ? (
           <div className="space-y-2">
-            <p className="text-sm font-medium leading-relaxed text-ink">{visualBrief.concept}</p>
+            <p className="text-sm font-semibold leading-relaxed text-ink">{visualBrief.centralMessage}</p>
+            <p className="text-xs leading-relaxed text-ink-secondary"><span className="font-semibold text-ink">Visual concept:</span> {visualBrief.visualConcept}</p>
             <p className="text-xs leading-relaxed text-ink-secondary"><span className="font-semibold text-ink">Main subject:</span> {visualBrief.subject}</p>
+            <p className="text-xs leading-relaxed text-ink-secondary"><span className="font-semibold text-ink">Action:</span> {visualBrief.action}</p>
+            <p className="text-xs leading-relaxed text-ink-secondary"><span className="font-semibold text-ink">Scene:</span> {visualBrief.setting}</p>
+            <p className="text-xs leading-relaxed text-ink-secondary"><span className="font-semibold text-ink">Visual details:</span> {visualBrief.visualDetails}</p>
             <p className="text-xs leading-relaxed text-ink-secondary"><span className="font-semibold text-ink">Composition:</span> {visualBrief.composition}</p>
+            <p className="text-xs leading-relaxed text-ink-secondary"><span className="font-semibold text-ink">Lighting &amp; palette:</span> {visualBrief.lightingAndPalette}</p>
+            <p className="text-xs leading-relaxed text-ink-secondary"><span className="font-semibold text-ink">Text treatment:</span> {visualBrief.textTreatment}</p>
           </div>
         ) : (
           <p className="text-xs text-ink-secondary">Nunuza needs to analyze the post before it can create a relevant image.</p>
@@ -233,7 +242,7 @@ export function PostImageGenerator({ postId, imagePath, onImageUpdated }: PostIm
           placeholder="Optional: emphasize a specific object, scene, or visual detail..."
           className="input-field w-full resize-y text-sm"
         />
-        <p className="mt-1 text-[11px] text-ink-muted">Nunuza has already chosen a concept from your post. Add a detail or preference only if you want to change its art direction.</p>
+        <p className="mt-1 text-[11px] text-ink-muted">Nunuza has analyzed the full post and prepared a specific art direction. Add a preference only if you want to change it.</p>
       </div>
 
       {error && <p role="alert" className="rounded-md bg-error/10 p-2.5 text-xs text-error">{error}</p>}
