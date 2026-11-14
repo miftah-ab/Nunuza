@@ -9,12 +9,15 @@ type ImageStyle = "editorial" | "cinematic" | "illustration" | "3d" | "minimalis
 type ImageFormat = "portrait" | "landscape" | "square";
 
 interface VisualBrief {
-  concept: string;
+  centralMessage: string;
+  visualConcept: string;
   subject: string;
-  metaphor: string;
+  action: string;
+  setting: string;
+  visualDetails: string;
   composition: string;
-  palette: string;
-  mood: string;
+  lightingAndPalette: string;
+  textTreatment: string;
   avoid: string[];
 }
 
@@ -196,9 +199,15 @@ export function PostImageGenerator({ postId, imagePath, onImageUpdated }: PostIm
           <p className="flex items-center gap-2 text-xs text-ink-secondary"><Loader2 size={13} className="animate-spin" /> Finding the strongest visual idea in your post...</p>
         ) : visualBrief ? (
           <div className="space-y-2">
-            <p className="text-sm font-medium leading-relaxed text-ink">{visualBrief.concept}</p>
+            <p className="text-sm font-semibold leading-relaxed text-ink">{visualBrief.centralMessage}</p>
+            <p className="text-xs leading-relaxed text-ink-secondary"><span className="font-semibold text-ink">Visual concept:</span> {visualBrief.visualConcept}</p>
             <p className="text-xs leading-relaxed text-ink-secondary"><span className="font-semibold text-ink">Main subject:</span> {visualBrief.subject}</p>
+            <p className="text-xs leading-relaxed text-ink-secondary"><span className="font-semibold text-ink">Action:</span> {visualBrief.action}</p>
+            <p className="text-xs leading-relaxed text-ink-secondary"><span className="font-semibold text-ink">Scene:</span> {visualBrief.setting}</p>
+            <p className="text-xs leading-relaxed text-ink-secondary"><span className="font-semibold text-ink">Visual details:</span> {visualBrief.visualDetails}</p>
             <p className="text-xs leading-relaxed text-ink-secondary"><span className="font-semibold text-ink">Composition:</span> {visualBrief.composition}</p>
+            <p className="text-xs leading-relaxed text-ink-secondary"><span className="font-semibold text-ink">Lighting &amp; palette:</span> {visualBrief.lightingAndPalette}</p>
+            <p className="text-xs leading-relaxed text-ink-secondary"><span className="font-semibold text-ink">Text treatment:</span> {visualBrief.textTreatment}</p>
           </div>
         ) : (
           <p className="text-xs text-ink-secondary">Nunuza needs to analyze the post before it can create a relevant image.</p>
