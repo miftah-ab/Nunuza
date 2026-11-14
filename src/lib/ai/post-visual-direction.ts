@@ -33,7 +33,7 @@ export class VisualPlanningError extends Error {
   }
 }
 
-const MAX_FIELD_LENGTH = 420;
+const MAX_FIELD_LENGTH = 300;
 const FREE_MODELS = [
   "openrouter/free",
   "dots-studio/dots-3-note-preview:free",
@@ -57,7 +57,7 @@ function parseBrief(raw: string): PostVisualBrief {
   const avoid = Array.isArray(parsed.avoid)
     ? parsed.avoid
         .filter((item): item is string => typeof item === "string")
-        .slice(0, 8)
+        .slice(0, 6)
         .map((item) => cleanText(item))
         .filter(Boolean)
     : [];
@@ -134,7 +134,7 @@ async function requestBrief(
     composition: { type: "string" },
     lightingAndPalette: { type: "string" },
     textTreatment: { type: "string" },
-    avoid: { type: "array", items: { type: "string" }, maxItems: 8 },
+    avoid: { type: "array", items: { type: "string" }, maxItems: 6 },
   };
 
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -252,7 +252,7 @@ export function buildPostVisualImagePrompt(
   userDirection?: string
 ): string {
   const avoid = brief.avoid.length
-    ? brief.avoid.slice(0, 8).map((item) => item.slice(0, 120)).join("; ")
+    ? brief.avoid.slice(0, 6).map((item) => item.slice(0, 100)).join("; ")
     : "generic stock imagery, unrelated objects, decorative business clichés";
 
   const textRule = /no text|without text|none/i.test(brief.textTreatment)
