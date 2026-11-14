@@ -124,7 +124,7 @@ export async function POST(request: Request) {
 
     // The agent first interprets the post and proposes a visual direction.
     // Analysis is a lightweight text operation and does not consume image quota.
-    const visualBrief = body.visualBrief ?? await createPostVisualBrief(post);
+    const visualBrief = body.action === "analyze" || !body.visualBrief\n      ? await createPostVisualBrief(post)\n      : body.visualBrief;
     const requiredBriefFields: (keyof Omit<PostVisualBrief, "avoid">)[] = [
       "concept", "subject", "metaphor", "composition", "palette", "mood",
     ];
