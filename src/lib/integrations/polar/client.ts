@@ -43,6 +43,22 @@ export class PolarClient {
       : "https://sandbox-api.polar.sh/v1";
   }
 
+  getExpectedProductId(): string {
+    return this.productId;
+  }
+
+  getExpectedPriceId(): string | undefined {
+    return this.priceId;
+  }
+
+  matchesConfiguredOffer(productId: string | null | undefined, priceId: string | null | undefined): boolean {
+    return Boolean(
+      this.isConfigured() &&
+      productId === this.productId &&
+      priceId === this.priceId
+    );
+  }
+
   /**
    * Verifies that the required environment variables are configured.
    */
@@ -52,7 +68,11 @@ export class PolarClient {
       this.accessToken.trim().length > 0 &&
       !this.accessToken.includes("your-polar") &&
       this.productId &&
-      !this.productId.includes("your-polar")
+      !this.productId.includes("your-polar") &&
+      this.priceId &&
+      this.priceId.trim().length > 0 &&
+      !this.priceId.includes("placeholder") &&
+      !this.priceId.includes("your-polar")
     );
   }
 
