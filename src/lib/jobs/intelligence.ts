@@ -11,6 +11,7 @@ import { aiService } from "@/lib/ai/service";
 import { assertVoiceConstraints, VoiceConstraintError } from "@/lib/ai/voice-constraints";
 import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
 import { canUseAutopilot } from "@/lib/auth/workspace";
+import { getDraftUsagePeriod } from "@/lib/db/usage";
 import type { AgentJob } from "@/types/database";
 import type { JobExecutionResult } from "./types";
 
@@ -336,15 +337,6 @@ async function recordAgentEvent(
   if (error) throw new Error("Could not persist agent decision: " + error.message);
 }
 
-function periodFor(date = new Date()): { periodStart: string; periodEnd: string } {
-  const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
-  const end = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0));
-  return {
-    periodStart: start.toISOString().slice(0, 10),
-    periodEnd: end.toISOString().slice(0, 10),
-  };
-}
-
 export async function enqueueAutonomousCycles(supabaseOverride?: any): Promise<{ queued: number; skipped: number }> {
   const supabase = supabaseOverride || createServiceClient();
   const { data: workspaces, error } = await supabase
@@ -569,13 +561,13 @@ export async function executeAutonomousCycle(
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
   }
 
-  const { periodStart, periodEnd } = periodFor();
+  const quotaPeriod = await getDraftUsagePeriod(workspace.id, workspace.owner_user_id);
   const { data: usage, error: usageError } = await supabase
     .from("usage_counters")
     .select("count")
     .eq("workspace_id", workspace.id)
-    .eq("metric", "draft_items_created")
-    .eq("period_start", periodStart)
+    .eq("metric", quotaPeriod.metric)
+    .eq("period_start", quotaPeriod.periodStart)
     .maybeSingle();
   if (usageError) return fail("Could not verify monthly draft usage.");
   if ((usage?.count ?? 0) >= 30) {
@@ -814,9 +806,10 @@ export async function executeAutonomousCycle(
   const { data: usageReserved, error: usageReserveError } = await supabase.rpc("reserve_draft_usage", {
     p_job_id: job.id,
     p_workspace_id: workspace.id,
-    p_period_start: periodStart,
-    p_period_end: periodEnd,
+    p_period_start: quotaPeriod.periodStart,
+    p_period_end: quotaPeriod.periodEnd,
     p_limit: 30,
+    p_metric: quotaPeriod.metric,
   });
   if (usageReserveError) return fail("Could not reserve monthly draft usage: " + usageReserveError.message);
   if (!usageReserved) {
