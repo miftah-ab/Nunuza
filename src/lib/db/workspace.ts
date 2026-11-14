@@ -5,7 +5,7 @@
  * Use requireWorkspace() from lib/auth/workspace.ts before calling these.
  */
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { Workspace, VoiceProfile, ContentStrategy } from "@/types/database";
 
 // ─── Workspace ────────────────────────────────────────────────────────────────
@@ -162,7 +162,10 @@ export interface LogAuditEventInput {
  */
 export async function logAuditEvent(input: LogAuditEventInput): Promise<void> {
   try {
-    const supabase = await createClient();
+    // Audit events are server-authored records. The authenticated session client
+    // cannot insert under the table's read-only user RLS policy; use the
+    // server-only service-role client instead. Never fall back to the session client.
+    const supabase = createServiceClient();
     const { error } = await supabase.from("audit_events").insert({
       workspace_id: input.workspaceId,
       actor_type: input.actorType,
