@@ -16,6 +16,20 @@ import type {
 } from "./types";
 import { buildDraftPrompt, buildPlanPrompt } from "./prompts";
 
+const DEFAULT_OPENROUTER_MODEL = "google/gemma-4-31b-it";
+
+/**
+ * Free OpenRouter routes can require user-data collection for model training.
+ * Nunuza must not silently route customer drafts to those endpoints.
+ */
+export function resolveOpenRouterModel(configuredModel?: string): string {
+  const candidate = configuredModel?.trim();
+  if (!candidate || candidate === "openrouter/free" || candidate.endsWith(":free")) {
+    return DEFAULT_OPENROUTER_MODEL;
+  }
+  return candidate;
+}
+
 export class OpenRouterProvider implements AiProvider {
   readonly id = "openrouter" as const;
   private readonly apiKey: string;
