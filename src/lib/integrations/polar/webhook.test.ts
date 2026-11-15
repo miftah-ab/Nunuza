@@ -29,6 +29,9 @@ describe("normalizePolarWebhookEvent", () => {
   it("rejects missing delivery ids and malformed payloads", () => {
     expect(() => normalizePolarWebhookEvent({ type: "subscription.active", timestamp: "2026-11-15T05:00:00Z", data: {} }, null)).toThrow(/webhook id/i);
     expect(() => normalizePolarWebhookEvent({ type: "subscription.active", timestamp: "not-a-date", data: {} }, "wh_1")).toThrow(/timestamp/i);
-    expect(() => normalizePolarWebhookEvent({ type: "customer.updated", timestamp: "2026-11-15T05:00:00Z", data: {} }, "wh_1")).toThrow(/event type/i);
+    // Polar can deliver unrelated event families to the same endpoint; the
+    // service must acknowledge and ignore them rather than trigger retries.
+    expect(normalizePolarWebhookEvent({ type: "customer.updated", timestamp: "2026-11-15T05:00:00Z", data: {} }, "wh_1").type).toBe("customer.updated");
+    expect(() => normalizePolarWebhookEvent({ type: "", timestamp: "2026-11-15T05:00:00Z", data: {} }, "wh_1")).toThrow(/event type/i);
   });
 });
