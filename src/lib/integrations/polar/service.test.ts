@@ -147,7 +147,7 @@ describe("Polar Client & Seller Eligibility", () => {
     });
 
     await client.createCheckoutSession({
-      workspaceId: WORKSPACE_ID,
+      workspaceId: "ws_test_tenant_a",
       userEmail: "owner@example.com",
       customerId: "cust_existing",
       successUrl: "https://nunuza.example/billing/success",
