@@ -18,16 +18,9 @@ import { buildDraftPrompt, buildPlanPrompt } from "./prompts";
 
 /** Candidate models in preference order for LinkedIn content generation */
 const CANDIDATE_MODELS = [
-  "llama-3.3-70b-versatile",
-  "llama-3.1-70b-versatile",
-  "llama3-70b-8192",
   "openai/gpt-oss-120b",
-  "qwen/qwen3.8-27b",
   "openai/gpt-oss-20b",
-  "mixtral-8x7b-32768",
-  "llama-3.1-8b-instant",
-  "llama3-8b-8192",
-];
+] as const;
 
 export class GroqProvider implements AiProvider {
   readonly id = "groq" as const;
@@ -42,7 +35,7 @@ export class GroqProvider implements AiProvider {
 
   constructor(apiKey?: string, model?: string, timeoutMs = 15000) {
     this.apiKey = apiKey ?? process.env.GROQ_API_KEY ?? "";
-    this.configuredModel = model ?? process.env.GROQ_DEFAULT_MODEL ?? "llama-3.3-70b-versatile";
+    this.configuredModel = model ?? process.env.GROQ_DEFAULT_MODEL ?? "openai/gpt-oss-120b";
     this.timeoutMs = timeoutMs;
   }
 
@@ -57,7 +50,7 @@ export class GroqProvider implements AiProvider {
   /**
    * Dynamically discovers and selects the best available model for the configured account.
    */
-  async resolveModel(forceRefresh = false): Promise<string> {
+  async resolveModel(forceRefresh = false, excludeModel?: string): Promise<string> {
     const now = Date.now();
     if (!forceRefresh && this.selectedModel && now - this.lastDiscoveryAt < this.discoveryTtlMs) {
       return this.selectedModel;
@@ -83,7 +76,11 @@ export class GroqProvider implements AiProvider {
         const availableIds = new Set((json.data || []).map((m) => m.id));
 
         // 1. If explicit configuredModel is available, prioritize it
-        if (this.configuredModel && availableIds.has(this.configuredModel)) {
+        if (
+          this.configuredModel !== excludeModel &&
+          CANDIDATE_MODELS.includes(this.configuredModel as (typeof CANDIDATE_MODELS)[number]) &&
+          availableIds.has(this.configuredModel)
+        ) {
           this.selectedModel = this.configuredModel;
           this.lastDiscoveryAt = now;
           return this.selectedModel;
@@ -91,29 +88,24 @@ export class GroqProvider implements AiProvider {
 
         // 2. Otherwise pick the top matching model from candidate ranking
         for (const candidate of CANDIDATE_MODELS) {
-          if (availableIds.has(candidate)) {
+          if (candidate !== excludeModel && availableIds.has(candidate)) {
             this.selectedModel = candidate;
             this.lastDiscoveryAt = now;
             return this.selectedModel;
           }
         }
 
-        // 3. Fallback: filter for any non-whisper, non-guard text model
-        const textModel = Array.from(availableIds).find(
-          (id) => !id.includes("whisper") && !id.includes("guard")
-        );
-        if (textModel) {
-          this.selectedModel = textModel;
-          this.lastDiscoveryAt = now;
-          return this.selectedModel;
-        }
+        throw new Error("No supported production Groq text model is available for this API key.");
       }
     } catch {
       // Network or API discovery failure; keep fail-safe fallback
     }
 
-    // Default to configured model if discovery is unreachable
-    this.selectedModel = this.configuredModel;
+    // Discovery may be temporarily unavailable. Fall back only to a currently
+    // supported production model, never to a stale environment override.
+    this.selectedModel = CANDIDATE_MODELS.includes(this.configuredModel as (typeof CANDIDATE_MODELS)[number])
+      ? this.configuredModel
+      : CANDIDATE_MODELS[0];
     this.lastDiscoveryAt = now;
     return this.selectedModel;
   }
@@ -131,7 +123,7 @@ export class GroqProvider implements AiProvider {
     } catch (err: any) {
       // If model not found or invalid, refresh model discovery and retry once with next available
       if (err.message && (err.message.includes("model_not_found") || err.message.includes("404"))) {
-        activeModel = await this.resolveModel(true);
+        activeModel = await this.resolveModel(true, activeModel);
         return await this.executeChatCompletion(activeModel, systemPrompt, userPrompt, request);
       }
       throw err;
@@ -161,7 +153,7 @@ export class GroqProvider implements AiProvider {
             { role: "user", content: userPrompt },
           ],
           temperature: 0.7,
-          max_tokens: 1200,
+          max_completion_tokens: 2000,
         }),
         signal: controller.signal,
       });
@@ -239,7 +231,7 @@ export class GroqProvider implements AiProvider {
           ],
           temperature: 0.5,
           response_format: { type: "json_object" },
-          max_tokens: 1800,
+          max_completion_tokens: 2400,
         }),
         signal: controller.signal,
       });
