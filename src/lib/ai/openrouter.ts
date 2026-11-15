@@ -1,7 +1,7 @@
 /**
  * OpenRouter AI Provider (Fallback).
  *
- * Default model: anthropic/claude-3-haiku
+ * Default model: google/gemma-4-31b-it (paid, privacy-filtered)
  * Endpoint: https://openrouter.ai/api/v1/chat/completions
  *
  * Server-side only; never exposes OPENROUTER_API_KEY to the browser.
