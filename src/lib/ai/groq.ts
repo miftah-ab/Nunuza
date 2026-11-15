@@ -149,10 +149,9 @@ export class GroqProvider implements AiProvider {
         },
         body: JSON.stringify({
           model,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
+          // Groq's GPT-OSS guidance recommends putting instructions in the
+          // user message rather than a separate system role.
+          messages: [{ role: "user", content: `${systemPrompt}\n\n${userPrompt}` }],
           temperature: 0.7,
           max_completion_tokens: 2000,
         }),
@@ -226,10 +225,9 @@ export class GroqProvider implements AiProvider {
         },
         body: JSON.stringify({
           model,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
+          // Groq's GPT-OSS guidance recommends putting instructions in the
+          // user message rather than a separate system role.
+          messages: [{ role: "user", content: `${systemPrompt}\n\n${userPrompt}` }],
           temperature: 0.5,
           response_format: { type: "json_object" },
           max_completion_tokens: 2400,
