@@ -29,12 +29,8 @@ export class PolarClient {
     this.productId = config?.productId ?? process.env.POLAR_PRODUCT_ID ?? "";
     this.priceId = config?.priceId ?? process.env.POLAR_PRICE_ID;
 
-    const envServer = process.env.POLAR_SERVER?.toLowerCase();
-    if (envServer === "sandbox") {
-      this.server = "sandbox";
-    } else {
-      this.server = "production";
-    }
+    const configuredServer = config?.server?.toLowerCase() ?? process.env.POLAR_SERVER?.toLowerCase();
+    this.server = configuredServer === "sandbox" ? "sandbox" : "production";
   }
 
   getApiBaseUrl(): string {
@@ -96,7 +92,7 @@ export class PolarClient {
    */
   isSellerEligible(): boolean {
     // Check explicit seller readiness flag; defaults to false in development/pre-release
-    return process.env.POLAR_SELLER_ELIGIBLE === "true";
+    return this.server === "sandbox" || process.env.POLAR_SELLER_ELIGIBLE === "true";
   }
 
   /**
