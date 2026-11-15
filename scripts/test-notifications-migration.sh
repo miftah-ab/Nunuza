@@ -83,7 +83,7 @@ SQL
 
 psql -v ON_ERROR_STOP=1 -f supabase/migrations/0020_durable_notifications.sql
 psql -v ON_ERROR_STOP=1 -f supabase/migrations/0021_telegram_job_failure_notifications.sql
-psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261113091500_telegram_stale_failure_message.sql
+psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261115054519_telegram_stale_failure_message.sql
 
 psql -v ON_ERROR_STOP=1 <<'SQL'
 INSERT INTO public.profiles(id) VALUES ('00000000-0000-0000-0000-000000000001');
