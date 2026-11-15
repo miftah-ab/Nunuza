@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  fetchResearch,
   buildCycleNotificationMessage,
   buildLearningProfile,
   isAutonomousEntitlementEligible,
@@ -193,5 +194,31 @@ describe("autonomous intelligence primitives", () => {
   it("detects substantially repeated opportunity titles", () => {
     expect(isDuplicateOpportunity("Small business cash flow planning", ["Cash flow planning for small business owners"])).toBe(true);
     expect(isDuplicateOpportunity("Hiring trends in healthcare", ["Cash flow planning for small business owners"])).toBe(false);
+  });
+});
+
+
+describe("research fetch resilience", () => {
+  it("retries once when the news provider is slow, then succeeds", async () => {
+    const calls: number[] = [];
+    const items = await fetchResearch(
+      "query",
+      async () => {
+        calls.push(1);
+        if (calls.length === 1) throw new Error("The operation was aborted");
+        return [];
+      },
+      0
+    );
+    expect(calls.length).toBe(2);
+    expect(items).toEqual([]);
+  });
+
+  it("throws after the last attempt so the cycle can report it", async () => {
+    let calls = 0;
+    await expect(
+      fetchResearch("query", async () => { calls += 1; throw new Error("down"); }, 0)
+    ).rejects.toThrow("down");
+    expect(calls).toBe(2);
   });
 });

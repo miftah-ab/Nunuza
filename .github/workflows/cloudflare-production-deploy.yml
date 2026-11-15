@@ -21,6 +21,8 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       NUNUZA_WORKER_ENV_JSON: ${{ secrets.NUNUZA_WORKER_ENV_JSON }}
+      # Optional. Telegram chat id that receives operator alerts for failed jobs.
+      OPS_ALERT_TELEGRAM_CHAT_ID: ${{ vars.OPS_ALERT_TELEGRAM_CHAT_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -111,7 +113,7 @@ jobs:
             "TELEGRAM_BOT_TOKEN","TELEGRAM_WEBHOOK_SECRET","POLAR_ACCESS_TOKEN",
             "POLAR_WEBHOOK_SECRET","POLAR_PRODUCT_ID",
             "WEB_PUSH_VAPID_PUBLIC_KEY","WEB_PUSH_VAPID_PRIVATE_KEY",
-            "WEB_PUSH_SUBSCRIPTION_ENCRYPTION_KEY"
+            "WEB_PUSH_SUBSCRIPTION_ENCRYPTION_KEY","OPS_ALERT_TELEGRAM_CHAT_ID"
           ];
           const secrets = Object.fromEntries(names.filter(name => process.env[name] !== undefined).map(name => [name, process.env[name]]));
           fs.writeFileSync(".worker-secrets.json", JSON.stringify(secrets), { mode: 0o600 });

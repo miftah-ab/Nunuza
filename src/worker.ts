@@ -20,6 +20,7 @@ import {
 } from "@/lib/jobs/runner";
 import { enqueueAutonomousCycles } from "@/lib/jobs/intelligence";
 import { dispatchPendingNotifications } from "@/lib/notifications/dispatcher";
+import { alertFailedJobs } from "@/lib/ops/failure-alerts";
 import type { AgentJob } from "@/types/database";
 
 // Preserve OpenNext's Durable Object exports when its generated worker uses them.
@@ -121,6 +122,14 @@ export default {
               }
             } catch (error) {
               console.error("[worker-scheduled] Autonomous-cycle enqueue failed:", error);
+            }
+          }
+
+          if (scheduledMinute % 5 === 2) {
+            try {
+              await alertFailedJobs();
+            } catch (error) {
+              console.error("[worker-scheduled] Failure alert pass failed:", error);
             }
           }
 
