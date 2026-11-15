@@ -24,13 +24,10 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const BUCKET = "nunuza-generated-images";
-const STANDARD_HOURLY_IMAGE_LIMIT = 5;
-const PRIVATE_BETA_HOURLY_IMAGE_LIMIT = 100;
+const WORKSPACE_HOURLY_IMAGE_LIMIT = 5;
 
-function getHourlyImageLimit(entitlementType: string): number {
-  return entitlementType === "internal_beta"
-    ? PRIVATE_BETA_HOURLY_IMAGE_LIMIT
-    : STANDARD_HOURLY_IMAGE_LIMIT;
+function getHourlyImageLimit(): number {
+  return WORKSPACE_HOURLY_IMAGE_LIMIT;
 }
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -152,7 +149,7 @@ export async function POST(request: Request) {
     const periodStart = now.toISOString().slice(0, 10);
     const hourKey = now.toISOString().slice(0, 13).replace(/[-T:]/g, "");
     const metric = `image_generation:${hourKey}`;
-    const hourlyImageLimit = getHourlyImageLimit(workspace.entitlement_type);
+    const hourlyImageLimit = getHourlyImageLimit();
     const { data: reservationId, error: usageError } = await service.rpc("reserve_image_generation", {
       p_workspace_id: workspace.id,
       p_metric: metric,
@@ -164,9 +161,7 @@ export async function POST(request: Request) {
     if (!reservationId) {
       return NextResponse.json(
         {
-          error: workspace.entitlement_type === "internal_beta"
-            ? "You’ve used all 100 image generations for this hour. You can create more next hour."
-            : "You’ve used all 5 image generations for this hour. You can create more next hour.",
+          error: "You’ve used all 5 image generations this hour. You can create more next hour.",
         },
         { status: 429 }
       );
