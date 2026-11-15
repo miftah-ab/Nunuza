@@ -60,6 +60,7 @@ export class GroqProvider implements AiProvider {
       return this.configuredModel;
     }
 
+    let availableIds: Set<string> | null = null;
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
@@ -73,32 +74,32 @@ export class GroqProvider implements AiProvider {
 
       if (res.ok) {
         const json = (await res.json()) as { data?: Array<{ id: string }> };
-        const availableIds = new Set((json.data || []).map((m) => m.id));
+        availableIds = new Set((json.data || []).map((m) => m.id));
+      }
+    } catch {
+      // Network or API discovery failure; use only a known supported fallback.
+    }
 
-        // 1. If explicit configuredModel is available, prioritize it
-        if (
-          this.configuredModel !== excludeModel &&
-          CANDIDATE_MODELS.includes(this.configuredModel as (typeof CANDIDATE_MODELS)[number]) &&
-          availableIds.has(this.configuredModel)
-        ) {
-          this.selectedModel = this.configuredModel;
+    if (availableIds) {
+      if (
+        this.configuredModel !== excludeModel &&
+        CANDIDATE_MODELS.includes(this.configuredModel as (typeof CANDIDATE_MODELS)[number]) &&
+        availableIds.has(this.configuredModel)
+      ) {
+        this.selectedModel = this.configuredModel;
+        this.lastDiscoveryAt = now;
+        return this.selectedModel;
+      }
+
+      for (const candidate of CANDIDATE_MODELS) {
+        if (candidate !== excludeModel && availableIds.has(candidate)) {
+          this.selectedModel = candidate;
           this.lastDiscoveryAt = now;
           return this.selectedModel;
         }
-
-        // 2. Otherwise pick the top matching model from candidate ranking
-        for (const candidate of CANDIDATE_MODELS) {
-          if (candidate !== excludeModel && availableIds.has(candidate)) {
-            this.selectedModel = candidate;
-            this.lastDiscoveryAt = now;
-            return this.selectedModel;
-          }
-        }
-
-        throw new Error("No supported production Groq text model is available for this API key.");
       }
-    } catch {
-      // Network or API discovery failure; keep fail-safe fallback
+
+      throw new Error("No supported production Groq text model is available for this API key.");
     }
 
     // Discovery may be temporarily unavailable. Fall back only to a currently
@@ -201,7 +202,7 @@ export class GroqProvider implements AiProvider {
       return await this.executePlanCompletion(activeModel, systemPrompt, userPrompt);
     } catch (err: any) {
       if (err.message && (err.message.includes("model_not_found") || err.message.includes("404"))) {
-        activeModel = await this.resolveModel(true);
+        activeModel = await this.resolveModel(true, activeModel);
         return await this.executePlanCompletion(activeModel, systemPrompt, userPrompt);
       }
       throw err;
