@@ -59,7 +59,7 @@ describe("post visual art direction", () => {
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe("google/gemma-4-31b-it:free");
     expect(body.max_tokens).toBe(1600);
-    expect(body.response_format).toBeUndefined();
+    expect(body.response_format).toEqual({ type: "json_object" });
     expect(body.provider.data_collection).toBe("deny");
     expect(body.messages[1].content).toContain("FULL POST BODY");
     expect(body.messages[1].content).toContain("The goal is not to be seen by everyone");
@@ -78,7 +78,7 @@ describe("post visual art direction", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const secondBody = JSON.parse(String((fetchMock.mock.calls[1] as [string, RequestInit])[1].body));
     expect(secondBody.model).toBe("google/gemma-4-26b-a4b-it:free");
-    expect(secondBody.response_format.json_schema.strict).toBe(true);
+    expect(secondBody.response_format).toEqual({ type: "json_object" });
     expect(secondBody.provider.data_collection).toBe("deny");
   });
 
