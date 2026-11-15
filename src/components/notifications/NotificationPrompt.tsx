@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bell } from "lucide-react";
+import { Bell, X } from "lucide-react";
 
 function decodeVapidKey(value: string): Uint8Array {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
@@ -161,10 +161,18 @@ export function NotificationPrompt() {
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-forest px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-forest/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70"
             >
               <Bell size={16} />
-              {busy ? "Connecting..." : permission === "denied" ? "Check again" : "Enable notifications"}
+              {busy ? "Connecting..." : "Enable notifications"}
             </button>
           )}
-
+          <button
+            type="button"
+            onClick={() => setVisible(false)}
+            aria-label="Dismiss notification reminder"
+            title="Dismiss for now"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-white text-ink-muted transition hover:border-ink-muted/40 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2"
+          >
+            <X size={18} />
+          </button>
         </div>
       </div>
     </section>
