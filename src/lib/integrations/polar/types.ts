@@ -27,7 +27,10 @@ export interface PolarSubscriptionData {
   id: string;
   status: PolarSubscriptionStatus;
   product_id: string;
-  price_id: string;
+  /** Older API/webhook integrations may expose a singular price_id. Current Polar
+   * Subscription objects expose prices[]; entitlement checks support both forms. */
+  price_id?: string | null;
+  prices?: Array<{ id: string; product_id?: string | null }>;
   customer_id: string;
   customer: PolarSubscriptionCustomer;
   current_period_start: string | null;
