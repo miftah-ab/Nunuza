@@ -6,7 +6,12 @@ import {
   type PostVisualBrief,
 } from "./post-visual-direction";
 
-const originalApiKey = process.env.OPENROUTER_API_KEY;
+const originalEnv = {
+  groqKey: process.env.GROQ_API_KEY,
+  openRouterKey: process.env.OPENROUTER_API_KEY,
+  groqModel: process.env.GROQ_DEFAULT_MODEL,
+  openRouterModel: process.env.OPENROUTER_DEFAULT_MODEL,
+};
 
 const post = {
   internal_title: "LinkedIn growth and professional visibility: Key lessons",
@@ -28,27 +33,94 @@ const validBrief: PostVisualBrief = {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  if (originalApiKey === undefined) delete process.env.OPENROUTER_API_KEY;
-  else process.env.OPENROUTER_API_KEY = originalApiKey;
+  for (const [key, value] of [
+    ["GROQ_API_KEY", originalEnv.groqKey],
+    ["OPENROUTER_API_KEY", originalEnv.openRouterKey],
+    ["GROQ_DEFAULT_MODEL", originalEnv.groqModel],
+    ["OPENROUTER_DEFAULT_MODEL", originalEnv.openRouterModel],
+  ] as const) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
 });
+
+function modelsResponse() {
+  return new Response(JSON.stringify({
+    data: [{ id: "openai/gpt-oss-120b" }, { id: "openai/gpt-oss-20b" }],
+  }), { status: 200, headers: { "Content-Type": "application/json" } });
+}
 
 function providerResponse(brief: PostVisualBrief) {
   return new Response(JSON.stringify({
-    model: "free-model",
+    model: "test-model",
     choices: [{ finish_reason: "stop", message: { content: JSON.stringify(brief) } }],
   }), { status: 200, headers: { "Content-Type": "application/json" } });
 }
 
 describe("post visual art direction", () => {
-  it("does not silently create a generic title-based brief when the free AI key is missing", async () => {
+  it("fails closed when neither privacy-safe AI provider is configured", async () => {
+    delete process.env.GROQ_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
 
     await expect(createPostVisualBrief(post)).rejects.toBeInstanceOf(VisualPlanningError);
   });
 
-  it("uses Gemma 4 31B first and returns a detailed art-direction brief", async () => {
+  it("uses Groq GPT-OSS first with strict JSON Schema and the full post", async () => {
+    process.env.GROQ_API_KEY = "test-groq-key";
     process.env.OPENROUTER_API_KEY = "test-openrouter-key";
-    const fetchMock = vi.fn().mockResolvedValue(providerResponse(validBrief));
+    process.env.GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(modelsResponse())
+      .mockResolvedValueOnce(providerResponse(validBrief));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const brief = await createPostVisualBrief(post);
+
+    expect(brief).toEqual(validBrief);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://api.groq.com/openai/v1/models");
+    expect(fetchMock.mock.calls[1][0]).toBe("https://api.groq.com/openai/v1/chat/completions");
+    const [, init] = fetchMock.mock.calls[1] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.model).toBe("openai/gpt-oss-120b");
+    expect(body.max_completion_tokens).toBe(2000);
+    expect(body.response_format.json_schema.strict).toBe(true);
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].content).toContain("FULL POST BODY");
+    expect(body.messages[0].content).toContain("The goal is not to be seen by everyone");
+    expect(body.provider).toBeUndefined();
+  });
+
+  it("falls back to paid Gemma 4 on OpenRouter without enabling free-model training", async () => {
+    process.env.GROQ_API_KEY = "test-groq-key";
+    process.env.OPENROUTER_API_KEY = "test-openrouter-key";
+    process.env.OPENROUTER_DEFAULT_MODEL = "openrouter/free";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(modelsResponse())
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
+      .mockResolvedValueOnce(providerResponse(validBrief));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const brief = await createPostVisualBrief(post);
+
+    expect(brief).toEqual(validBrief);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[2][0]).toBe("https://openrouter.ai/api/v1/chat/completions");
+    const [, init] = fetchMock.mock.calls[2] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.model).toBe("google/gemma-4-31b-it");
+    expect(body.model).not.toMatch(/:free$/);
+    expect(body.provider.data_collection).toBe("deny");
+    expect(body.provider.require_parameters).toBe(true);
+    expect(body.response_format).toEqual({ type: "json_object" });
+    expect(body.messages[1].content).toContain("FULL POST BODY");
+  });
+
+  it("uses paid OpenRouter when Groq is not configured", async () => {
+    delete process.env.GROQ_API_KEY;
+    process.env.OPENROUTER_API_KEY = "test-openrouter-key";
+    process.env.OPENROUTER_DEFAULT_MODEL = "openrouter/free";
+    const fetchMock = vi.fn().mockResolvedValueOnce(providerResponse(validBrief));
     vi.stubGlobal("fetch", fetchMock);
 
     const brief = await createPostVisualBrief(post);
@@ -57,55 +129,18 @@ describe("post visual art direction", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(init.body));
-    expect(body.model).toBe("google/gemma-4-31b-it:free");
-    expect(body.max_tokens).toBe(1600);
-    expect(body.response_format).toEqual({ type: "json_object" });
+    expect(body.model).toBe("google/gemma-4-31b-it");
     expect(body.provider.data_collection).toBe("deny");
-    expect(body.messages[1].content).toContain("FULL POST BODY");
-    expect(body.messages[1].content).toContain("The goal is not to be seen by everyone");
   });
 
-  it("falls back to Gemma 4 26B when the primary free model is unavailable", async () => {
+  it("fails instead of generating from a generic fallback when all configured providers fail", async () => {
+    process.env.GROQ_API_KEY = "test-groq-key";
     process.env.OPENROUTER_API_KEY = "test-openrouter-key";
     const fetchMock = vi.fn()
+      .mockResolvedValueOnce(modelsResponse())
       .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
-      .mockResolvedValueOnce(providerResponse(validBrief));
+      .mockResolvedValueOnce(new Response("temporarily unavailable", { status: 503 }));
     vi.stubGlobal("fetch", fetchMock);
-
-    const brief = await createPostVisualBrief(post);
-
-    expect(brief).toEqual(validBrief);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const secondBody = JSON.parse(String((fetchMock.mock.calls[1] as [string, RequestInit])[1].body));
-    expect(secondBody.model).toBe("google/gemma-4-26b-a4b-it:free");
-    expect(secondBody.response_format).toEqual({ type: "json_object" });
-    expect(secondBody.provider.data_collection).toBe("deny");
-  });
-
-  it("uses the third free model when both primary routes are unavailable", async () => {
-    process.env.OPENROUTER_API_KEY = "test-openrouter-key";
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
-      .mockResolvedValueOnce(new Response("temporarily unavailable", { status: 503 }))
-      .mockResolvedValueOnce(providerResponse(validBrief));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const brief = await createPostVisualBrief(post);
-
-    expect(brief).toEqual(validBrief);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    const thirdBody = JSON.parse(String((fetchMock.mock.calls[2] as [string, RequestInit])[1].body));
-    expect(thirdBody.model).toBe("baidu/ernie-5.5-flash-preview:free");
-    expect(thirdBody.response_format.json_schema.strict).toBe(true);
-    expect(thirdBody.provider.data_collection).toBe("deny");
-  });
-
-  it("fails instead of generating from a generic fallback when all free planners fail", async () => {
-    process.env.OPENROUTER_API_KEY = "test-openrouter-key";
-    vi.stubGlobal("fetch", vi.fn()
-      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
-      .mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
-      .mockResolvedValueOnce(new Response("unavailable", { status: 503 })));
 
     await expect(createPostVisualBrief(post)).rejects.toThrow(
       "It won’t generate a guess based on the title."
