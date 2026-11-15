@@ -81,7 +81,7 @@ export async function generateCloudflareImage(
         method: "POST",
         headers: { Authorization: `Bearer ${apiToken}` },
         body: form,
-        signal: AbortSignal.timeout(55_000),
+        signal: AbortSignal.timeout(28_000),
       }
     );
   } catch (error) {
