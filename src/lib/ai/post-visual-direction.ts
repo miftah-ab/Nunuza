@@ -1,3 +1,6 @@
+import { GroqProvider } from "./groq";
+import { resolveOpenRouterModel } from "./openrouter";
+
 /**
  * Agentic post-to-visual art direction.
  *
@@ -34,23 +37,48 @@ export class VisualPlanningError extends Error {
 }
 
 const MAX_FIELD_LENGTH = 300;
-// These free routes were checked against OpenRouter's current model cards.
-// Gemma supports JSON-object mode; ERNIE supports JSON Schema response_format.
-// Keep provider data collection denied so drafts are not routed to providers
-// that declare user-data collection.
-interface FreeModelConfig {
+interface VisualModelConfig {
+  provider: "groq" | "openrouter";
   id: string;
   outputFormat: "json_object" | "json_schema";
   timeoutMs: number;
 }
 
-// General instruction/reasoning models are used instead of coding-specialized
-// models. Per-model deadlines keep the full analysis under the route's 60s cap.
-const FREE_MODELS: FreeModelConfig[] = [
-  { id: "google/gemma-4-31b-it:free", outputFormat: "json_object", timeoutMs: 18_000 },
-  { id: "google/gemma-4-26b-a4b-it:free", outputFormat: "json_object", timeoutMs: 15_000 },
-  { id: "baidu/ernie-5.5-flash-preview:free", outputFormat: "json_schema", timeoutMs: 18_000 },
-];
+const VISUAL_MODEL_TIMEOUT_MS = 15_000;
+
+async function getVisualDirectionModels(): Promise<{
+  models: VisualModelConfig[];
+  failures: string[];
+}> {
+  const models: VisualModelConfig[] = [];
+  const failures: string[] = [];
+
+  if (process.env.GROQ_API_KEY?.trim()) {
+    try {
+      const groq = new GroqProvider();
+      const id = await groq.resolveModel();
+      models.push({
+        provider: "groq",
+        id,
+        outputFormat: "json_schema",
+        timeoutMs: VISUAL_MODEL_TIMEOUT_MS,
+      });
+    } catch (error) {
+      failures.push(`groq/model-discovery: ${error instanceof Error ? error.message.slice(0, 200) : "unavailable"}`);
+    }
+  }
+
+  if (process.env.OPENROUTER_API_KEY?.trim()) {
+    models.push({
+      provider: "openrouter",
+      id: resolveOpenRouterModel(process.env.OPENROUTER_DEFAULT_MODEL),
+      outputFormat: "json_object",
+      timeoutMs: VISUAL_MODEL_TIMEOUT_MS,
+    });
+  }
+
+  return { models, failures };
+}
 
 function cleanText(value: unknown, fallback = ""): string {
   if (typeof value !== "string") return fallback;
@@ -109,10 +137,15 @@ function parseBrief(raw: string): PostVisualBrief {
 }
 
 async function requestBrief(
-  apiKey: string,
   post: PostForVisualAnalysis,
-  model: FreeModelConfig
+  model: VisualModelConfig
 ): Promise<PostVisualBrief> {
+  const isGroq = model.provider === "groq";
+  const apiKey = isGroq
+    ? process.env.GROQ_API_KEY?.trim()
+    : process.env.OPENROUTER_API_KEY?.trim();
+  if (!apiKey) throw new Error(`${model.provider} API key is not configured.`);
+
   const system = [
     "You are an award-winning editorial art director and visual storyteller for a premium business magazine.",
     "Your job is to DIRECT an image, not summarize a topic and not rewrite a generic image prompt.",
@@ -151,22 +184,36 @@ async function requestBrief(
     avoid: { type: "array", items: { type: "string" }, maxItems: 6 },
   };
 
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const endpoint = isGroq
+    ? "https://api.groq.com/openai/v1/chat/completions"
+    : "https://openrouter.ai/api/v1/chat/completions";
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+  };
+  if (!isGroq) {
+    headers["HTTP-Referer"] = process.env.NEXT_PUBLIC_APP_URL ?? "https://nunuza.com";
+    headers["X-Title"] = "Nunuza LinkedIn Assistant";
+  }
+
+  const messages = isGroq
+    ? [{ role: "user", content: `${system}\n\n${user}` }]
+    : [{ role: "system", content: system }, { role: "user", content: user }];
+
+  const response = await fetch(endpoint, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-      "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL ?? "https://nunuza.com",
-      "X-Title": "Nunuza LinkedIn Assistant",
-    },
+    headers,
     body: JSON.stringify({
       model: model.id,
-      messages: [{ role: "system", content: system }, { role: "user", content: user }],
-      temperature: 0.25,
-      provider: {
-        require_parameters: true,
-        data_collection: "deny",
-      },
+      messages,
+      temperature: 0.5,
+      ...(isGroq ? { max_completion_tokens: 2000 } : { max_tokens: 1600 }),
+      ...(!isGroq ? {
+        provider: {
+          require_parameters: true,
+          data_collection: "deny",
+        },
+      } : {}),
       response_format: model.outputFormat === "json_schema"
         ? {
             type: "json_schema",
@@ -182,7 +229,6 @@ async function requestBrief(
             },
           }
         : { type: "json_object" },
-      max_tokens: 1600,
     }),
     signal: AbortSignal.timeout(model.timeoutMs),
   });
@@ -238,26 +284,29 @@ export async function createPostVisualBrief(post: PostForVisualAnalysis): Promis
     throw new VisualPlanningError("Add the full post text before analyzing its image direction.", []);
   }
 
-  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
-  if (!apiKey) {
+  const { models, failures } = await getVisualDirectionModels();
+  if (!models.length) {
     throw new VisualPlanningError(
-      "Nunuza couldn’t analyze this post with its free AI planner. Image generation is paused rather than creating an unrelated image.",
-      ["OPENROUTER_API_KEY is not configured"]
+      "Nunuza couldn’t analyze this post because no privacy-safe AI provider is configured.",
+      failures.length ? failures : ["Configure GROQ_API_KEY or OPENROUTER_API_KEY."]
     );
   }
 
-  const failures: string[] = [];
-  for (const model of FREE_MODELS) {
+  for (const model of models) {
     try {
-      return await requestBrief(apiKey, post, model);
+      return await requestBrief(post, model);
     } catch (error) {
       const reason = error instanceof Error ? error.message.slice(0, 300) : "Unknown provider error";
-      failures.push(`${model.id}: ${reason}`);
-      console.warn("[image-generation] Free art director attempt failed.", { model: model.id, reason });
+      failures.push(`${model.provider}/${model.id}: ${reason}`);
+      console.warn("[image-generation] Art director attempt failed.", {
+        provider: model.provider,
+        model: model.id,
+        reason,
+      });
     }
   }
 
-  console.error("[image-generation] All free art-direction models failed.", failures);
+  console.error("[image-generation] All privacy-safe art-direction models failed.", failures);
   throw new VisualPlanningError(
     "Nunuza couldn’t understand this post well enough to direct a relevant image. Please try Re-analyze in a moment. It won’t generate a guess based on the title.",
     failures
