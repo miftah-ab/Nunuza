@@ -443,3 +443,11 @@ export class PolarService {
     };
   }
 }
+
+
+// Reuse one server-side Polar service instance across billing and worker gates.
+let polarServiceInstance: PolarService | null = null;
+export function getPolarService(): PolarService {
+  if (!polarServiceInstance) polarServiceInstance = new PolarService();
+  return polarServiceInstance;
+}
