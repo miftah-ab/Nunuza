@@ -14,7 +14,12 @@ const job = (over: Partial<FailedJobRow> = {}): FailedJobRow => ({
 describe("failure alerts", () => {
   it("names the job, workspace and reason without customer content", () => {
     const text = buildFailureAlert(job(), "Miftah Mobile's Workspace");
+    expect(text).toContain("[NUNUZA ADMIN] Job FAILED");
+    expect(text).toContain("Daily cycle");
     expect(text).toContain("agent_cycle");
+    expect(text).toContain("Error code: TERMINAL_ERROR");
+    expect(text).toContain("Attempts used: 2 of 2");
+    expect(text).toContain("Failed at: 2026-11-15 00:03 UTC");
     expect(text).toContain("Miftah Mobile's Workspace");
     expect(text).toContain("Could not verify monthly draft usage.");
     expect(text).toContain("11111111");

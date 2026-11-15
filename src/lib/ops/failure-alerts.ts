@@ -19,15 +19,33 @@ export interface FailedJobRow {
   safe_error_message: string | null;
   last_error_code: string | null;
   finished_at: string | null;
+  attempt_count?: number | null;
+  max_attempts?: number | null;
+}
+
+const JOB_LABELS: Record<string, string> = {
+  agent_cycle: "Daily cycle (finds a story and drafts it)",
+  publish_post: "Publish to LinkedIn",
+  telegram_content_generation: "Draft from a Telegram message",
+};
+
+function formatUtc(value: string | null): string {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return "unknown time";
+  return date.toISOString().slice(0, 16).replace("T", " ") + " UTC";
 }
 
 export function buildFailureAlert(job: FailedJobRow, workspaceName: string): string {
   const reason = (job.safe_error_message || job.last_error_code || "No reason recorded").slice(0, 200);
+  const attempts = job.attempt_count && job.max_attempts ? `${job.attempt_count} of ${job.max_attempts}` : "unknown";
   return [
-    "Nunuza alert: a job failed",
-    `Job: ${job.job_type}`,
+    "\u{1F6A8} [NUNUZA ADMIN] Job FAILED",
+    `Job: ${JOB_LABELS[job.job_type] ?? job.job_type} (${job.job_type})`,
     `Workspace: ${workspaceName}`,
     `Reason: ${reason}`,
+    `Error code: ${job.last_error_code ?? "none"}`,
+    `Attempts used: ${attempts}`,
+    `Failed at: ${formatUtc(job.finished_at)}`,
     `Job id: ${job.id.slice(0, 8)}`,
   ].join("\n");
 }
@@ -65,7 +83,7 @@ export async function alertFailedJobs(supabaseOverride?: any): Promise<{ sent: n
 
   const { data: failed, error } = await supabase
     .from("agent_jobs")
-    .select("id, workspace_id, job_type, safe_error_message, last_error_code, finished_at")
+    .select("id, workspace_id, job_type, safe_error_message, last_error_code, finished_at, attempt_count, max_attempts")
     .eq("status", "failed_terminal")
     .gte("finished_at", since)
     .order("finished_at", { ascending: true })
