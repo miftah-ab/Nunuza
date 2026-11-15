@@ -300,14 +300,17 @@ export function buildCycleNotificationMessage(mode: "autopilot" | "approval_requ
     : "A new LinkedIn draft is ready for your review.\nOpen Nunuza or use /drafts in Telegram to review and approve it.";
 }
 
-async function fetchResearch(query: string): Promise<ResearchItem[]> {
+const RESEARCH_TIMEOUT_MS = 20_000;
+const RESEARCH_ATTEMPTS = 2;
+
+async function fetchResearchOnce(query: string): Promise<ResearchItem[]> {
   const url = new URL("https://news.google.com/rss/search");
   url.searchParams.set("q", query);
   url.searchParams.set("hl", "en-US");
   url.searchParams.set("gl", "US");
   url.searchParams.set("ceid", "US:en");
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 9000);
+  const timeout = setTimeout(() => controller.abort(), RESEARCH_TIMEOUT_MS);
   try {
     const response = await fetch(url.toString(), {
       headers: { Accept: "application/rss+xml, application/xml, text/xml" },
@@ -319,6 +322,24 @@ async function fetchResearch(query: string): Promise<ResearchItem[]> {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/** A slow or briefly failing news provider must not cost a customer their daily run. */
+export async function fetchResearch(
+  query: string,
+  fetchOnce: (query: string) => Promise<ResearchItem[]> = fetchResearchOnce,
+  pauseMs = 1500
+): Promise<ResearchItem[]> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= RESEARCH_ATTEMPTS; attempt += 1) {
+    try {
+      return await fetchOnce(query);
+    } catch (error) {
+      lastError = error;
+      if (attempt < RESEARCH_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, pauseMs));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Research provider unavailable");
 }
 
 async function recordAgentEvent(
@@ -605,7 +626,19 @@ export async function executeAutonomousCycle(
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
   }
 
-  const research = await fetchResearch(query);
+  let research: ResearchItem[];
+  try {
+    research = await fetchResearch(query);
+  } catch {
+    await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {
+      cycleDate,
+      decision: "research_unavailable",
+      reason: "news_provider_did_not_respond",
+      nextAction: "retry_shortly",
+      query,
+    });
+    return fail("Recent news could not be reached. Nunuza will try again shortly.");
+  }
   const learningSince = new Date(Date.now() - 90 * 86400000).toISOString();
   const [{ data: approvalEvents, error: approvalError }, { data: editVersions, error: editError }] =
     await Promise.all([
