@@ -53,6 +53,9 @@ vi.mock("@/lib/supabase/server", () => ({
   createServiceClient: vi.fn(),
 }));
 
+// Always in the future, so these tests do not start failing when a fixed date passes.
+const FUTURE_SCHEDULE_TIME = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
 describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
   const draftOnlyWorkspace: Workspace = {
     id: "ws-draft-only",
@@ -128,7 +131,7 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
       data: {
         success: true,
         job: { id: "job-scheduled-1", status: "queued" },
-        post: { ...sampleApprovedPost, status: "scheduled", scheduled_at: "2026-11-15T10:00:00.000Z" },
+        post: { ...sampleApprovedPost, status: "scheduled", scheduled_at: FUTURE_SCHEDULE_TIME },
       },
       error: null,
     });
@@ -137,13 +140,13 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
     vi.mocked(getPost).mockResolvedValue(sampleApprovedPost);
     vi.mocked(createServiceClient).mockReturnValue({ rpc } as any);
 
-    const result = await schedulePost("ws-beta", "post-101", "2026-11-15T10:00:00.000Z");
+    const result = await schedulePost("ws-beta", "post-101", FUTURE_SCHEDULE_TIME);
 
     expect(rpc).toHaveBeenCalledWith("schedule_post_atomic", {
       p_workspace_id: "ws-beta",
       p_post_id: "post-101",
       p_owner_user_id: "user-1",
-      p_scheduled_for: "2026-11-15T10:00:00.000Z",
+      p_scheduled_for: FUTURE_SCHEDULE_TIME,
     });
     expect(result.job.status).toBe("queued");
     expect(result.post.status).toBe("scheduled");
@@ -161,7 +164,7 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
     vi.mocked(getPost).mockResolvedValue(sampleApprovedPost);
     vi.mocked(createServiceClient).mockReturnValue({ rpc } as any);
 
-    await expect(schedulePost("ws-beta", "post-101", "2026-11-15T10:00:00.000Z"))
+    await expect(schedulePost("ws-beta", "post-101", FUTURE_SCHEDULE_TIME))
       .rejects.toThrow("daily LinkedIn scheduling limit");
   });
 
@@ -177,7 +180,7 @@ describe("Scheduling Foundation & Safety Gates (Mocked)", () => {
     vi.mocked(getPost).mockResolvedValue(sampleApprovedPost);
     vi.mocked(createServiceClient).mockReturnValue({ rpc } as any);
 
-    await expect(schedulePost("ws-beta", "post-101", "2026-11-15T10:00:00.000Z"))
+    await expect(schedulePost("ws-beta", "post-101", FUTURE_SCHEDULE_TIME))
       .rejects.toThrow("already running, completed, or requires reconciliation");
   });
 
