@@ -379,7 +379,7 @@ q -c "INSERT INTO workspaces(id,owner_user_id,entitlement_type) VALUES ('$CLAIM_
 q -c "INSERT INTO content_posts(id,workspace_id,status) VALUES ('$CLAIM_DRAFT_POST','$CLAIM_DRAFT_WS','approved')" >/dev/null
 [ "$(q -c "SELECT reason FROM claim_workspace_publish_slot('$CLAIM_DRAFT_WS','$CLAIM_DRAFT_POST')")" = "ENTITLEMENT_REQUIRED" ] || fail "worker must refuse a draft-only workspace"
 
-CLAIM_LOWER_WS="10000000-0000-0000-0000-000000000051"
+CLAIM_LOWER_WS="10000000-0000-0000-0000-000000000099"
 CLAIM_LOWER_OWNER="70000000-0000-0000-0000-000000000051"
 CLAIM_LOWER_POST="30000000-0000-0000-0000-000000000051"
 q -c "INSERT INTO workspaces(id,owner_user_id,max_posts_per_day,max_posts_per_7_days) VALUES ('$CLAIM_LOWER_WS','$CLAIM_LOWER_OWNER',0,0)" >/dev/null
@@ -526,7 +526,7 @@ PAID_POST_B=$(q -c "SELECT id FROM create_draft_with_usage('$PAID_RES_B','$QUOTA
 echo "ok: paid billing-period keys remain distinct even when their UTC start date matches"
 
 # Concurrent image generation must never exceed the five-per-hour workspace cap.
-IMAGE_WS="10000000-0000-0000-0000-000000000051"
+IMAGE_WS="10000000-0000-0000-0000-000000000099"
 q -c "INSERT INTO workspaces(id) VALUES ('$IMAGE_WS')" >/dev/null
 for n in $(seq 1 12); do
   (
