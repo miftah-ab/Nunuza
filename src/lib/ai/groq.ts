@@ -104,9 +104,17 @@ export class GroqProvider implements AiProvider {
 
     // Discovery may be temporarily unavailable. Fall back only to a currently
     // supported production model, never to a stale environment override.
-    this.selectedModel = CANDIDATE_MODELS.includes(this.configuredModel as (typeof CANDIDATE_MODELS)[number])
-      ? this.configuredModel
-      : CANDIDATE_MODELS[0];
+    const fallbackModel = [
+      this.configuredModel,
+      ...CANDIDATE_MODELS,
+    ].find((candidate) =>
+      candidate !== excludeModel &&
+      CANDIDATE_MODELS.includes(candidate as (typeof CANDIDATE_MODELS)[number])
+    );
+    if (!fallbackModel) {
+      throw new Error("No alternative supported Groq text model is available.");
+    }
+    this.selectedModel = fallbackModel;
     this.lastDiscoveryAt = now;
     return this.selectedModel;
   }
