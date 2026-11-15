@@ -206,7 +206,7 @@ export class PolarService {
 
       const { data: currentSub, error: currentSubError } = await supabase
         .from("subscriptions")
-        .select("id, workspace_id, provider_modified_at")
+        .select("id, workspace_id, provider_modified_at, entitlement_snapshot")
         .eq("polar_subscription_id", subData.id)
         .maybeSingle();
       if (currentSubError) throw new Error("Could not verify the existing subscription mapping.");
@@ -226,6 +226,17 @@ export class PolarService {
         Number.isFinite(currentModifiedMs) &&
         incomingModifiedMs <= currentModifiedMs
       ) {
+        // Repair a prior partial webhook attempt: if the subscription snapshot
+        // was persisted but the workspace entitlement write failed, replaying
+        // an older/equal event must reconcile from the latest stored snapshot.
+        const latestEntitlement = currentSub.entitlement_snapshot as EntitlementType | null;
+        if (latestEntitlement && latestEntitlement !== workspace.entitlement_type) {
+          const { error: reconcileError } = await supabase
+            .from("workspaces")
+            .update({ entitlement_type: latestEntitlement })
+            .eq("id", workspaceId);
+          if (reconcileError) throw new Error("Workspace entitlement reconciliation failed.");
+        }
         await this.markWebhookEvent(supabase, eventId, "duplicate", "OUT_OF_ORDER_SKIPPED");
         return { status: "skipped", reason: "Older or duplicate provider subscription version skipped." };
       }
@@ -264,16 +275,19 @@ export class PolarService {
         provider_modified_at: providerModifiedAt,
       };
 
-      const { error: subscriptionError } = await supabase
-        .from("subscriptions")
-        .upsert(subscriptionRecord, { onConflict: "polar_subscription_id" });
-      if (subscriptionError) throw new Error("Could not persist the Polar subscription.");
-
+      // Apply the entitlement first. If subscription persistence fails, a
+      // webhook retry can safely repeat this write; the reverse order could
+      // leave a newer subscription snapshot with a stale workspace entitlement.
       const { error: workspaceUpdateError } = await supabase
         .from("workspaces")
         .update({ entitlement_type: newEntitlement })
         .eq("id", workspaceId);
       if (workspaceUpdateError) throw new Error("Could not update workspace entitlement.");
+
+      const { error: subscriptionError } = await supabase
+        .from("subscriptions")
+        .upsert(subscriptionRecord, { onConflict: "polar_subscription_id" });
+      if (subscriptionError) throw new Error("Could not persist the Polar subscription.");
 
       await this.markWebhookEvent(supabase, eventId, "processed");
       return { status: "processed" };
@@ -344,6 +358,19 @@ export class PolarService {
     const liveSubscription = await this.polarClient.getSubscription(
       subscription.polar_subscription_id
     ) as PolarSubscriptionData;
+
+    const { data: billingCustomer, error: billingCustomerError } = await supabase
+      .from("billing_customers")
+      .select("polar_customer_id")
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+    if (
+      billingCustomerError ||
+      !billingCustomer ||
+      liveSubscription?.customer_id !== billingCustomer.polar_customer_id
+    ) {
+      throw new Error("The provider subscription customer does not match this workspace.");
+    }
 
     if (
       liveSubscription?.id !== subscription.polar_subscription_id ||
