@@ -526,7 +526,7 @@ PAID_POST_B=$(q -c "SELECT id FROM create_draft_with_usage('$PAID_RES_B','$QUOTA
 echo "ok: paid billing-period keys remain distinct even when their UTC start date matches"
 
 # Concurrent image generation must never exceed the five-per-hour workspace cap.
-IMAGE_WS="10000000-0000-0000-0000-000000000099"
+IMAGE_WS=$(q -c "SELECT gen_random_uuid()")
 q -c "INSERT INTO workspaces(id) VALUES ('$IMAGE_WS')" >/dev/null
 for n in $(seq 1 12); do
   (
