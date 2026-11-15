@@ -24,7 +24,7 @@ import { publishPostToLinkedIn, publishMediaPostToLinkedIn, LinkedInPublishError
 import { transitionJob, markJobRetryable, markJobTerminal } from "./state";
 import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
 import { getPolarService } from "@/lib/integrations/polar/service";
-import type { AgentJob, ContentPost } from "@/types/database";
+import type { AgentJob, ContentPost, EntitlementType } from "@/types/database";
 import type { JobExecutionResult, PublishPostPayload } from "./types";
 import { safeJobErrorMessage } from "./error-message";
 
@@ -35,11 +35,13 @@ export interface SchedulePostResult {
 
 async function verifyPaidWorkspaceEntitlement(workspace: {
   id: string;
-  entitlement_type: string;
-}, supabase?: any): Promise<string> {
+  entitlement_type: EntitlementType;
+  access_mode?: string | null;
+}, supabase?: any): Promise<EntitlementType> {
   // Private beta is provisioned by Nunuza, not Polar. Non-paid tiers are
   // already restricted and must not call the provider. Only paid states need
   // a fresh provider check before granting paid operations.
+  if (workspace.access_mode === "private_beta") return "internal_beta";
   if (workspace.entitlement_type !== "paid_active" && workspace.entitlement_type !== "paid_trial") {
     return workspace.entitlement_type;
   }
