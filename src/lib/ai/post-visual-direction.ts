@@ -34,22 +34,22 @@ export class VisualPlanningError extends Error {
 }
 
 const MAX_FIELD_LENGTH = 300;
-// These free routes were selected for current availability and structured-output support.
-// Cohere does not accept response_format, so its JSON response is validated locally.
-// Keep provider data collection disabled: user drafts must not be sent to training providers.
+// These free routes were checked against OpenRouter's current model cards.
+// Gemma supports JSON-object mode; ERNIE supports JSON Schema response_format.
+// Keep provider data collection denied so drafts are not routed to providers
+// that declare user-data collection.
 interface FreeModelConfig {
   id: string;
-  structuredOutput: boolean;
+  outputFormat: "json_object" | "json_schema";
   timeoutMs: number;
 }
 
-// Verified free OpenRouter routes with general instruction capability. The old
-// fallback list included code-specialized models that frequently produced
-// incomplete art direction for editorial-image tasks.
+// General instruction/reasoning models are used instead of coding-specialized
+// models. Per-model deadlines keep the full analysis under the route's 60s cap.
 const FREE_MODELS: FreeModelConfig[] = [
-  { id: "google/gemma-4-31b-it:free", structuredOutput: false, timeoutMs: 10_000 },
-  { id: "google/gemma-4-26b-a4b-it:free", structuredOutput: true, timeoutMs: 10_000 },
-  { id: "baidu/ernie-5.5-flash-preview:free", structuredOutput: true, timeoutMs: 6_000 },
+  { id: "google/gemma-4-31b-it:free", outputFormat: "json_object", timeoutMs: 18_000 },
+  { id: "google/gemma-4-26b-a4b-it:free", outputFormat: "json_object", timeoutMs: 15_000 },
+  { id: "baidu/ernie-5.5-flash-preview:free", outputFormat: "json_schema", timeoutMs: 18_000 },
 ];
 
 function cleanText(value: unknown, fallback = ""): string {
@@ -164,11 +164,11 @@ async function requestBrief(
       messages: [{ role: "system", content: system }, { role: "user", content: user }],
       temperature: 0.25,
       provider: {
-        require_parameters: model.structuredOutput,
+        require_parameters: true,
         data_collection: "deny",
       },
-      ...(model.structuredOutput ? {
-        response_format: {
+      response_format: model.outputFormat === "json_schema"
+        ? {
             type: "json_schema",
             json_schema: {
               name: "editorial_art_direction",
@@ -180,8 +180,8 @@ async function requestBrief(
                 additionalProperties: false,
               },
             },
-          },
-      } : {}),
+          }
+        : { type: "json_object" },
       max_tokens: 1600,
     }),
     signal: AbortSignal.timeout(model.timeoutMs),
