@@ -5,9 +5,9 @@ set -euo pipefail
 
 MIGRATION="supabase/migrations/0010_worker_safety_reservations.sql"
 LIMIT_MIGRATION="supabase/migrations/20261114082730_configurable_publishing_limits.sql"
-CANCEL_MIGRATION="supabase/migrations/20261114170000_atomic_scheduled_post_cancel.sql"
-SCHEDULE_MIGRATION="supabase/migrations/20261114200000_atomic_scheduling_and_product_caps.sql"
-DRAFT_USAGE_MIGRATION="supabase/migrations/20261114190000_atomic_draft_usage.sql"
+CANCEL_MIGRATION="supabase/migrations/20261115054533_atomic_scheduled_post_cancel.sql"
+SCHEDULE_MIGRATION="supabase/migrations/20261115054544_atomic_scheduling_and_product_caps.sql"
+DRAFT_USAGE_MIGRATION="supabase/migrations/20261115054539_atomic_draft_usage.sql"
 OUT="$(mktemp -d)"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 q() { psql -v ON_ERROR_STOP=1 -At "$@"; }
