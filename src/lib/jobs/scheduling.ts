@@ -33,6 +33,19 @@ export interface SchedulePostResult {
   post: ContentPost;
 }
 
+async function verifyPaidWorkspaceEntitlement(workspace: {
+  id: string;
+  entitlement_type: string;
+}, supabase?: any): Promise<string> {
+  // Private beta is provisioned by Nunuza, not Polar. Non-paid tiers are
+  // already restricted and must not call the provider. Only paid states need
+  // a fresh provider check before granting paid operations.
+  if (workspace.entitlement_type !== "paid_active" && workspace.entitlement_type !== "paid_trial") {
+    return workspace.entitlement_type;
+  }
+  return getPolarService().getVerifiedWorkspaceEntitlement(workspace.id, supabase);
+}
+
 /**
  * Schedules an approved post for durable publication.
  * Enforces:
@@ -53,7 +66,7 @@ export async function schedulePost(
     throw new ForbiddenError("You do not have access to this workspace.");
   }
 
-  workspace.entitlement_type = await getPolarService().getVerifiedWorkspaceEntitlement(workspace.id);
+  workspace.entitlement_type = await verifyPaidWorkspaceEntitlement(workspace);
 
   // 1. Strict entitlement gate (draft_only cannot schedule, BED-02)
   if (!canSchedule(workspace)) {
@@ -435,10 +448,7 @@ export async function executePublishJob(
   }
 
   try {
-    workspace.entitlement_type = await getPolarService().getVerifiedWorkspaceEntitlement(
-      workspace.id,
-      supabase
-    );
+    workspace.entitlement_type = await verifyPaidWorkspaceEntitlement(workspace, supabase);
   } catch (error) {
     console.error("[publisher] Polar entitlement verification failed:", error);
     await retryOutcome("Billing status could not be verified.", "BILLING_VERIFICATION_UNAVAILABLE");
@@ -788,7 +798,7 @@ export async function publishPostNow(
     throw new ForbiddenError("You do not have access to this workspace.");
   }
 
-  workspace.entitlement_type = await getPolarService().getVerifiedWorkspaceEntitlement(workspace.id);
+  workspace.entitlement_type = await verifyPaidWorkspaceEntitlement(workspace);
 
   // 1. Strict entitlement gate (draft_only cannot publish, BED-02)
   if (!canPublish(workspace)) {
