@@ -29,18 +29,44 @@ export class PolarClient {
     this.productId = config?.productId ?? process.env.POLAR_PRODUCT_ID ?? "";
     this.priceId = config?.priceId ?? process.env.POLAR_PRICE_ID;
 
-    const envServer = process.env.POLAR_SERVER?.toLowerCase();
-    if (envServer === "sandbox") {
-      this.server = "sandbox";
-    } else {
-      this.server = "production";
-    }
+    const configuredServer = config?.server?.toLowerCase() ?? process.env.POLAR_SERVER?.toLowerCase();
+    this.server = configuredServer === "sandbox" ? "sandbox" : "production";
   }
 
   getApiBaseUrl(): string {
     return this.server === "production"
       ? "https://api.polar.sh/v1"
       : "https://sandbox-api.polar.sh/v1";
+  }
+
+  getExpectedProductId(): string {
+    return this.productId;
+  }
+
+  getExpectedPriceId(): string | undefined {
+    return this.priceId;
+  }
+
+  getMatchingPriceId(
+    productId: string | null | undefined,
+    prices?: Array<{ id: string; product_id?: string | null }> | null,
+    legacyPriceId?: string | null
+  ): string | null {
+    if (!this.isConfigured() || productId !== this.productId || !this.priceId) return null;
+    if (legacyPriceId === this.priceId) return this.priceId;
+    const hasConfiguredPrice = prices?.some(
+      (price) => price.id === this.priceId && (!price.product_id || price.product_id === this.productId)
+    );
+    return hasConfiguredPrice ? this.priceId : null;
+  }
+
+  matchesConfiguredOffer(
+    productId: string | null | undefined,
+    price: string | Array<{ id: string; product_id?: string | null }> | null | undefined
+  ): boolean {
+    return typeof price === "string"
+      ? this.getMatchingPriceId(productId, null, price) !== null
+      : this.getMatchingPriceId(productId, price ?? null) !== null;
   }
 
   /**
@@ -52,7 +78,11 @@ export class PolarClient {
       this.accessToken.trim().length > 0 &&
       !this.accessToken.includes("your-polar") &&
       this.productId &&
-      !this.productId.includes("your-polar")
+      !this.productId.includes("your-polar") &&
+      this.priceId &&
+      this.priceId.trim().length > 0 &&
+      !this.priceId.includes("placeholder") &&
+      !this.priceId.includes("your-polar")
     );
   }
 
@@ -62,7 +92,7 @@ export class PolarClient {
    */
   isSellerEligible(): boolean {
     // Check explicit seller readiness flag; defaults to false in development/pre-release
-    return process.env.POLAR_SELLER_ELIGIBLE === "true";
+    return this.server === "sandbox" || process.env.POLAR_SELLER_ELIGIBLE === "true";
   }
 
   /**
@@ -86,12 +116,17 @@ export class PolarClient {
 
     const payload: any = {
       product_id: this.productId,
-      customer_email: options.userEmail,
       metadata: {
         workspace_id: options.workspaceId,
       },
       success_url: options.successUrl,
     };
+
+    if (options.customerId) {
+      payload.customer_id = options.customerId;
+    } else {
+      payload.customer_email = options.userEmail;
+    }
 
     if (this.priceId && !this.priceId.includes("placeholder")) {
       payload.product_price_id = this.priceId;
@@ -104,6 +139,7 @@ export class PolarClient {
         Authorization: `Bearer ${this.accessToken}`,
       },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10_000),
     });
 
     if (!response.ok) {
@@ -136,6 +172,7 @@ export class PolarClient {
         headers: {
           Authorization: `Bearer ${this.accessToken}`,
         },
+        signal: AbortSignal.timeout(8_000),
       }
     );
 

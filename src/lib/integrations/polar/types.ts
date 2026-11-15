@@ -14,7 +14,8 @@ export type PolarSubscriptionStatus =
   | "active"
   | "past_due"
   | "canceled"
-  | "unpaid";
+  | "unpaid"
+  | "revoked";
 
 export interface PolarSubscriptionCustomer {
   id: string;
@@ -26,7 +27,10 @@ export interface PolarSubscriptionData {
   id: string;
   status: PolarSubscriptionStatus;
   product_id: string;
-  price_id: string;
+  /** Older API/webhook integrations may expose a singular price_id. Current Polar
+   * Subscription objects expose prices[]; entitlement checks support both forms. */
+  price_id?: string | null;
+  prices?: Array<{ id: string; product_id?: string | null }>;
   customer_id: string;
   customer: PolarSubscriptionCustomer;
   current_period_start: string | null;
@@ -37,7 +41,8 @@ export interface PolarSubscriptionData {
   canceled_at: string | null;
   ended_at: string | null;
   created_at: string;
-  updated_at: string;
+  modified_at?: string | null;
+  updated_at?: string | null;
   metadata?: Record<string, string>;
 }
 
@@ -45,7 +50,9 @@ export type PolarWebhookEventType =
   | "subscription.created"
   | "subscription.updated"
   | "subscription.active"
+  | "subscription.past_due"
   | "subscription.canceled"
+  | "subscription.uncanceled"
   | "subscription.revoked"
   | "checkout.created"
   | "checkout.updated";
@@ -60,6 +67,7 @@ export interface PolarWebhookEvent {
 export interface CheckoutSessionOptions {
   workspaceId: string;
   userEmail: string;
+  customerId?: string | null;
   successUrl: string;
 }
 

@@ -168,31 +168,32 @@ describe("Autopilot Safety & Opt-in Invariants (§6)", () => {
 describe("Polar Subscription & Lifecycle State Transitions", () => {
   const polarService = new PolarService();
 
-  it("maps trialing to paid_trial", () => {
-    expect(polarService.mapPolarStatusToEntitlement("trialing", null, false)).toBe("paid_trial");
-  });
-
-  it("maps active to paid_active", () => {
-    expect(polarService.mapPolarStatusToEntitlement("active", null, false)).toBe("paid_active");
-  });
-
-  it("maps past_due to paid_active (grace period)", () => {
-    expect(polarService.mapPolarStatusToEntitlement("past_due", null, false)).toBe("paid_active");
-  });
-
-  it("maps canceled without cancelAtPeriodEnd to expired", () => {
-    expect(polarService.mapPolarStatusToEntitlement("canceled", null, false)).toBe("expired");
-  });
-
-  it("maps canceled with cancelAtPeriodEnd and future date to paid_active", () => {
+  it("grants trial access only while Polar's trial_end is in the future", () => {
     const futureDate = new Date(Date.now() + 86400000).toISOString();
+    expect(polarService.mapPolarStatusToEntitlement("trialing", null, false, futureDate)).toBe("paid_trial");
+    expect(polarService.mapPolarStatusToEntitlement("trialing", null, false, null)).toBe("inactive");
+  });
+
+  it("grants paid access only while the active billing period is in the future", () => {
+    const futureDate = new Date(Date.now() + 86400000).toISOString();
+    expect(polarService.mapPolarStatusToEntitlement("active", futureDate, false)).toBe("paid_active");
+    expect(polarService.mapPolarStatusToEntitlement("active", null, false)).toBe("inactive");
+  });
+
+  it("restricts past_due subscriptions while Polar is recovering payment", () => {
+    expect(polarService.mapPolarStatusToEntitlement("past_due", null, false)).toBe("draft_only");
+  });
+
+  it("revokes canceled subscriptions unless cancellation is scheduled for period end", () => {
+    const futureDate = new Date(Date.now() + 86400000).toISOString();
+    expect(polarService.mapPolarStatusToEntitlement("canceled", null, false)).toBe("inactive");
     expect(polarService.mapPolarStatusToEntitlement("canceled", futureDate, true)).toBe("paid_active");
   });
 
-  it("maps unpaid and revoked to suspended", () => {
-    expect(polarService.mapPolarStatusToEntitlement("unpaid", null, false)).toBe("suspended");
-    expect(polarService.mapPolarStatusToEntitlement("revoked", null, false)).toBe("suspended");
-    expect(polarService.mapPolarStatusToEntitlement("incomplete_expired", null, false)).toBe("suspended");
+  it("revokes unpaid, revoked, and expired incomplete subscriptions", () => {
+    expect(polarService.mapPolarStatusToEntitlement("unpaid", null, false)).toBe("inactive");
+    expect(polarService.mapPolarStatusToEntitlement("revoked", null, false)).toBe("inactive");
+    expect(polarService.mapPolarStatusToEntitlement("incomplete_expired", null, false)).toBe("inactive");
   });
 });
 

@@ -31,302 +31,397 @@ export class PolarService {
   mapPolarStatusToEntitlement(
     status: string,
     currentPeriodEnd: string | null,
-    cancelAtPeriodEnd: boolean
+    cancelAtPeriodEnd: boolean,
+    trialEnd: string | null = null
   ): EntitlementType {
-    const now = new Date();
+    const isFuture = (value: string | null) => {
+      if (!value) return false;
+      const timestamp = Date.parse(value);
+      return Number.isFinite(timestamp) && timestamp > Date.now();
+    };
 
     switch (status) {
       case "trialing":
-        return "paid_trial";
-
+        return isFuture(trialEnd) ? "paid_trial" : "inactive";
       case "active":
-        return "paid_active";
-
+        return isFuture(currentPeriodEnd) ? "paid_active" : "inactive";
+      // Polar's past_due state is recoverable, but benefits may already be
+      // revoked depending on the seller's configured grace-period policy.
+      // Keep drafts readable/editable, but do not grant paid operations until
+      // Polar confirms the subscription is active again.
       case "past_due":
-        // Grace period: retains paid entitlement during payment recovery
-        return "paid_active";
-
-      case "canceled": {
-        // If cancellation is scheduled for period end, retain access until then
-        if (cancelAtPeriodEnd && currentPeriodEnd && new Date(currentPeriodEnd) > now) {
-          return "paid_active";
-        }
-        return "expired";
-      }
-
+        return "draft_only";
+      case "canceled":
+        return cancelAtPeriodEnd && isFuture(currentPeriodEnd)
+          ? "paid_active"
+          : "inactive";
+      // Checkout is not complete yet; retain only the limited draft experience.
+      case "incomplete":
+        return "draft_only";
       case "incomplete_expired":
       case "unpaid":
       case "revoked":
-        return "suspended";
-
-      case "incomplete":
       default:
-        return "suspended";
+        return "inactive";
     }
   }
 
   /**
    * Process incoming Polar webhook event idempotently.
    */
+  private async markWebhookEvent(
+    supabase: any,
+    eventId: string,
+    status: "processed" | "failed" | "duplicate",
+    safeErrorCode?: string
+  ): Promise<void> {
+    const terminal = status === "processed" || status === "duplicate";
+    const { error } = await supabase
+      .from("billing_webhook_events")
+      .update({
+        processing_status: status,
+        processed_at: terminal ? new Date().toISOString() : null,
+        processing_started_at: null,
+        safe_error_code: safeErrorCode ?? null,
+      })
+      .eq("provider_event_id", eventId);
+    if (error) throw new Error(`Could not update billing webhook event: ${error.message}`);
+  }
+
   async processWebhookEvent(
     event: PolarWebhookEvent,
     supabaseOverride?: any
   ): Promise<{ status: "processed" | "duplicate" | "skipped" | "failed"; reason?: string }> {
     const supabase = supabaseOverride || createServiceClient();
     const eventId = event.id;
+    if (!eventId) return { status: "failed", reason: "Missing event ID." };
 
-    if (!eventId) {
-      return { status: "failed", reason: "Missing event ID." };
-    }
-
-    // 1. Idempotency Check in billing_webhook_events
-    const { data: existingEvent } = await supabase
-      .from("billing_webhook_events")
-      .select("provider_event_id, processing_status")
-      .eq("provider_event_id", eventId)
-      .maybeSingle();
-
-    if (existingEvent && existingEvent.processing_status === "processed") {
-      return { status: "duplicate", reason: "Event has already been processed." };
-    }
-
-    // Record pending event
-    await supabase.from("billing_webhook_events").upsert(
-      {
-        provider_event_id: eventId,
-        type: event.type,
-        received_at: new Date().toISOString(),
-        processing_status: "pending",
-      },
-      { onConflict: "provider_event_id" }
+    const { data: claimRows, error: claimError } = await supabase.rpc(
+      "claim_billing_webhook_event",
+      { p_provider_event_id: eventId, p_event_type: event.type }
     );
-
-    // 2. Filter for subscription-relevant events
-    if (
-      !event.type.startsWith("subscription.") &&
-      !event.type.startsWith("checkout.")
-    ) {
-      await supabase
-        .from("billing_webhook_events")
-        .update({ processing_status: "processed", processed_at: new Date().toISOString() })
-        .eq("provider_event_id", eventId);
-      return { status: "skipped", reason: "Non-subscription event ignored." };
+    if (claimError) {
+      return { status: "failed", reason: "Billing event could not be claimed safely." };
     }
 
-    const subData = event.data as PolarSubscriptionData;
-    if (!subData || !subData.id) {
-      await supabase
-        .from("billing_webhook_events")
-        .update({
-          processing_status: "failed",
-          safe_error_code: "INVALID_DATA",
-          processed_at: new Date().toISOString(),
-        })
-        .eq("provider_event_id", eventId);
-      return { status: "failed", reason: "Missing subscription data." };
-    }
-
-    // 3. Resolve Workspace ID
-    let workspaceId = subData.metadata?.workspace_id;
-
-    // Fallback 1: lookup by existing subscription ID
-    if (!workspaceId) {
-      const { data: existingSub } = await supabase
-        .from("subscriptions")
-        .select("workspace_id")
-        .eq("polar_subscription_id", subData.id)
-        .maybeSingle();
-
-      if (existingSub?.workspace_id) {
-        workspaceId = existingSub.workspace_id;
+    const claim = Array.isArray(claimRows) ? claimRows[0] : claimRows;
+    if (!claim?.claimed) {
+      if (claim?.reason === "ALREADY_PROCESSED") {
+        return { status: "duplicate", reason: "Event has already been processed." };
       }
+      if (claim?.reason === "IN_PROGRESS") {
+        // A retryable response asks Polar to redeliver after the active lease.
+        return { status: "failed", reason: "Event is already being processed; retry later." };
+      }
+      return { status: "failed", reason: "Billing event claim was not confirmed." };
     }
 
-    // Fallback 2: lookup by customer ID
-    if (!workspaceId && subData.customer_id) {
-      const { data: cust } = await supabase
+    try {
+      // Checkout events are not subscription snapshots and cannot change
+      // workspace entitlements.
+      if (!event.type.startsWith("subscription.")) {
+        await this.markWebhookEvent(supabase, eventId, "processed", "NON_SUBSCRIPTION_EVENT");
+        return { status: "skipped", reason: "Non-subscription event ignored." };
+      }
+
+      const subData = event.data as PolarSubscriptionData | null;
+      const configuredPriceId = this.polarClient.getMatchingPriceId(
+        subData?.product_id,
+        subData?.prices,
+        subData?.price_id
+      );
+      if (!subData?.id || !subData.customer_id || !subData.product_id || !configuredPriceId) {
+        await this.markWebhookEvent(supabase, eventId, "processed", "UNRELATED_OR_INVALID_OFFER");
+        return { status: "skipped", reason: "Subscription does not match the configured Nunuza offer." };
+      }
+
+      if (!this.polarClient.matchesConfiguredOffer(subData.product_id, configuredPriceId)) {
+        await this.markWebhookEvent(supabase, eventId, "processed", "UNRELATED_PRODUCT_OR_PRICE");
+        return { status: "skipped", reason: "Subscription does not match the configured Nunuza offer." };
+      }
+
+      let workspaceId: string | null = subData.metadata?.workspace_id ?? null;
+      if (!workspaceId) {
+        const { data: existingSub, error: existingSubError } = await supabase
+          .from("subscriptions")
+          .select("workspace_id")
+          .eq("polar_subscription_id", subData.id)
+          .maybeSingle();
+        if (existingSubError) throw new Error("Could not resolve the subscription workspace.");
+        workspaceId = existingSub?.workspace_id ?? null;
+      }
+
+      if (!workspaceId) {
+        const { data: customer, error: customerLookupError } = await supabase
+          .from("billing_customers")
+          .select("workspace_id")
+          .eq("polar_customer_id", subData.customer_id)
+          .maybeSingle();
+        if (customerLookupError) throw new Error("Could not resolve the billing customer workspace.");
+        workspaceId = customer?.workspace_id ?? null;
+      }
+
+      if (!workspaceId) {
+        await this.markWebhookEvent(supabase, eventId, "processed", "WORKSPACE_NOT_FOUND");
+        return { status: "skipped", reason: "No Nunuza workspace is linked to this subscription." };
+      }
+
+      const { data: workspace, error: workspaceError } = await supabase
+        .from("workspaces")
+        .select("id, entitlement_type, access_mode")
+        .eq("id", workspaceId)
+        .maybeSingle();
+      if (workspaceError) throw new Error("Could not verify the target workspace.");
+      if (!workspace) {
+        await this.markWebhookEvent(supabase, eventId, "processed", "WORKSPACE_NOT_FOUND");
+        return { status: "skipped", reason: "Target workspace no longer exists." };
+      }
+
+      if (workspace.access_mode === "private_beta" || workspace.entitlement_type === "internal_beta") {
+        await this.markWebhookEvent(supabase, eventId, "processed", "PRIVATE_BETA_ENTITLEMENT_PRESERVED");
+        return { status: "skipped", reason: "Private beta entitlement is managed separately." };
+      }
+
+      const { data: customerById, error: customerByIdError } = await supabase
         .from("billing_customers")
         .select("workspace_id")
         .eq("polar_customer_id", subData.customer_id)
         .maybeSingle();
-
-      if (cust?.workspace_id) {
-        workspaceId = cust.workspace_id;
+      if (customerByIdError) throw new Error("Could not verify the Polar customer mapping.");
+      if (customerById && customerById.workspace_id !== workspaceId) {
+        await this.markWebhookEvent(supabase, eventId, "failed", "CUSTOMER_WORKSPACE_MISMATCH");
+        return { status: "failed", reason: "Polar customer is already linked to another workspace." };
       }
-    }
 
-    if (!workspaceId) {
-      await supabase
-        .from("billing_webhook_events")
-        .update({
-          processing_status: "failed",
-          safe_error_code: "WORKSPACE_NOT_FOUND",
-          processed_at: new Date().toISOString(),
-        })
-        .eq("provider_event_id", eventId);
-      return { status: "failed", reason: "Target workspace could not be identified." };
-    }
-
-    // 4. Out-of-order Protection
-    const { data: currentSub } = await supabase
-      .from("subscriptions")
-      .select("id, updated_at, status")
-      .eq("polar_subscription_id", subData.id)
-      .maybeSingle();
-
-    if (currentSub?.updated_at && subData.updated_at) {
-      const existingDate = new Date(currentSub.updated_at).getTime();
-      const eventDate = new Date(subData.updated_at).getTime();
-
-      if (eventDate < existingDate) {
-        // Event is stale/out of order
-        await supabase
-          .from("billing_webhook_events")
-          .update({
-            processing_status: "processed",
-            safe_error_code: "OUT_OF_ORDER_SKIPPED",
-            processed_at: new Date().toISOString(),
-          })
-          .eq("provider_event_id", eventId);
-        return { status: "skipped", reason: "Out of order event skipped." };
+      const { data: customerByWorkspace, error: customerByWorkspaceError } = await supabase
+        .from("billing_customers")
+        .select("polar_customer_id")
+        .eq("workspace_id", workspaceId)
+        .maybeSingle();
+      if (customerByWorkspaceError) throw new Error("Could not verify the workspace billing mapping.");
+      if (customerByWorkspace && customerByWorkspace.polar_customer_id !== subData.customer_id) {
+        await this.markWebhookEvent(supabase, eventId, "failed", "WORKSPACE_CUSTOMER_MISMATCH");
+        return { status: "failed", reason: "Workspace is already linked to a different Polar customer." };
       }
-    }
 
-    // 5. Calculate new entitlement
-    const newEntitlement = this.mapPolarStatusToEntitlement(
-      subData.status,
-      subData.current_period_end,
-      subData.cancel_at_period_end
-    );
+      const { data: currentSub, error: currentSubError } = await supabase
+        .from("subscriptions")
+        .select("id, workspace_id, provider_modified_at, entitlement_snapshot")
+        .eq("polar_subscription_id", subData.id)
+        .maybeSingle();
+      if (currentSubError) throw new Error("Could not verify the existing subscription mapping.");
+      if (currentSub && currentSub.workspace_id !== workspaceId) {
+        await this.markWebhookEvent(supabase, eventId, "failed", "SUBSCRIPTION_WORKSPACE_MISMATCH");
+        return { status: "failed", reason: "Subscription is already linked to another workspace." };
+      }
 
-    // 6. Record Customer Link
-    if (subData.customer_id) {
-      await supabase.from("billing_customers").upsert(
-        {
-          workspace_id: workspaceId,
-          polar_customer_id: subData.customer_id,
-        },
-        { onConflict: "workspace_id" }
+      const providerModifiedAt =
+        subData.modified_at || subData.updated_at || event.created_at || new Date().toISOString();
+      const incomingModifiedMs = Date.parse(providerModifiedAt);
+      const currentModifiedMs = currentSub?.provider_modified_at
+        ? Date.parse(currentSub.provider_modified_at)
+        : Number.NaN;
+      if (
+        Number.isFinite(incomingModifiedMs) &&
+        Number.isFinite(currentModifiedMs) &&
+        incomingModifiedMs <= currentModifiedMs
+      ) {
+        // Repair a prior partial webhook attempt: if the subscription snapshot
+        // was persisted but the workspace entitlement write failed, replaying
+        // an older/equal event must reconcile from the latest stored snapshot.
+        const latestEntitlement = currentSub.entitlement_snapshot as EntitlementType | null;
+        if (latestEntitlement && latestEntitlement !== workspace.entitlement_type) {
+          const { error: reconcileError } = await supabase
+            .from("workspaces")
+            .update({ entitlement_type: latestEntitlement })
+            .eq("id", workspaceId);
+          if (reconcileError) throw new Error("Workspace entitlement reconciliation failed.");
+        }
+        await this.markWebhookEvent(supabase, eventId, "duplicate", "OUT_OF_ORDER_SKIPPED");
+        return { status: "skipped", reason: "Older or duplicate provider subscription version skipped." };
+      }
+
+      if (!customerByWorkspace) {
+        const { error: customerInsertError } = await supabase
+          .from("billing_customers")
+          .insert({
+            workspace_id: workspaceId,
+            polar_customer_id: subData.customer_id,
+          });
+        if (customerInsertError) throw new Error("Could not persist the Polar customer mapping.");
+      }
+
+      const newEntitlement = this.mapPolarStatusToEntitlement(
+        subData.status,
+        subData.current_period_end,
+        subData.cancel_at_period_end,
+        subData.trial_end
       );
-    }
+      const now = new Date().toISOString();
+      const subscriptionRecord: Partial<Subscription> = {
+        workspace_id: workspaceId,
+        polar_subscription_id: subData.id,
+        product_id: subData.product_id,
+        price_id: configuredPriceId,
+        status: subData.status,
+        trial_start: subData.trial_start,
+        trial_end: subData.trial_end,
+        current_period_start: subData.current_period_start,
+        current_period_end: subData.current_period_end,
+        cancel_at_period_end: subData.cancel_at_period_end,
+        entitlement_snapshot: newEntitlement,
+        updated_at: providerModifiedAt,
+        provider_verified_at: now,
+        provider_modified_at: providerModifiedAt,
+      };
 
-    // 7. Check if workspace is an authorized private beta tester
-    const { data: currentWs } = await supabase
+      // Apply the entitlement first. If subscription persistence fails, a
+      // webhook retry can safely repeat this write; the reverse order could
+      // leave a newer subscription snapshot with a stale workspace entitlement.
+      const { error: workspaceUpdateError } = await supabase
+        .from("workspaces")
+        .update({ entitlement_type: newEntitlement })
+        .eq("id", workspaceId);
+      if (workspaceUpdateError) throw new Error("Could not update workspace entitlement.");
+
+      const { error: subscriptionError } = await supabase
+        .from("subscriptions")
+        .upsert(subscriptionRecord, { onConflict: "polar_subscription_id" });
+      if (subscriptionError) throw new Error("Could not persist the Polar subscription.");
+
+      await this.markWebhookEvent(supabase, eventId, "processed");
+      return { status: "processed" };
+    } catch (error) {
+      console.error("[polar] Webhook processing failed:", error);
+      try {
+        await this.markWebhookEvent(supabase, eventId, "failed", "PROCESSING_FAILED");
+      } catch (markError) {
+        console.error("[polar] Could not mark webhook event failed:", markError);
+      }
+      return { status: "failed", reason: "Subscription event could not be processed safely." };
+    }
+  }
+
+  /**
+   * Re-fetch the provider's current subscription before any paid operation.
+   * A past_due subscription remains in the restricted draft tier because
+   * Polar may revoke benefits during payment recovery depending on seller policy.
+   */
+  async getVerifiedWorkspaceEntitlement(
+    workspaceId: string,
+    supabaseOverride?: any
+  ): Promise<EntitlementType> {
+    const supabase = supabaseOverride || createServiceClient();
+    const { data: workspace, error: workspaceError } = await supabase
       .from("workspaces")
       .select("id, entitlement_type, access_mode")
       .eq("id", workspaceId)
       .maybeSingle();
 
-    if (
-      currentWs &&
-      (currentWs.access_mode === "private_beta" ||
-        currentWs.entitlement_type === "internal_beta")
-    ) {
-      // Do not alter or downgrade private beta tester workspace
-      await supabase
-        .from("billing_webhook_events")
-        .update({
-          processing_status: "processed",
-          processed_at: new Date().toISOString(),
-        })
-        .eq("provider_event_id", eventId);
-      return { status: "processed" };
+    if (workspaceError || !workspace) {
+      throw new Error("Workspace entitlement could not be verified.");
     }
 
-    // 8. Update Subscriptions table
-    const subscriptionRecord: Partial<Subscription> = {
-      workspace_id: workspaceId,
-      polar_subscription_id: subData.id,
-      product_id: subData.product_id,
-      price_id: subData.price_id,
-      status: subData.status,
-      trial_start: subData.trial_start,
-      trial_end: subData.trial_end,
-      current_period_start: subData.current_period_start,
-      current_period_end: subData.current_period_end,
-      cancel_at_period_end: Boolean(subData.cancel_at_period_end),
-      entitlement_snapshot: newEntitlement,
-      updated_at: subData.updated_at || new Date().toISOString(),
-    };
+    if (workspace.access_mode === "private_beta" || workspace.entitlement_type === "internal_beta") {
+      return "internal_beta";
+    }
 
-    const { error: subErr } = await supabase
+    const { data: subscription, error: subscriptionError } = await supabase
       .from("subscriptions")
-      .upsert(subscriptionRecord, { onConflict: "polar_subscription_id" });
+      .select("id, polar_subscription_id, product_id, price_id, status, trial_start, trial_end, current_period_start, current_period_end, cancel_at_period_end")
+      .eq("workspace_id", workspaceId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    if (subErr) {
-      await supabase
-        .from("billing_webhook_events")
-        .update({
-          processing_status: "failed",
-          safe_error_code: "SUBSCRIPTION_UPSERT_FAILED",
-          processed_at: new Date().toISOString(),
-        })
-        .eq("provider_event_id", eventId);
-      return { status: "failed", reason: subErr.message };
+    if (subscriptionError) {
+      throw new Error("Workspace subscription could not be verified.");
     }
 
-    // 9. Reconcile Workspace Entitlement
-    let wsUpdateError: any = null;
-    const { error: primaryErr } = await supabase
-      .from("workspaces")
-      .update({
-        entitlement_type: newEntitlement,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", workspaceId);
-
-    if (primaryErr) {
-      // Cloud database enum transition fallback: if suspended/expired not yet in Postgres enum, fall back to inactive
-      if (primaryErr.code === "22P02" && (newEntitlement === "suspended" || newEntitlement === "expired")) {
-        const { error: fallbackErr } = await supabase
+    if (!subscription) {
+      const hasPaidEntitlement = ["paid_trial", "paid_active"].includes(workspace.entitlement_type);
+      if (hasPaidEntitlement) {
+        const { error } = await supabase
           .from("workspaces")
-          .update({
-            entitlement_type: "inactive",
-            updated_at: new Date().toISOString(),
-          })
+          .update({ entitlement_type: "inactive" })
           .eq("id", workspaceId);
-        wsUpdateError = fallbackErr;
-      } else {
-        wsUpdateError = primaryErr;
+        if (error) throw new Error("Expired workspace entitlement could not be revoked.");
+        return "inactive";
       }
+      return (workspace.entitlement_type || "inactive") as EntitlementType;
     }
 
-    if (wsUpdateError) {
-      await supabase
-        .from("billing_webhook_events")
-        .update({
-          processing_status: "failed",
-          safe_error_code: "WORKSPACE_ENTITLEMENT_UPDATE_FAILED",
-          processed_at: new Date().toISOString(),
-        })
-        .eq("provider_event_id", eventId);
-      return { status: "failed", reason: wsUpdateError.message };
+    if (!this.polarClient.isConfigured()) {
+      throw new Error("Polar billing is not fully configured; paid access is paused.");
     }
 
-    // 9. Audit Event
-    await supabase.from("audit_events").insert({
-      workspace_id: workspaceId,
-      actor_type: "system",
-      action: "subscription_lifecycle",
-      resource_type: "subscription",
-      resource_id: subData.id,
-      safe_metadata: {
-        event_type: event.type,
-        status: subData.status,
-        new_entitlement: newEntitlement,
-      },
-    });
+    const liveSubscription = await this.polarClient.getSubscription(
+      subscription.polar_subscription_id
+    ) as PolarSubscriptionData;
 
-    // 10. Mark Webhook Processed
-    await supabase
-      .from("billing_webhook_events")
+    const { data: billingCustomer, error: billingCustomerError } = await supabase
+      .from("billing_customers")
+      .select("polar_customer_id")
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+    if (
+      billingCustomerError ||
+      !billingCustomer ||
+      liveSubscription?.customer_id !== billingCustomer.polar_customer_id
+    ) {
+      throw new Error("The provider subscription customer does not match this workspace.");
+    }
+
+    if (
+      liveSubscription?.id !== subscription.polar_subscription_id ||
+      !this.polarClient.matchesConfiguredOffer(
+        liveSubscription?.product_id,
+        liveSubscription?.prices ?? liveSubscription?.price_id
+      )
+    ) {
+      throw new Error("The provider subscription does not match the configured Nunuza offer.");
+    }
+
+    const entitlement = this.mapPolarStatusToEntitlement(
+      liveSubscription.status,
+      liveSubscription.current_period_end,
+      liveSubscription.cancel_at_period_end,
+      liveSubscription.trial_end
+    );
+    const now = new Date().toISOString();
+    const providerModifiedAt =
+      liveSubscription.modified_at || liveSubscription.updated_at || now;
+
+    const { error: subscriptionUpdateError } = await supabase
+      .from("subscriptions")
       .update({
-        processing_status: "processed",
-        processed_at: new Date().toISOString(),
+        status: liveSubscription.status,
+        trial_start: liveSubscription.trial_start,
+        trial_end: liveSubscription.trial_end,
+        current_period_start: liveSubscription.current_period_start,
+        current_period_end: liveSubscription.current_period_end,
+        cancel_at_period_end: liveSubscription.cancel_at_period_end,
+        entitlement_snapshot: entitlement,
+        provider_verified_at: now,
+        provider_modified_at: providerModifiedAt,
+        updated_at: providerModifiedAt,
       })
-      .eq("provider_event_id", eventId);
+      .eq("id", subscription.id)
+      .eq("workspace_id", workspaceId);
 
-    return { status: "processed" };
+    if (subscriptionUpdateError) {
+      throw new Error("Verified subscription state could not be saved.");
+    }
+
+    const { error: workspaceUpdateError } = await supabase
+      .from("workspaces")
+      .update({ entitlement_type: entitlement })
+      .eq("id", workspaceId);
+    if (workspaceUpdateError) {
+      throw new Error("Verified workspace entitlement could not be saved.");
+    }
+
+    return entitlement;
   }
 
   /**
@@ -337,20 +432,20 @@ export class PolarService {
     supabaseOverride?: any
   ): Promise<BillingDetails> {
     const supabase = supabaseOverride || createServiceClient();
+    const entitlement = await this.getVerifiedWorkspaceEntitlement(workspaceId, supabase);
 
-    const { data: workspace } = await supabase
-      .from("workspaces")
-      .select("entitlement_type")
-      .eq("id", workspaceId)
-      .single();
-
-    const { data: subscription } = await supabase
+    const { data: subscription, error: subscriptionError } = await supabase
       .from("subscriptions")
       .select("polar_subscription_id, status, trial_end, current_period_end, cancel_at_period_end")
       .eq("workspace_id", workspaceId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
-    const entitlement = (workspace?.entitlement_type as EntitlementType) ?? "suspended";
+    if (subscriptionError) {
+      throw new Error("Billing subscription details could not be loaded.");
+    }
+
     const accessMode = entitlement === "internal_beta" ? "private_beta" : "commercial";
 
     return {
@@ -375,4 +470,12 @@ export class PolarService {
       isSellerEligible: this.polarClient.isSellerEligible(),
     };
   }
+}
+
+
+// Reuse one server-side Polar service instance across billing and worker gates.
+let polarServiceInstance: PolarService | null = null;
+export function getPolarService(): PolarService {
+  if (!polarServiceInstance) polarServiceInstance = new PolarService();
+  return polarServiceInstance;
 }

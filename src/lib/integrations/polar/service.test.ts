@@ -104,6 +104,61 @@ describe("Polar Client & Seller Eligibility", () => {
     ).rejects.toThrow(/SELLER_INELIGIBLE/i);
   });
 
+  it("requires the exact configured product and price before accepting billing events", () => {
+    const client = new PolarClient({
+      accessToken: "polar_test_token",
+      productId: "prod_nunuza_solo",
+      priceId: "price_29_mo",
+      server: "sandbox",
+    });
+
+    expect(client.matchesConfiguredOffer("prod_nunuza_solo", "price_29_mo")).toBe(true);
+    // Current Polar subscription payloads expose prices[] rather than price_id.
+    expect(client.matchesConfiguredOffer("prod_nunuza_solo", [
+      { id: "price_29_mo", product_id: "prod_nunuza_solo" },
+    ])).toBe(true);
+    expect(client.matchesConfiguredOffer("prod_nunuza_solo", [
+      { id: "price_other", product_id: "prod_nunuza_solo" },
+    ])).toBe(false);
+    expect(client.matchesConfiguredOffer("prod_other", "price_29_mo")).toBe(false);
+    expect(client.matchesConfiguredOffer("prod_nunuza_solo", "price_other")).toBe(false);
+
+    const missingPrice = new PolarClient({
+      accessToken: "polar_test_token",
+      productId: "prod_nunuza_solo",
+      priceId: "",
+      server: "sandbox",
+    });
+    expect(missingPrice.isConfigured()).toBe(false);
+  });
+
+  it("reuses the workspace Polar customer and exact configured price at checkout", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: "checkout_1",
+      url: "https://checkout.polar.sh/session_1",
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new PolarClient({
+      accessToken: "polar_test_token",
+      productId: "prod_nunuza_solo",
+      priceId: "price_29_mo",
+      server: "sandbox",
+    });
+
+    await client.createCheckoutSession({
+      workspaceId: "ws_test_tenant_a",
+      userEmail: "owner@example.com",
+      customerId: "cust_existing",
+      successUrl: "https://nunuza.example/billing/success",
+    });
+
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(payload.customer_id).toBe("cust_existing");
+    expect(payload.customer_email).toBeUndefined();
+    expect(payload.product_price_id).toBe("price_29_mo");
+  });
+
   it("blocks checkout when Polar credentials or prices are unconfigured", async () => {
     const client = new PolarClient({
       accessToken: "",
@@ -130,62 +185,215 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
   const OTHER_WORKSPACE_ID = "ws_test_tenant_b";
 
   beforeEach(() => {
-    service = new PolarService();
+    const polarClient = new PolarClient({
+      accessToken: "test-token",
+      productId: "prod_nunuza_solo",
+      priceId: "price_29_mo",
+      server: "sandbox",
+    });
+    service = new PolarService(polarClient);
     dbTables = {
       billing_webhook_events: [],
       subscriptions: [],
       billing_customers: [],
       workspaces: [
-        { id: WORKSPACE_ID, entitlement_type: "draft_only" },
-        { id: OTHER_WORKSPACE_ID, entitlement_type: "draft_only" },
+        { id: WORKSPACE_ID, entitlement_type: "draft_only", access_mode: "commercial" },
+        { id: OTHER_WORKSPACE_ID, entitlement_type: "draft_only", access_mode: "commercial" },
       ],
       audit_events: [],
     };
 
     mockSupabase = {
       from: vi.fn((table: string) => {
-        return {
-          select: vi.fn((columns?: string) => ({
-            eq: vi.fn((col: string, val: any) => ({
-              maybeSingle: vi.fn(async () => {
-                const found = dbTables[table]?.find((r) => r[col] === val);
-                return { data: found ? { ...found } : null, error: null };
-              }),
-              single: vi.fn(async () => {
-                const found = dbTables[table]?.find((r) => r[col] === val);
-                return { data: found ? { ...found } : null, error: null };
-              }),
-            })),
-          })),
-          upsert: vi.fn(async (row: any, opts?: any) => {
-            const list = dbTables[table] || (dbTables[table] = []);
-            const conflictKey = opts?.onConflict || "id";
-            const idx = list.findIndex((r) => r[conflictKey] === row[conflictKey]);
-            if (idx >= 0) {
-              list[idx] = { ...list[idx], ...row };
-            } else {
-              list.push({ ...row });
-            }
-            return { data: row, error: null };
-          }),
-          update: vi.fn((updates: any) => ({
-            eq: vi.fn(async (col: string, val: any) => {
+        const filters: Array<{ column: string; value: any }> = [];
+        const query: any = {};
+        query.select = vi.fn(() => query);
+        query.eq = vi.fn((column: string, value: any) => {
+          filters.push({ column, value });
+          return query;
+        });
+        query.order = vi.fn(() => query);
+        query.limit = vi.fn(() => query);
+        query.maybeSingle = vi.fn(async () => {
+          const found = (dbTables[table] || []).find((row) =>
+            filters.every((filter) => row[filter.column] === filter.value)
+          );
+          return { data: found ? { ...found } : null, error: null };
+        });
+        query.single = vi.fn(async () => {
+          const found = (dbTables[table] || []).find((row) =>
+            filters.every((filter) => row[filter.column] === filter.value)
+          );
+          return { data: found ? { ...found } : null, error: null };
+        });
+        query.upsert = vi.fn(async (row: any, opts?: any) => {
+          const list = dbTables[table] || (dbTables[table] = []);
+          const conflictKey = opts?.onConflict || "id";
+          const idx = list.findIndex((item) => item[conflictKey] === row[conflictKey]);
+          if (idx >= 0) list[idx] = { ...list[idx], ...row };
+          else list.push({ ...row });
+          return { data: row, error: null };
+        });
+        query.update = vi.fn((updates: any) => {
+          const updateFilters: Array<{ column: string; value: any }> = [];
+          const updateQuery: any = {
+            eq: vi.fn((column: string, value: any) => {
+              updateFilters.push({ column, value });
+              return updateQuery;
+            }),
+            then: (resolve: any, reject: any) => {
               const list = dbTables[table] || [];
-              for (const r of list) {
-                if (r[col] === val) {
-                  Object.assign(r, updates);
+              for (const row of list) {
+                if (updateFilters.every((filter) => row[filter.column] === filter.value)) {
+                  Object.assign(row, updates);
                 }
               }
-              return { data: updates, error: null };
-            }),
-          })),
-          insert: vi.fn(async (row: any) => {
-            dbTables[table]?.push(row);
-            return { data: row, error: null };
-          }),
-        };
+              return Promise.resolve({ data: updates, error: null }).then(resolve, reject);
+            },
+          };
+          return updateQuery;
+        });
+        query.insert = vi.fn(async (row: any) => {
+          const list = dbTables[table] || (dbTables[table] = []);
+          list.push({ ...row });
+          return { data: row, error: null };
+        });
+        return query;
+      }),
+      rpc: vi.fn(async (name: string, args: any) => {
+        if (name !== "claim_billing_webhook_event") {
+          return { data: null, error: { message: "Unknown RPC" } };
+        }
+        const events = dbTables.billing_webhook_events;
+        const existing = events.find((row) => row.provider_event_id === args.p_provider_event_id);
+        if (!existing) {
+          events.push({
+            provider_event_id: args.p_provider_event_id,
+            type: args.p_event_type,
+            processing_status: "pending",
+            processing_started_at: new Date().toISOString(),
+            attempt_count: 1,
+          });
+          return { data: [{ claimed: true, reason: "CLAIMED" }], error: null };
+        }
+        if (["processed", "duplicate"].includes(existing.processing_status)) {
+          return { data: [{ claimed: false, reason: "ALREADY_PROCESSED" }], error: null };
+        }
+        if (existing.processing_status === "pending") {
+          return { data: [{ claimed: false, reason: "IN_PROGRESS" }], error: null };
+        }
+        existing.processing_status = "pending";
+        existing.processing_started_at = new Date().toISOString();
+        existing.attempt_count = (existing.attempt_count || 0) + 1;
+        return { data: [{ claimed: true, reason: "RECLAIMED" }], error: null };
       }),
     };
+  });
+
+  it("maps Polar lifecycle dates and incomplete states fail-closed", () => {
+    const future = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const past = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    expect(service.mapPolarStatusToEntitlement("trialing", future, false, future)).toBe("paid_trial");
+    expect(service.mapPolarStatusToEntitlement("trialing", future, false, past)).toBe("inactive");
+    expect(service.mapPolarStatusToEntitlement("active", past, false, null)).toBe("inactive");
+    expect(service.mapPolarStatusToEntitlement("active", future, false, null)).toBe("paid_active");
+    expect(service.mapPolarStatusToEntitlement("past_due", future, false, null)).toBe("draft_only");
+    expect(service.mapPolarStatusToEntitlement("past_due", past, false, null)).toBe("draft_only");
+    expect(service.mapPolarStatusToEntitlement("canceled", future, true, null)).toBe("paid_active");
+    expect(service.mapPolarStatusToEntitlement("canceled", future, false, null)).toBe("inactive");
+    expect(service.mapPolarStatusToEntitlement("incomplete", null, false, null)).toBe("draft_only");
+    expect(service.mapPolarStatusToEntitlement("revoked", null, false, null)).toBe("inactive");
+  });
+
+  it("asks Polar again before paid access and revokes an unpaid subscription", async () => {
+    const polarClient = new PolarClient({
+      accessToken: "test-token",
+      productId: "prod_nunuza_solo",
+      priceId: "price_29_mo",
+      server: "sandbox",
+    });
+    vi.spyOn(polarClient, "getSubscription").mockResolvedValue({
+      id: "sub_polar_100",
+      status: "unpaid",
+      product_id: "prod_nunuza_solo",
+      prices: [{ id: "price_29_mo", product_id: "prod_nunuza_solo" }],
+      customer_id: "cust_polar_1",
+      current_period_start: null,
+      current_period_end: null,
+      trial_start: null,
+      trial_end: null,
+      cancel_at_period_end: false,
+      created_at: new Date().toISOString(),
+      modified_at: new Date().toISOString(),
+    } as any);
+    service = new PolarService(polarClient);
+    dbTables.workspaces[0].entitlement_type = "paid_active";
+    dbTables.billing_customers.push({
+      workspace_id: WORKSPACE_ID,
+      polar_customer_id: "cust_polar_1",
+    });
+    dbTables.subscriptions.push({
+      id: "sub-row-1",
+      workspace_id: WORKSPACE_ID,
+      polar_subscription_id: "sub_polar_100",
+      product_id: "prod_nunuza_solo",
+      price_id: "price_29_mo",
+      status: "active",
+      trial_start: null,
+      trial_end: null,
+      current_period_start: null,
+      current_period_end: null,
+      cancel_at_period_end: false,
+      updated_at: new Date().toISOString(),
+    });
+
+    const entitlement = await service.getVerifiedWorkspaceEntitlement(WORKSPACE_ID, mockSupabase);
+    expect(entitlement).toBe("inactive");
+    expect(dbTables.workspaces[0].entitlement_type).toBe("inactive");
+    expect(dbTables.subscriptions[0].provider_verified_at).toBeTruthy();
+  });
+
+  it("fails closed when the provider cannot verify a paid subscription", async () => {
+    const polarClient = new PolarClient({
+      accessToken: "test-token",
+      productId: "prod_nunuza_solo",
+      priceId: "price_29_mo",
+      server: "sandbox",
+    });
+    vi.spyOn(polarClient, "getSubscription").mockRejectedValue(new Error("Polar unavailable"));
+    service = new PolarService(polarClient);
+    dbTables.workspaces[0].entitlement_type = "paid_active";
+    dbTables.subscriptions.push({
+      id: "sub-row-1",
+      workspace_id: WORKSPACE_ID,
+      polar_subscription_id: "sub_polar_100",
+      product_id: "prod_nunuza_solo",
+      price_id: "price_29_mo",
+      status: "active",
+    });
+
+    await expect(service.getVerifiedWorkspaceEntitlement(WORKSPACE_ID, mockSupabase))
+      .rejects.toThrow("Polar unavailable");
+  });
+
+  it("returns a retryable failure for a webhook event already being processed", async () => {
+    dbTables.billing_webhook_events.push({
+      provider_event_id: "evt_in_progress",
+      type: "subscription.active",
+      processing_status: "pending",
+      processing_started_at: new Date().toISOString(),
+    });
+    const event: PolarWebhookEvent = {
+      id: "evt_in_progress",
+      type: "subscription.active",
+      created_at: new Date().toISOString(),
+      data: {} as any,
+    };
+
+    const result = await service.processWebhookEvent(event, mockSupabase);
+    expect(result.status).toBe("failed");
+    expect(result.reason).toContain("retry later");
   });
 
   it("processes subscription.created with trialing -> elevates entitlement to paid_trial", async () => {
@@ -197,7 +405,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
         id: "sub_polar_100",
         status: "trialing",
         product_id: "prod_nunuza_solo",
-        price_id: "price_29_mo",
+        prices: [{ id: "price_29_mo", product_id: "prod_nunuza_solo" }],
         customer_id: "cust_polar_1",
         customer: { id: "cust_polar_1", email: "founder@nunuza.test" },
         current_period_start: new Date().toISOString(),
@@ -208,7 +416,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
         canceled_at: null,
         ended_at: null,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        modified_at: new Date().toISOString(),
         metadata: { workspace_id: WORKSPACE_ID },
       },
     };
@@ -250,7 +458,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
         canceled_at: null,
         ended_at: null,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        modified_at: new Date().toISOString(),
         metadata: { workspace_id: WORKSPACE_ID },
       },
     };
@@ -260,6 +468,76 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
 
     const ws = dbTables.workspaces.find((w) => w.id === WORKSPACE_ID);
     expect(ws?.entitlement_type).toBe("paid_active");
+  });
+
+  it("ignores checkout events because only subscription snapshots change entitlements", async () => {
+    const result = await service.processWebhookEvent({
+      id: "evt_checkout_only",
+      type: "checkout.created",
+      created_at: new Date().toISOString(),
+      data: {} as any,
+    }, mockSupabase);
+
+    expect(result.status).toBe("skipped");
+    expect(dbTables.subscriptions).toHaveLength(0);
+    expect(dbTables.workspaces[0].entitlement_type).toBe("draft_only");
+  });
+
+  it("does not grant access for a different Polar product or price", async () => {
+    const result = await service.processWebhookEvent({
+      id: "evt_wrong_offer",
+      type: "subscription.active",
+      created_at: new Date().toISOString(),
+      data: {
+        id: "sub_wrong_offer",
+        status: "active",
+        product_id: "prod_nunuza_solo",
+        price_id: "price_not_nunuza",
+        customer_id: "cust_polar_wrong",
+        current_period_start: new Date().toISOString(),
+        current_period_end: new Date(Date.now() + 30 * 86400000).toISOString(),
+        trial_start: null,
+        trial_end: null,
+        cancel_at_period_end: false,
+        created_at: new Date().toISOString(),
+        modified_at: new Date().toISOString(),
+        metadata: { workspace_id: WORKSPACE_ID },
+      } as any,
+    }, mockSupabase);
+
+    expect(result.status).toBe("skipped");
+    expect(dbTables.subscriptions).toHaveLength(0);
+    expect(dbTables.workspaces[0].entitlement_type).toBe("draft_only");
+  });
+
+  it("refuses to reassign a Polar customer already linked to another workspace", async () => {
+    dbTables.billing_customers.push({
+      workspace_id: OTHER_WORKSPACE_ID,
+      polar_customer_id: "cust_polar_1",
+    });
+    const result = await service.processWebhookEvent({
+      id: "evt_customer_reassignment",
+      type: "subscription.active",
+      created_at: new Date().toISOString(),
+      data: {
+        id: "sub_reassignment",
+        status: "active",
+        product_id: "prod_nunuza_solo",
+        price_id: "price_29_mo",
+        customer_id: "cust_polar_1",
+        current_period_start: new Date().toISOString(),
+        current_period_end: new Date(Date.now() + 30 * 86400000).toISOString(),
+        trial_start: null,
+        trial_end: null,
+        cancel_at_period_end: false,
+        created_at: new Date().toISOString(),
+        modified_at: new Date().toISOString(),
+        metadata: { workspace_id: WORKSPACE_ID },
+      } as any,
+    }, mockSupabase);
+
+    expect(result.status).toBe("failed");
+    expect(dbTables.workspaces[0].entitlement_type).toBe("draft_only");
   });
 
   it("handles duplicate webhook events idempotently", async () => {
@@ -282,7 +560,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
         canceled_at: null,
         ended_at: null,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        modified_at: new Date().toISOString(),
         metadata: { workspace_id: WORKSPACE_ID },
       },
     };
@@ -302,7 +580,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
       workspace_id: WORKSPACE_ID,
       polar_subscription_id: "sub_polar_100",
       status: "active",
-      updated_at: "2026-10-28T12:00:00.000Z",
+      provider_modified_at: "2026-10-28T12:00:00.000Z",
     });
     dbTables.workspaces[0].entitlement_type = "paid_active";
 
@@ -326,7 +604,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
         canceled_at: null,
         ended_at: null,
         created_at: "2026-10-28T11:30:00.000Z",
-        updated_at: "2026-10-28T11:30:00.000Z",
+        modified_at: "2026-10-28T11:30:00.000Z",
         metadata: { workspace_id: WORKSPACE_ID },
       },
     };
@@ -339,7 +617,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
     expect(ws?.entitlement_type).toBe("paid_active");
   });
 
-  it("handles subscription.revoked -> transitions entitlement to suspended", async () => {
+  it("handles subscription.revoked -> transitions entitlement to inactive", async () => {
     const event: PolarWebhookEvent = {
       id: "evt_revoked_005",
       type: "subscription.revoked",
@@ -359,7 +637,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
         canceled_at: new Date().toISOString(),
         ended_at: new Date().toISOString(),
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        modified_at: new Date().toISOString(),
         metadata: { workspace_id: WORKSPACE_ID },
       },
     };
@@ -368,7 +646,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
     expect(result.status).toBe("processed");
 
     const ws = dbTables.workspaces.find((w) => w.id === WORKSPACE_ID);
-    expect(ws?.entitlement_type).toBe("suspended");
+    expect(ws?.entitlement_type).toBe("inactive");
   });
 
   it("does not downgrade or overwrite a private beta tester workspace via Polar webhook", async () => {
@@ -383,7 +661,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
       operating_mode: "approval_required",
       paused_at: null,
       created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      modified_at: new Date().toISOString(),
     });
 
     const event: PolarWebhookEvent = {
@@ -405,13 +683,13 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
         canceled_at: new Date().toISOString(),
         ended_at: new Date().toISOString(),
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        modified_at: new Date().toISOString(),
         metadata: { workspace_id: BETA_WS_ID },
       },
     };
 
     const result = await service.processWebhookEvent(event, mockSupabase);
-    expect(result.status).toBe("processed");
+    expect(result.status).toBe("skipped");
 
     const ws = dbTables.workspaces.find((w) => w.id === BETA_WS_ID);
     expect(ws?.entitlement_type).toBe("internal_beta");

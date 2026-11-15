@@ -12,6 +12,7 @@ import { assertVoiceConstraints, VoiceConstraintError } from "@/lib/ai/voice-con
 import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
 import { canUseAutopilot } from "@/lib/auth/workspace";
 import { getDraftUsagePeriod } from "@/lib/db/usage";
+import { getPolarService } from "@/lib/integrations/polar/service";
 import type { AgentJob } from "@/types/database";
 import type { JobExecutionResult } from "./types";
 
@@ -433,6 +434,17 @@ export async function executeAutonomousCycle(
     .eq("id", job.workspace_id)
     .single();
   if (workspaceError || !workspace) return fail("Workspace not found.", false);
+
+  try {
+    workspace.entitlement_type = await getPolarService().getVerifiedWorkspaceEntitlement(
+      workspace.id,
+      supabase
+    );
+  } catch (error) {
+    console.error("[agent] Polar entitlement verification failed:", error);
+    return fail("Billing status could not be verified. The autonomous cycle will retry.");
+  }
+
   if (!isAutonomousWorkspaceActive(workspace)) {
     await recordAgentEvent(supabase, workspace.id, "agent_cycle_skipped", {
       reason: "workspace_paused_or_inactive",

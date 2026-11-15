@@ -228,6 +228,8 @@ export interface Subscription {
   cancel_at_period_end: boolean;
   entitlement_snapshot: EntitlementType | null;
   updated_at: string;
+  provider_verified_at: string | null;
+  provider_modified_at: string | null;
 }
 
 export interface ContentPlan {
