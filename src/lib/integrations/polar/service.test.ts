@@ -298,7 +298,8 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
     expect(service.mapPolarStatusToEntitlement("trialing", future, false, past)).toBe("inactive");
     expect(service.mapPolarStatusToEntitlement("active", past, false, null)).toBe("inactive");
     expect(service.mapPolarStatusToEntitlement("active", future, false, null)).toBe("paid_active");
-    expect(service.mapPolarStatusToEntitlement("past_due", past, false, null)).toBe("paid_active");
+    expect(service.mapPolarStatusToEntitlement("past_due", future, false, null)).toBe("draft_only");
+    expect(service.mapPolarStatusToEntitlement("past_due", past, false, null)).toBe("draft_only");
     expect(service.mapPolarStatusToEntitlement("canceled", future, true, null)).toBe("paid_active");
     expect(service.mapPolarStatusToEntitlement("canceled", future, false, null)).toBe("inactive");
     expect(service.mapPolarStatusToEntitlement("incomplete", null, false, null)).toBe("draft_only");
