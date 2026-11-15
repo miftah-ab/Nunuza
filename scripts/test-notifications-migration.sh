@@ -163,6 +163,18 @@ END;
 $telegram_notification_test$;
 
 
+DO $scheduled_notification_test$
+DECLARE v_title text; v_body text;
+BEGIN
+  SELECT title, body INTO v_title, v_body
+    FROM public.notification_events
+   WHERE event_key LIKE 'post:00000000-0000-0000-0000-000000000022:scheduled:%';
+  IF v_title <> 'Your post is scheduled' OR v_body NOT LIKE '% UTC.' THEN
+    RAISE EXCEPTION 'Scheduled post notification is missing its time: %, %', v_title, v_body;
+  END IF;
+END;
+$scheduled_notification_test$;
+
 DO $notification_count_test$
 DECLARE v_count integer;
 BEGIN
@@ -179,7 +191,7 @@ DO $$
 DECLARE v_count integer;
 BEGIN
   SELECT count(*) INTO v_count FROM public.notification_events;
-  IF v_count <> 10 THEN RAISE EXCEPTION 'Owner cannot read all workspace notifications'; END IF;
+  IF v_count <> 11 THEN RAISE EXCEPTION 'Owner cannot read all workspace notifications'; END IF;
   UPDATE public.notification_events SET read_at=now()
   WHERE workspace_id='00000000-0000-0000-0000-000000000010' AND read_at IS NULL;
 END;
@@ -191,7 +203,7 @@ DECLARE v_count integer;
 BEGIN
   SELECT count(*) INTO v_count
   FROM public.claim_pending_notification_deliveries(50);
-  IF v_count <> 10 THEN RAISE EXCEPTION 'Expected to claim 10 delivery records, got %', v_count; END IF;
+  IF v_count <> 11 THEN RAISE EXCEPTION 'Expected to claim 11 delivery records, got %', v_count; END IF;
 END;
 $$;
 
