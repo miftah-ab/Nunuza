@@ -7,6 +7,7 @@ MIGRATION="supabase/migrations/0010_worker_safety_reservations.sql"
 LIMIT_MIGRATION="supabase/migrations/20261114082730_configurable_publishing_limits.sql"
 CANCEL_MIGRATION="supabase/migrations/20261114170000_atomic_scheduled_post_cancel.sql"
 SCHEDULE_MIGRATION="supabase/migrations/20261114200000_atomic_scheduling_and_product_caps.sql"
+IMAGE_QUOTA_MIGRATION="supabase/migrations/20261114210000_atomic_image_quota.sql"
 DRAFT_USAGE_MIGRATION="supabase/migrations/20261114190000_atomic_draft_usage.sql"
 OUT="$(mktemp -d)"
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -96,6 +97,7 @@ q -f "$LIMIT_MIGRATION" >/dev/null
 q -f "$CANCEL_MIGRATION" >/dev/null
 q -f "$DRAFT_USAGE_MIGRATION" >/dev/null
 q -f "$SCHEDULE_MIGRATION" >/dev/null
+q -f "$IMAGE_QUOTA_MIGRATION" >/dev/null
 echo "worker, publishing-limit, cancellation, draft-usage, and atomic-scheduling migrations applied"
 
 # A workspace may have one active autonomous cycle, but can start another
@@ -523,6 +525,34 @@ PAID_POST_B=$(q -c "SELECT id FROM create_draft_with_usage('$PAID_RES_B','$QUOTA
 [ "$(q -c "SELECT count(*) FROM usage_counters WHERE workspace_id='$QUOTA_WS' AND metric IN ('$PAID_METRIC_A','$PAID_METRIC_B') AND count=1")" = "2" ] || fail "paid billing periods must have independent usage counters"
 echo "ok: paid billing-period keys remain distinct even when their UTC start date matches"
 
+# Concurrent image generation must never exceed the five-per-hour workspace cap.
+IMAGE_WS=$(q -c "SELECT gen_random_uuid()")
+q -c "INSERT INTO workspaces(id) VALUES ('$IMAGE_WS')" >/dev/null
+for n in $(seq 1 12); do
+  (
+    psql -At -c "SELECT reserve_image_generation('$IMAGE_WS','image_generation:2026-11-15T05',current_date,current_date,5)" \
+      > "$OUT/image-reservation-$n.txt" 2>> "$OUT/image-quota-errors.txt"
+  ) &
+done
+wait
+mapfile -t IMAGE_IDS < <(grep -hE '^[0-9a-fA-F-]{36}$' "$OUT"/image-reservation-*.txt || true)
+[ "${#IMAGE_IDS[@]}" = "5" ] || { cat "$OUT/image-quota-errors.txt" 2>/dev/null || true; fail "image quota must grant exactly five concurrent reservations, got ${#IMAGE_IDS[@]}"; }
+IMAGE_COMMITTED_ID="${IMAGE_IDS[0]}"
+IMAGE_RELEASED_ID="${IMAGE_IDS[1]}"
+IMAGE_EXPIRED_ID="${IMAGE_IDS[2]}"
+[ "$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$IMAGE_WS' AND metric='image_generation:2026-11-15T05'")" = "5" ] || fail "image quota count must be exactly five"
+[ "$(q -c "SELECT commit_image_generation_reservation('$IMAGE_COMMITTED_ID')")" = "t" ] || fail "successful image generation must commit its reservation"
+[ "$(q -c "SELECT commit_image_generation_reservation('$IMAGE_COMMITTED_ID')")" = "f" ] || fail "committing the same reservation twice must be idempotently rejected"
+[ "$(q -c "SELECT release_image_generation_reservation('$IMAGE_RELEASED_ID')")" = "t" ] || fail "failed image generation must release its own reservation"
+[ "$(q -c "SELECT release_image_generation_reservation('$IMAGE_RELEASED_ID')")" = "f" ] || fail "double release must be idempotent"
+[ "$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$IMAGE_WS' AND metric='image_generation:2026-11-15T05'")" = "4" ] || fail "double release must not decrement another generation"
+q -c "UPDATE image_generation_reservations SET expires_at=now()-interval '1 second' WHERE id='$IMAGE_EXPIRED_ID'" >/dev/null
+IMAGE_NEXT_ID=$(q -c "SELECT reserve_image_generation('$IMAGE_WS','image_generation:2026-11-15T05',current_date,current_date,5)")
+[ -n "$IMAGE_NEXT_ID" ] || fail "expired image reservation must free one hourly slot"
+[ "$(q -c "SELECT status FROM image_generation_reservations WHERE id='$IMAGE_EXPIRED_ID'")" = "released" ] || fail "expired image reservation must be marked released"
+[ "$(q -c "SELECT count FROM usage_counters WHERE workspace_id='$IMAGE_WS' AND metric='image_generation:2026-11-15T05'")" = "4" ] || fail "expired reservation cleanup must decrement once before reserving a new slot"
+echo "ok: image quota is atomic, capped at five, and idempotently committed/released"
+
 # Only service_role may call privileged functions.
 [ "$(q -c "SELECT has_function_privilege('anon','public.claim_workspace_publish_slot(uuid,uuid)','EXECUTE')")" = "f" ] || fail "anon must not claim publish slots"
 [ "$(q -c "SELECT has_function_privilege('authenticated','public.reserve_draft_usage(uuid,uuid,date,date,integer,text)','EXECUTE')")" = "f" ] || fail "authenticated must not reserve usage"
@@ -535,6 +565,11 @@ echo "ok: paid billing-period keys remain distinct even when their UTC start dat
 [ "$(q -c "SELECT has_function_privilege('anon','public.schedule_post_atomic(uuid,uuid,uuid,timestamptz)','EXECUTE')")" = "f" ] || fail "anon must not schedule posts"
 [ "$(q -c "SELECT has_function_privilege('authenticated','public.schedule_post_atomic(uuid,uuid,uuid,timestamptz)','EXECUTE')")" = "f" ] || fail "authenticated must not call privileged schedule RPC"
 [ "$(q -c "SELECT has_function_privilege('service_role','public.schedule_post_atomic(uuid,uuid,uuid,timestamptz)','EXECUTE')")" = "t" ] || fail "service_role must schedule posts"
+[ "$(q -c "SELECT has_function_privilege('anon','public.reserve_image_generation(uuid,text,date,date,integer)','EXECUTE')")" = "f" ] || fail "anon must not reserve image quota"
+[ "$(q -c "SELECT has_function_privilege('authenticated','public.reserve_image_generation(uuid,text,date,date,integer)','EXECUTE')")" = "f" ] || fail "authenticated must not reserve image quota"
+[ "$(q -c "SELECT has_function_privilege('service_role','public.reserve_image_generation(uuid,text,date,date,integer)','EXECUTE')")" = "t" ] || fail "service_role must reserve image quota"
+[ "$(q -c "SELECT has_function_privilege('authenticated','public.release_image_generation_reservation(uuid)','EXECUTE')")" = "f" ] || fail "authenticated must not release image quota"
+[ "$(q -c "SELECT has_function_privilege('service_role','public.release_image_generation_reservation(uuid)','EXECUTE')")" = "t" ] || fail "service_role must release image quota"
 echo "ok: worker-only execution grants enforced"
 
 echo "ALL WORKER SAFETY CHECKS PASSED"
