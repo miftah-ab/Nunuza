@@ -9,6 +9,17 @@ type Notification = {
   push_attempts: number; telegram_attempts: number;
 };
 
+export function classifyTelegramDeliveryError(
+  error: string | undefined
+): "permanent_link" | "configuration" | "transient" {
+  const message = (error ?? "").toLowerCase();
+  if (
+    /chat not found|bot was blocked|user is deactivated|can't initiate conversation|cannot initiate conversation|bot was kicked|chat_id is empty/.test(message)
+  ) return "permanent_link";
+  if (/not configured|unauthorized|invalid bot token/.test(message)) return "configuration";
+  return "transient";
+}
+
 function retryAt(attempt: number): string {
   const delay = Math.min(60, 2 ** Math.max(1, attempt)) * 60_000;
   return new Date(Date.now() + delay).toISOString();
@@ -149,12 +160,33 @@ export async function dispatchPendingNotifications(limit = 50): Promise<{ proces
       } else {
         const message = "*" + escapeTelegramMarkdown(event.title) + "*\n\n" + escapeTelegramMarkdown(event.body);
         const result = await notifyWorkspaceTelegram(event.workspace_id, { text: message }, db);
-        if (result.ok) updates.telegram_status = "sent";
-        else if (event.telegram_attempts < 5) {
-          updates.telegram_attempts = event.telegram_attempts + 1;
-          retryAttempts.push(event.telegram_attempts + 1);
-          updates.last_delivery_error = "telegram_delivery_failed";
-        } else updates.telegram_status = "failed";
+        if (result.ok) {
+          updates.telegram_status = "sent";
+        } else {
+          const failure = classifyTelegramDeliveryError(result.error);
+          if (failure === "permanent_link") {
+            // A dead/blocked chat cannot recover by retrying. Revoke it so
+            // the owner is prompted to pair Telegram again instead of silently
+            // retrying an invalid chat on every notification.
+            const { error: revokeError } = await db.from("telegram_links")
+              .update({ revoked_at: new Date().toISOString() })
+              .eq("workspace_id", event.workspace_id)
+              .is("revoked_at", null);
+            if (revokeError) console.error("[notifications] Could not revoke invalid Telegram link.");
+            updates.telegram_status = "failed";
+            updates.last_delivery_error = "telegram_chat_unavailable";
+          } else if (failure === "configuration") {
+            updates.telegram_status = "failed";
+            updates.last_delivery_error = "telegram_bot_configuration_invalid";
+          } else if (event.telegram_attempts < 5) {
+            updates.telegram_attempts = event.telegram_attempts + 1;
+            retryAttempts.push(event.telegram_attempts + 1);
+            updates.last_delivery_error = "telegram_delivery_failed";
+          } else {
+            updates.telegram_status = "failed";
+            updates.last_delivery_error = "telegram_delivery_failed";
+          }
+        }
       }
     }
 
