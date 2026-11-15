@@ -8,7 +8,7 @@ import {
 const jpegBase64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2w==";
 
 describe("Cloudflare Workers AI image generation", () => {
-  afterEach(() => vi.unstubAllEnvs());
+  afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
   it("requires server-side Cloudflare credentials", async () => {
     vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "");
@@ -46,6 +46,20 @@ describe("Cloudflare Workers AI image generation", () => {
     expect(result.contentType).toBe("image/jpeg");
     expect(result.bytes[0]).toBe(0xff);
     expect(result.bytes[1]).toBe(0xd8);
+  });
+
+  it("uses a bounded provider timeout below the Vercel route deadline", async () => {
+    vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "account-id");
+    vi.stubEnv("CLOUDFLARE_API_TOKEN", "secret-token");
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+      result: { image: jpegBase64 },
+    }), { status: 200 }));
+
+    await generateCloudflareImage("A bounded-time editorial image", undefined, fetcher);
+
+    expect(timeoutSpy).toHaveBeenCalledWith(28_000);
   });
 
   it("rejects malformed image responses", async () => {
