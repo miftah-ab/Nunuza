@@ -5,6 +5,7 @@ import {
   unlinkTelegramAccount,
   getTelegramLinkStatus,
   handleTelegramMessage,
+  handleCallbackQuery,
   verifyTelegramSecret,
   sendTelegramDraftPreview,
 } from "./service";
@@ -118,6 +119,10 @@ class MockTelegramDb {
               },
               limit(n: number) {
                 filtered = filtered.slice(0, n);
+                return chain;
+              },
+              range(from: number, to: number) {
+                filtered = filtered.slice(from, to + 1);
                 return chain;
               },
               async single() {
@@ -242,7 +247,7 @@ describe("Telegram photo draft delivery", () => {
     expect(String(form.get("reply_markup"))).toContain("draft:approve:post-123");
   });
 
-  it("delivers the saved draft as text when the browser binding is missing", async () => {
+  it("never sends the draft text as a message when the browser binding is missing", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       ok: true,
       result: { message_id: 43 },
@@ -258,9 +263,38 @@ describe("Telegram photo draft delivery", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0][0])).toContain("/sendMessage");
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
-    expect(body.text).toContain("The saved draft content.");
-    expect(body.text).toContain("Nothing has been published");
+    // The post body must never be pasted into the chat, even as a fallback.
+    expect(body.text).not.toContain("The saved draft content");
+    expect(body.text).toContain("AI in finance");
+    expect(body.text).toContain("nothing has been published");
+    // The review actions are still buttons, and Nunuza is one tap away.
     expect(body.reply_markup.inline_keyboard[0][0].callback_data).toBe("draft:approve:post-123");
+    const urls = body.reply_markup.inline_keyboard.flat().map((button: any) => button.url).filter(Boolean);
+    expect(urls).toEqual(["https://nunuza.example/app/content?post=post-123"]);
+    // No typed commands or short IDs anywhere in the message.
+    expect(body.text).not.toMatch(/\/(approve|reject|drafts)/);
+  });
+
+  it("falls back to the notice, not to text, when the screenshot fails", async () => {
+    const quickAction = vi.fn().mockResolvedValue(new Response("nope", { status: 500 }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      result: { message_id: 44 },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await sendTelegramDraftPreview(
+      12345,
+      { id: "post-123", internal_title: "AI in finance", text: "The saved draft content." },
+      true,
+      { quickAction },
+      { fastFail: true }
+    );
+
+    expect(result.ok).toBe(true);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.text).not.toContain("The saved draft content");
+    expect(body.text).toContain("revised");
   });
 
   afterAll(() => {
@@ -429,7 +463,7 @@ describe("Telegram Service", () => {
       expect(mockDb.workspaces[0].paused_at).toBeNull();
     });
 
-    it("lists drafts via /drafts", async () => {
+    it("lists drafts via /drafts with buttons, titles and no IDs", async () => {
       const client = mockDb.createClient();
       const { token } = await generateTelegramPairingToken("ws-111", "user-111", client);
       await linkTelegramAccount(token, 555666, 777888, client);
@@ -440,7 +474,13 @@ describe("Telegram Service", () => {
       );
 
       expect(res.replyText).toContain("First draft hook");
-      expect(res.replyText).toContain("post-aaa");
+      expect(res.replyText).not.toContain("post-aaa");
+      expect(res.replyText).not.toContain("Full draft text");
+      const callbacks = res.replyMarkup.inline_keyboard.flat().map((button: any) => button.callback_data);
+      expect(callbacks).toContain("draft:view:post-aaa-111");
+      expect(callbacks).toContain("draft:approve:post-aaa-111");
+      expect(callbacks).toContain("draft:reject:post-aaa-111");
+
       mockDb.contentPosts.push({
         id: "post-needs-review", workspace_id: "ws-111",
         internal_title: "Agent generated review draft", text: "Review this agent draft",
@@ -453,78 +493,160 @@ describe("Telegram Service", () => {
       expect(reviewRes.replyText).toContain("Agent generated review draft");
     });
 
-    it("strictly rejects /approve if workspace entitlement is draft_only (BED-01/02)", async () => {
+    it("never shows draft text when a draft has no title", async () => {
       const client = mockDb.createClient();
+      mockDb.contentPosts[0].internal_title = null;
       const { token } = await generateTelegramPairingToken("ws-111", "user-111", client);
       await linkTelegramAccount(token, 555666, 777888, client);
 
       const res = await handleTelegramMessage(
-        { telegramUserId: 555666, chatId: 777888, text: "/approve post-aaa" },
+        { telegramUserId: 555666, chatId: 777888, text: "/drafts" },
         client
       );
 
-      expect(res.replyText).toContain("Action Restricted: Subscription or Beta Required");
-      expect(res.replyText).toContain("draft_only");
-      // Must not approve in DB
-      expect(mockDb.contentPosts[0].status).toBe("draft");
+      expect(res.replyText).toContain("Untitled draft");
+      expect(res.replyText).not.toContain("Full draft text 1");
     });
 
-    it("allows /approve if workspace entitlement is publishing_beta", async () => {
+    it("answers typed /approve and /reject with the buttons list and changes nothing", async () => {
       const client = mockDb.createClient();
       const { token } = await generateTelegramPairingToken("ws-222", "user-222", client);
       await linkTelegramAccount(token, 777999, 888111, client);
 
-      const res = await handleTelegramMessage(
-        { telegramUserId: 777999, chatId: 888111, text: "/approve post-bbb" },
+      for (const text of ["/approve post-bbb", "/reject post-bbb too long", "/approve"]) {
+        const res = await handleTelegramMessage({ telegramUserId: 777999, chatId: 888111, text }, client);
+        expect(res.replyText).toContain("Beta draft hook");
+        expect(res.replyText).not.toMatch(/\/(approve|reject)/);
+        expect(res.replyText).not.toContain("draft-id");
+        expect(res.replyMarkup.inline_keyboard.flat().map((b: any) => b.callback_data)).toContain("draft:approve:post-bbb-222");
+      }
+      expect(mockDb.contentPosts[1].status).toBe("draft");
+      expect(mockDb.approvalEvents).toHaveLength(0);
+    });
+  });
+
+  describe("Callback buttons", () => {
+    const originalToken = process.env.TELEGRAM_BOT_TOKEN;
+    const originalAppUrl = process.env.NEXT_PUBLIC_APP_URL;
+    let fetchMock: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      process.env.TELEGRAM_BOT_TOKEN = "test-bot-token";
+      process.env.NEXT_PUBLIC_APP_URL = "https://nunuza.example";
+      fetchMock = vi.fn().mockImplementation(async () =>
+        new Response(JSON.stringify({ ok: true, result: {} }), { status: 200, headers: { "content-type": "application/json" } })
+      );
+      vi.stubGlobal("fetch", fetchMock);
+    });
+
+    afterAll(() => {
+      if (originalToken === undefined) delete process.env.TELEGRAM_BOT_TOKEN;
+      else process.env.TELEGRAM_BOT_TOKEN = originalToken;
+      if (originalAppUrl === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
+      else process.env.NEXT_PUBLIC_APP_URL = originalAppUrl;
+      vi.unstubAllGlobals();
+    });
+
+    async function press(client: any, data: string, ids = { user: 777999, chat: 888111 }) {
+      await handleCallbackQuery(
+        { callbackQueryId: "cb-1", telegramUserId: ids.user, chatId: ids.chat, messageId: 9, data, chatType: "private" },
         client
       );
+      return fetchMock.mock.calls
+        .filter((call) => String(call[0]).includes("/editMessageText"))
+        .map((call) => JSON.parse(call[1].body as string));
+    }
 
-      expect(res.replyText).toContain("Draft Approved!");
+    async function link(client: any, workspace: "ws-111" | "ws-222") {
+      const ids = workspace === "ws-111" ? { user: 555666, chat: 777888 } : { user: 777999, chat: 888111 };
+      const { token } = await generateTelegramPairingToken(workspace, workspace === "ws-111" ? "user-111" : "user-222", client);
+      await linkTelegramAccount(token, ids.user, ids.chat, client);
+      return ids;
+    }
+
+    it("asks for approval by title, never by short ID", async () => {
+      const client = mockDb.createClient();
+      const ids = await link(client, "ws-222");
+      const edits = await press(client, "draft:approve:post-bbb-222", ids);
+
+      expect(edits[0].text).toContain("Beta draft hook");
+      expect(edits[0].text).not.toContain("post-bbb");
+      expect(edits[0].reply_markup.inline_keyboard[0][0].callback_data).toBe("draft:approve_confirm:post-bbb-222");
+    });
+
+    it("rejects approval if workspace entitlement is draft_only (BED-01/02)", async () => {
+      const client = mockDb.createClient();
+      const ids = await link(client, "ws-111");
+      const edits = await press(client, "draft:approve_confirm:post-aaa-111", ids);
+
+      expect(edits[0].text).toContain("Action Restricted");
+      expect(mockDb.contentPosts[0].status).toBe("draft");
+    });
+
+    it("approves a draft when entitlement is publishing_beta", async () => {
+      const client = mockDb.createClient();
+      const ids = await link(client, "ws-222");
+      const edits = await press(client, "draft:approve_confirm:post-bbb-222", ids);
+
+      expect(edits[0].text).toContain("Approved");
       expect(mockDb.contentPosts[1].status).toBe("approved");
+      expect("approved_at" in mockDb.contentPosts[1]).toBe(false);
+      expect(mockDb.approvalEvents[0].action).toBe("approved");
     });
 
     it("does not claim approval for a draft that is not approvable (no silent failure)", async () => {
       const client = mockDb.createClient();
       mockDb.contentPosts[1].status = "published";
-      const { token } = await generateTelegramPairingToken("ws-222", "user-222", client);
-      await linkTelegramAccount(token, 777999, 888111, client);
+      const ids = await link(client, "ws-222");
+      const edits = await press(client, "draft:approve_confirm:post-bbb-222", ids);
 
-      const res = await handleTelegramMessage(
-        { telegramUserId: 777999, chatId: 888111, text: "/approve post-bbb" },
-        client
-      );
-
-      expect(res.replyText).not.toContain("Draft Approved!");
+      expect(edits[0].text).not.toContain("Approved");
       expect(mockDb.contentPosts[1].status).toBe("published");
     });
 
-    it("never writes the nonexistent approved_at column when approving", async () => {
+    it("rejects a draft after confirmation and records the signal", async () => {
       const client = mockDb.createClient();
-      const { token } = await generateTelegramPairingToken("ws-222", "user-222", client);
-      await linkTelegramAccount(token, 777999, 888111, client);
+      const ids = await link(client, "ws-111");
+      const confirm = await press(client, "draft:reject:post-aaa-111", ids);
+      expect(confirm[0].text).toContain("First draft hook");
+      expect(mockDb.contentPosts[0].status).toBe("draft");
 
-      await handleTelegramMessage(
-        { telegramUserId: 777999, chatId: 888111, text: "/approve post-bbb" },
-        client
-      );
-
-      expect("approved_at" in mockDb.contentPosts[1]).toBe(false);
+      const edits = await press(client, "draft:reject_confirm:post-aaa-111", ids);
+      expect(edits.at(-1)!.text).toContain("Rejected");
+      expect(mockDb.contentPosts[0].status).toBe("rejected");
+      expect(mockDb.approvalEvents[0].action).toBe("rejected");
     });
 
-    it("handles /reject and updates draft status", async () => {
+    it("cannot act on another workspace's draft", async () => {
       const client = mockDb.createClient();
-      const { token } = await generateTelegramPairingToken("ws-111", "user-111", client);
-      await linkTelegramAccount(token, 555666, 777888, client);
+      const ids = await link(client, "ws-111");
+      await press(client, "draft:approve_confirm:post-bbb-222", ids);
+      await press(client, "draft:reject_confirm:post-bbb-222", ids);
 
-      const res = await handleTelegramMessage(
-        { telegramUserId: 555666, chatId: 777888, text: "/reject post-aaa Needs a punchier opening" },
-        client
-      );
+      expect(mockDb.contentPosts[1].status).toBe("draft");
+    });
 
-      expect(res.replyText).toContain("Draft Rejected");
-      expect(mockDb.contentPosts[0].status).toBe("rejected");
-      expect(mockDb.approvalEvents[0].reason).toBe("Needs a punchier opening");
-      expect(mockDb.approvalEvents[0].action).toBe("rejected");
+    it("shows a draft as an image preview request, never as pasted text", async () => {
+      const client = mockDb.createClient();
+      const ids = await link(client, "ws-222");
+      await press(client, "draft:view:post-bbb-222", ids);
+
+      const sent = fetchMock.mock.calls
+        .filter((call) => String(call[0]).includes("/sendMessage") || String(call[0]).includes("/sendPhoto"));
+      expect(sent.length).toBeGreaterThan(0);
+      for (const call of sent) {
+        const body = call[1].body;
+        const text = typeof body === "string" ? body : String(body.get?.("caption") ?? "");
+        expect(text).not.toContain("Full draft text 2");
+      }
+    });
+
+    it("lists the draft shortcuts without typed commands in the help text", async () => {
+      const client = mockDb.createClient();
+      const ids = await link(client, "ws-222");
+      const edits = await press(client, "menu:help", ids);
+
+      expect(edits[0].text).not.toMatch(/\/(approve|reject)/);
     });
   });
 });

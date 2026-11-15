@@ -38,6 +38,9 @@ type TelegramContentJobPayload = {
 
 export type TelegramConversationResult = { replyText: string; replyMarkup?: any };
 
+// Replies point to the drafts list with a button, never with a typed command.
+const DRAFTS_BUTTON = { inline_keyboard: [[{ text: "📝 My Drafts", callback_data: "menu:drafts" }]] };
+
 function escapeMarkdownV2(value: string): string {
   return value.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, "\\$1");
 }
@@ -214,7 +217,7 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
       }
       if (pendingJob?.status === "succeeded" && state.activePostId) {
         await releaseConversation(input, lockToken, stateWithoutPending(state));
-        return { replyText: "Your previous draft is ready. Use /drafts to review it, or send a new post idea." };
+        return { replyText: "Your previous draft is ready. Tap My Drafts to review it, or send a new post idea.", replyMarkup: DRAFTS_BUTTON };
       }
       state = stateWithoutPending(state);
     }
@@ -223,8 +226,9 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
       await releaseConversation(input, lockToken, stateWithoutPending(state));
       return {
         replyText: state.activePostId
-          ? "Your draft is still saved and unchanged. Ask me to revise it, or use /new to create another post. Use /drafts when you're ready to review or approve it."
+          ? "Your draft is still saved and unchanged. Ask me to revise it, or use /new to create another post. Tap My Drafts when you're ready to review or approve it."
           : "Hi. Tell me a LinkedIn topic, rough idea, audience, or point of view, and I'll turn it into a draft.",
+        ...(state.activePostId ? { replyMarkup: DRAFTS_BUTTON } : {}),
       };
     }
 
@@ -281,7 +285,7 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
     if (enqueueError) throw new Error("Could not queue your content request.");
     if (!enqueueResult?.queued) {
       if (enqueueResult?.reason === "already_completed") {
-        return { replyText: "That request has already completed. Use /drafts to find the saved post." };
+        return { replyText: "That request has already completed. Tap My Drafts to find the saved post.", replyMarkup: DRAFTS_BUTTON };
       }
       if (enqueueResult?.reason === "previous_failed") {
         return { replyText: "Your previous attempt failed. Send the content request again to retry it." };
@@ -292,8 +296,9 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
     return {
       replyText:
         "📥 Your LinkedIn post request is saved in the queue. Generation has not started yet; the background worker must pick it up first.\n\n" +
-        "I'll send the draft here after generation actually starts and finishes. You can use /status and /drafts while you wait. Send /cancel if you want to clear a request that has not started.\n\n" +
+        "I'll send the draft here as an image after generation actually starts and finishes. Send /cancel if you want to clear a request that has not started.\n\n" +
         "Nothing is published by this request.",
+      replyMarkup: DRAFTS_BUTTON,
     };
   } catch (error) {
     await releaseConversation(input, lockToken, state);
@@ -422,7 +427,7 @@ export async function executeTelegramContentJob(
       if (error) throw new Error("Could not release unused draft usage reservation.");
     }
     await completeConversationJob(supabase, payload, job.workspace_id, job.id, stateWithoutPending(state));
-    await sendConversationReply(payload.chatId, message);
+    await sendConversationReply(payload.chatId, message, DRAFTS_BUTTON);
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
   };
 
@@ -434,7 +439,7 @@ export async function executeTelegramContentJob(
         .eq("workspace_id", job.workspace_id).eq("id", payload.activePostId).maybeSingle();
       if (error) throw new Error("Could not load the active draft.");
       if (data?.status !== "draft") {
-        return finishWithoutDraft("That draft is no longer editable. It may have been approved, rejected, or deleted. Use /drafts to review your posts.");
+        return finishWithoutDraft("That draft is no longer editable. It may have been approved, rejected, or deleted. Tap My Drafts to review your posts.");
       }
       existingPost = data;
     }

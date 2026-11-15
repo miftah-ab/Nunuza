@@ -51,7 +51,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const { data: post, error } = await supabase.from("content_posts")
     .select("id, text, status, workspace_id")
     .eq("id", id).maybeSingle();
-  if (error || !post || post.status !== "draft") {
+  if (error || !post || !["draft", "needs_review"].includes(post.status)) {
     return new Response("This draft is no longer available.", { status: 404 });
   }
 

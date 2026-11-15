@@ -9,7 +9,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { aiService } from "@/lib/ai/service";
 import { assertVoiceConstraints, VoiceConstraintError } from "@/lib/ai/voice-constraints";
-import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
+import { notifyWorkspaceTelegram, notifyWorkspaceTelegramDraft, type TelegramBrowserBinding } from "@/lib/integrations/telegram/service";
 import { canUseAutopilot } from "@/lib/auth/workspace";
 import { getDraftUsagePeriod } from "@/lib/db/usage";
 import { getPolarService } from "@/lib/integrations/polar/service";
@@ -296,8 +296,8 @@ function buildResearchQuery(strategy: any): string {
 export function buildCycleNotificationMessage(mode: "autopilot" | "approval_required"): string {
   // Notifications report what Nunuza did, never relay third-party news headlines or links.
   return mode === "autopilot"
-    ? "Nunuza queued a LinkedIn post under your enabled Autopilot settings.\nYou can check its status in Nunuza or use /drafts in Telegram."
-    : "A new LinkedIn draft is ready for your review.\nOpen Nunuza or use /drafts in Telegram to review and approve it.";
+    ? "Nunuza queued a LinkedIn post under your enabled Autopilot settings.\nYou can check its status in Nunuza."
+    : "A new LinkedIn draft is ready for your review. It is sent here as an image with buttons to approve or reject it.";
 }
 
 const RESEARCH_TIMEOUT_MS = 20_000;
@@ -432,7 +432,8 @@ export function isValidCycleDate(value: unknown): value is string {
 
 export async function executeAutonomousCycle(
   job: AgentJob,
-  supabaseOverride?: any
+  supabaseOverride?: any,
+  browserBinding?: TelegramBrowserBinding
 ): Promise<JobExecutionResult> {
   const supabase = supabaseOverride || createServiceClient();
   const fail = (error: string, retryable = true): JobExecutionResult => ({
@@ -570,11 +571,14 @@ export async function executeAutonomousCycle(
         postId: existingPost.id,
         sourceTitle: existingPost.internal_title,
       });
-      await notifyWorkspaceTelegram(workspace.id, {
-        text: recoveredAutopilot
-          ? "Nunuza recovered an interrupted Autopilot cycle and queued the existing post: " + existingPost.internal_title
-          : "Nunuza recovered an interrupted cycle and saved the existing draft for review: " + existingPost.internal_title + ". Use /drafts in Telegram or open your dashboard.",
-      }, supabase);
+      if (recoveredAutopilot) {
+        await notifyWorkspaceTelegram(workspace.id, {
+          text: "Nunuza recovered an interrupted Autopilot cycle and queued the existing post: " + existingPost.internal_title,
+        }, supabase);
+      } else {
+        // The recovered draft goes out as an image with the review buttons.
+        await notifyWorkspaceTelegramDraft(workspace.id, existingPost, { supabase, browser: browserBinding });
+      }
     }
 
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
@@ -962,9 +966,8 @@ export async function executeAutonomousCycle(
       text: buildCycleNotificationMessage("autopilot"),
     }, supabase);
   } else {
-    await notifyWorkspaceTelegram(workspace.id, {
-      text: buildCycleNotificationMessage("approval_required"),
-    }, supabase);
+    // The draft itself goes out as an image with approve/reject buttons.
+    await notifyWorkspaceTelegramDraft(workspace.id, post, { supabase, browser: browserBinding });
   }
 
   return { jobId: job.id, success: true, status: "succeeded", retryable: false };

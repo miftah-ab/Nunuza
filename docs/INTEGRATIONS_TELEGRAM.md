@@ -28,11 +28,17 @@ Until this gate passes, the Integrations page shows only: "Integration not enabl
 | `/status` | Agent, integration, trial and next-post status |
 | `/pause` | Pause autonomous work |
 | `/resume` | Resume after entitlement/integration checks |
-| `/drafts` | List drafts needing review |
-| `/approve <draft-id>` | Approve a draft when policy allows |
-| `/reject <draft-id>` | Reject a draft with optional feedback |
+| `/drafts` | List drafts needing review, with View / Approve / Reject buttons |
 | `/report` | Recent activity and available performance summary |
 | `/help` | Commands and explanation |
+
+---
+
+## Bot message rules
+
+- **Drafts are always images.** Every draft sent to Telegram (chat-created, dashboard, MCP, autonomous cycle, "View" button) goes through `sendTelegramDraftPreview` / `notifyWorkspaceTelegramDraft`. The post text is never sent as a message. If the image cannot be rendered, the user gets a short notice with the same buttons and an "Open in Nunuza" link.
+- **No typed IDs.** Approve, reject, revise and view are inline buttons. Nothing in the bot asks the user to type `/approve <id>`; typed `/approve` and `/reject` just show the drafts list.
+- **The Menu button** (left of the message box) is filled by `registerBotCommands` (`GET /api/webhooks/telegram` with the webhook secret header). Re-run it after changing the command list.
 
 ---
 
@@ -50,6 +56,6 @@ Until this gate passes, the Integrations page shows only: "Integration not enabl
 ## Implementation notes
 
 - Telegram cannot bypass Approval Required mode.
-- Approval actions require a specific draft ID and confirmation response.
+- Approval actions require a button press on a specific draft and a confirmation step.
 - Notification failures are retried within bounds; they never block a successful publish.
 - If Telegram is unavailable, the dashboard remains fully functional.

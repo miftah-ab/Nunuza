@@ -23,10 +23,25 @@ import { logAuditEvent } from "@/lib/db/workspace";
 import { publishPostToLinkedIn, publishMediaPostToLinkedIn, LinkedInPublishError } from "@/lib/integrations/linkedin/client";
 import { transitionJob, markJobRetryable, markJobTerminal } from "./state";
 import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
+import { escapeMd } from "@/lib/integrations/telegram/markdown";
 import { getPolarService } from "@/lib/integrations/polar/service";
 import type { AgentJob, ContentPost, EntitlementType } from "@/types/database";
 import type { JobExecutionResult, PublishPostPayload } from "./types";
 import { safeJobErrorMessage } from "./error-message";
+
+/**
+ * A Telegram URL button is rejected (and the whole message with it) unless the
+ * link is a public https URL, so only attach it when the app URL qualifies.
+ */
+function nunuzaLinkMarkup(label: string, path: string): { inline_keyboard: Array<Array<{ text: string; url: string }>> } | undefined {
+  const base = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (!base || !base.startsWith("https://")) return undefined;
+  try {
+    return { inline_keyboard: [[{ text: label, url: new URL(path, base).toString() }]] };
+  } catch {
+    return undefined;
+  }
+}
 
 export interface SchedulePostResult {
   job: AgentJob;
@@ -598,10 +613,10 @@ export async function executePublishJob(
       }).catch(() => {});
       notifyWorkspaceTelegram(job.workspace_id, {
         text:
-          `⚠️ **Publication not confirmed**\n\n` +
-          `Post: **${post.internal_title || "LinkedIn Post"}**\n` +
-          `LinkedIn couldn’t confirm whether this post went live. Please check your LinkedIn profile, ` +
-          `then open Nunuza to confirm. It won’t be retried automatically.`,
+          `⚠️ *Publication not confirmed*\n\n` +
+          `Post: *${escapeMd(post.internal_title || "LinkedIn Post")}*\n` +
+          escapeMd(`LinkedIn couldn’t confirm whether this post went live. Please check your LinkedIn profile, then open Nunuza to confirm. It won’t be retried automatically.`),
+        replyMarkup: nunuzaLinkMarkup("📝 Open in Nunuza", "/app/content?post=" + post.id),
       }, supabase).catch(() => {});
       return fail("needs_reconciliation", false, userMessage);
     }
@@ -620,10 +635,10 @@ export async function executePublishJob(
     );
     notifyWorkspaceTelegram(job.workspace_id, {
       text:
-        `⚠️ **Publishing Failed**\n\n` +
-        `Post: **${post.internal_title || "LinkedIn Post"}**\n` +
-        `${userErrorMsg}\n\n` +
-        `Visit your Nunuza dashboard to review and reschedule.`,
+        `⚠️ *Publishing failed*\n\n` +
+        `Post: *${escapeMd(post.internal_title || "LinkedIn Post")}*\n` +
+        `${escapeMd(userErrorMsg)}`,
+      replyMarkup: nunuzaLinkMarkup("📝 Review in Nunuza", "/app/content?post=" + post.id),
     }, supabase).catch(() => {});
     return fail("failed_terminal", false, userErrorMsg);
   }
@@ -673,12 +688,15 @@ export async function executePublishJob(
     safeMetadata: { linkedinPostId: result.linkedinPostId, jobId: job.id },
   }).catch(() => {});
 
+  // The post URN is LinkedIn's internal ID. People never need to read it, so
+  // the message offers a button that opens the live post instead.
   notifyWorkspaceTelegram(job.workspace_id, {
     text:
-      `🚀 **Post Published to LinkedIn!**\n\n` +
-      `Your post is now live:\n` +
-      `**${post.internal_title || "LinkedIn Post"}**\n\n` +
-      `🔗 Post URN: \`${result.linkedinPostId}\``,
+      `🚀 *Post published to LinkedIn\\!*\n\n` +
+      `${escapeMd(post.internal_title || "LinkedIn Post")} is now live\\.`,
+    replyMarkup: {
+      inline_keyboard: [[{ text: "🔗 View on LinkedIn", url: "https://www.linkedin.com/feed/update/" + result.linkedinPostId + "/" }]],
+    },
   }, supabase).catch(() => {});
 
   return {

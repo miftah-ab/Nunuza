@@ -6,7 +6,7 @@
  * 2. Account linking & unlinking bound to authenticated workspaces (telegram_links).
  * 3. Webhook secret validation and replay protection (update_id deduplication).
  * 4. Conversational command processing:
- *    /start, /status, /pause, /resume, /drafts, /approve <id>, /reject <id>, /report, /help, /settings
+ *    /start, /status, /pause, /resume, /drafts, /report, /help, /settings (approve/reject are buttons, never typed IDs)
  * 5. Inline keyboard menus and callback_query handling.
  * 6. Bot command registration via setMyCommands.
  * 7. Strict adherence to spec:
@@ -20,6 +20,10 @@ import crypto from "crypto";
 import { createServiceClient } from "@/lib/supabase/server";
 import { handleTelegramConversation } from "./conversation";
 import { getDraftUsagePeriod } from "@/lib/db/usage";
+import { escapeMd } from "./markdown";
+import { getRequestBrowserBinding, type TelegramBrowserBinding } from "./runtime";
+
+export type { TelegramBrowserBinding } from "./runtime";
 
 // ─── Durable webhook idempotency ──────────────────────────────────────────────
 
@@ -64,9 +68,6 @@ export function verifyTelegramSecret(headerSecret: string | null | undefined): b
 
 // ─── MarkdownV2 Escaping ──────────────────────────────────────────────────────
 
-function escapeMd(text: string): string {
-  return String(text).replace(/[_*[\]()~`>#+=|{}.!\-]/g, "\\$&");
-}
 
 // ─── Telegram API Helpers ─────────────────────────────────────────────────────
 
@@ -167,6 +168,70 @@ function navRow(backData = "menu:main") {
     { text: "⬅️ Back", callback_data: backData },
     { text: "🏠 Main Menu", callback_data: "menu:main" },
   ];
+}
+
+// ─── Draft lists (buttons only: no IDs, no typed commands) ────────────────────
+
+const DRAFT_PAGE_SIZE = 5;
+
+function draftLabel(draft: { internal_title?: string | null }): string {
+  // Never fall back to the post body: draft text is shown only in the image preview.
+  return (draft.internal_title || "Untitled draft").slice(0, 50);
+}
+
+async function buildDraftList(
+  supabase: any,
+  workspaceId: string,
+  statuses: string[],
+  offset: number
+): Promise<{ text: string; markup: any }> {
+  const { data: drafts, error } = await supabase
+    .from("content_posts")
+    .select("id, internal_title, status, created_at")
+    .eq("workspace_id", workspaceId)
+    .in("status", statuses)
+    .order("created_at", { ascending: false })
+    .range(offset, offset + DRAFT_PAGE_SIZE - 1);
+
+  if (error) {
+    return { text: "❌ *Could not load drafts\\.* Please retry\\.", markup: { inline_keyboard: [navRow()] } };
+  }
+  if (!drafts || drafts.length === 0) {
+    return {
+      text: "📝 *No drafts awaiting review\\.*\n\nYour review queue is currently clear\\.",
+      markup: { inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]] },
+    };
+  }
+
+  let text = `📝 *Drafts \\(showing ${offset + 1}\\-${offset + drafts.length}\\)*\n\nTap *View* to see a draft as an image, then approve, reject or ask for changes\\.\n\n`;
+  const buttons: any[] = [];
+  drafts.forEach((d: any, idx: number) => {
+    const statusEmoji = d.status === "needs_review" ? "🔍" : "📄";
+    text += `${offset + idx + 1}\\. ${statusEmoji} *${escapeMd(draftLabel(d))}*\n`;
+    buttons.push([
+      { text: `👁 View #${offset + idx + 1}`, callback_data: `draft:view:${d.id}` },
+      { text: "✅ Approve", callback_data: `draft:approve:${d.id}` },
+      { text: "❌ Reject", callback_data: `draft:reject:${d.id}` },
+    ]);
+  });
+
+  const pagination: any[] = [];
+  if (offset > 0) pagination.push({ text: "⬅️ Prev", callback_data: `draft:prev:${Math.max(0, offset - DRAFT_PAGE_SIZE)}` });
+  if (drafts.length === DRAFT_PAGE_SIZE) pagination.push({ text: "Next ➡️", callback_data: `draft:next:${offset + DRAFT_PAGE_SIZE}` });
+  if (pagination.length > 0) buttons.push(pagination);
+  buttons.push([{ text: "🏠 Main Menu", callback_data: "menu:main" }]);
+
+  return { text: text.trim(), markup: { inline_keyboard: buttons } };
+}
+
+async function loadPostTitle(supabase: any, workspaceId: string, postId: string): Promise<string> {
+  const { data } = await supabase
+    .from("content_posts")
+    .select("internal_title")
+    .eq("id", postId)
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+  return draftLabel(data ?? {});
 }
 
 // ─── Pairing Tokens ───────────────────────────────────────────────────────────
@@ -465,7 +530,7 @@ export async function handleTelegramMessage(
     if (pauseAuditError) console.error("[telegram] Pause audit write failed:", pauseAuditError.code || "database_error");
 
     return {
-      replyText: "⏸️ *Agent Paused*\n\nAutonomous operations are paused\\. Send `/resume` to reactivate\\.",
+      replyText: "⏸️ *Agent Paused*\n\nAutonomous operations are paused\\. Tap Resume to reactivate\\.",
       replyMarkup: {
         inline_keyboard: [
           [{ text: "▶️ Resume", callback_data: "agent:resume" }],
@@ -503,180 +568,11 @@ export async function handleTelegramMessage(
     };
   }
 
-  if (text === "/drafts") {
-    const { data: drafts, error: draftsError } = await supabase
-      .from("content_posts")
-      .select("id, internal_title, text, status, created_at")
-      .eq("workspace_id", workspaceId)
-      .in("status", ["draft", "needs_review"])
-      .order("created_at", { ascending: false })
-      .limit(5);
-
-    if (draftsError) return { replyText: "❌ I couldn't load your drafts. Please try again." };
-    if (!drafts || drafts.length === 0) {
-      return {
-        replyText: "📝 *No drafts awaiting review\\.*\n\nYour review queue is currently clear\\.",
-        replyMarkup: {
-          inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]],
-        },
-      };
-    }
-
-    let response = `📝 *Drafts \\(${drafts.length}\\)*\n\n`;
-    const buttons: any[] = [];
-
-    drafts.forEach((d: any, idx: number) => {
-      const title = escapeMd((d.internal_title || d.text || "Untitled").slice(0, 50));
-      const statusEmoji = d.status === "needs_review" ? "🔍" : "📄";
-      response += `${idx + 1}\\. ${statusEmoji} *${title}*\n   ID: \`${d.id.slice(0, 8)}\`\n\n`;
-      buttons.push([
-        { text: `✅ Approve #${idx + 1}`, callback_data: `draft:approve:${d.id}` },
-        { text: `❌ Reject #${idx + 1}`, callback_data: `draft:reject:${d.id}` },
-      ]);
-    });
-
-    buttons.push([{ text: "🏠 Main Menu", callback_data: "menu:main" }]);
-
-    return {
-      replyText: response.trim(),
-      replyMarkup: { inline_keyboard: buttons },
-    };
-  }
-
-  if (text.startsWith("/approve")) {
-    const parts = text.split(" ");
-    if (parts.length < 2 || !parts[1].trim()) {
-      return {
-        replyText: "⚠️ Please specify a draft ID:\n`/approve <draft-id>`\nUse `/drafts` to list draft IDs\\.",
-      };
-    }
-    const shortId = parts[1].trim();
-    if (shortId.length < 8 || shortId.length > 36) return { replyText: "Please use at least the first 8 characters of the draft ID from /drafts." };
-
-    if (!canPublishEntitlement(entitlement)) {
-      return {
-        replyText:
-          `⛔ **Action Restricted: Subscription or Beta Required**\n\n` +
-          `Your workspace entitlement is \`${entitlement}\`. ` +
-          `An active trial or subscription is required to approve posts.`,
-      };
-    }
-
-    const { data: matches, error: lookupError } = await supabase
-      .from("content_posts")
-      .select("id, status")
-      .eq("workspace_id", workspaceId)
-      .like("id", `${shortId}%`)
-      .limit(2);
-    if (lookupError) return { replyText: "❌ I couldn't find that draft. Please retry." };
-    if ((matches || []).length > 1) return { replyText: "⚠️ That draft ID is ambiguous. Copy more characters from /drafts and retry." };
-    const targetPost = matches?.[0];
-
-    if (!targetPost) {
-      return {
-        replyText: `❌ Draft not found matching ID \`${escapeMd(shortId)}\`\\. Run \`/drafts\` to see active drafts\\.`,
-      };
-    }
-
-    const { data: approvedRows, error: approveErr } = await supabase
-      .from("content_posts")
-      .update({ status: "approved" })
-      .eq("id", targetPost.id)
-      .eq("workspace_id", workspaceId)
-      .in("status", ["draft", "needs_review"])
-      .select("id");
-
-    if (approveErr || !approvedRows || approvedRows.length === 0) {
-      return {
-        replyText: "❌ This draft could not be approved\\. It may already be approved, published or rejected\\. Run `/drafts` to see current drafts\\.",
-      };
-    }
-
-    const { error: approvalSignalError } = await supabase.from("approval_events").insert({
-      workspace_id: workspaceId, post_id: targetPost.id, actor_type: "telegram", action: "approved",
-    });
-    if (approvalSignalError) console.error("[telegram] Approval learning signal failed:", approvalSignalError.message);
-
-    await supabase.from("audit_events").insert({
-      workspace_id: workspaceId,
-      actor_type: "telegram",
-      action: "post_approved",
-      resource_type: "content_post",
-      resource_id: targetPost.id,
-      safe_metadata: { source: "telegram_command" },
-    });
-
-    return {
-      replyText: `✅ **Draft Approved!**\nDraft \`${targetPost.id.slice(0, 8)}\` is approved and ready for scheduling.`,
-      replyMarkup: {
-        inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]],
-      },
-    };
-  }
-
-  if (text.startsWith("/reject")) {
-    const parts = text.split(" ");
-    if (parts.length < 2 || !parts[1].trim()) {
-      return {
-        replyText: "⚠️ Please specify a draft ID:\n`/reject <draft-id> [optional reason]`",
-      };
-    }
-
-    const shortId = parts[1].trim();
-    if (shortId.length < 8 || shortId.length > 36) return { replyText: "Please use at least the first 8 characters of the draft ID from /drafts." };
-    const reason = parts.slice(2).join(" ").trim().slice(0, 500) || "Rejected via Telegram";
-
-    const { data: matches, error: lookupError } = await supabase
-      .from("content_posts")
-      .select("id, status")
-      .eq("workspace_id", workspaceId)
-      .like("id", `${shortId}%`)
-      .limit(2);
-    if (lookupError) return { replyText: "❌ I couldn't find that draft. Please retry." };
-    if ((matches || []).length > 1) return { replyText: "⚠️ That draft ID is ambiguous. Copy more characters from /drafts and retry." };
-    const targetPost = matches?.[0];
-
-    if (!targetPost) {
-      return {
-        replyText: `❌ Draft not found matching ID \`${escapeMd(shortId)}\`\\. Run \`/drafts\` to see active drafts\\.`,
-      };
-    }
-
-    const { data: rejectedRows, error: rejectError } = await supabase
-      .from("content_posts")
-      .update({ status: "rejected" })
-      .eq("id", targetPost.id)
-      .eq("workspace_id", workspaceId)
-      .in("status", ["draft", "needs_review"])
-      .select("id");
-
-    if (rejectError || !rejectedRows?.length) {
-      return {
-        replyText: "❌ This draft could not be rejected. It may already have changed status. Run /drafts to refresh.",
-      };
-    }
-
-    const { error: rejectionSignalError } = await supabase.from("approval_events").insert({
-      workspace_id: workspaceId, post_id: targetPost.id, actor_type: "telegram",
-      action: "rejected", reason,
-    });
-    if (rejectionSignalError) console.error("[telegram] Rejection learning signal failed:", rejectionSignalError.message);
-
-    await supabase.from("audit_events").insert({
-      workspace_id: workspaceId,
-      actor_type: "telegram",
-      action: "post_rejected",
-      resource_type: "content_post",
-      resource_id: targetPost.id,
-      safe_metadata: { reason },
-    });
-
-    return {
-      replyText: `🗑️ *Draft Rejected*\nDraft \`${escapeMd(targetPost.id.slice(0, 8))}\` rejected\\. Reason: _${escapeMd(reason)}_`,
-      replyMarkup: {
-        inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]],
-      },
-    };
+  if (text === "/drafts" || text.startsWith("/approve") || text.startsWith("/reject")) {
+    // Approving and rejecting happen with the buttons on each draft. Nobody
+    // has to type or copy a draft ID, so the old typed forms show the same list.
+    const list = await buildDraftList(supabase, workspaceId, ["draft", "needs_review"], 0);
+    return { replyText: list.text, replyMarkup: list.markup };
   }
 
   if (text === "/report") {
@@ -791,55 +687,39 @@ export async function handleCallbackQuery(
 
   // ── Drafts / Approvals ──
   if (data === "menu:drafts" || data === "menu:approvals" || data.startsWith("draft:prev:") || data.startsWith("draft:next:")) {
-    const offset = data.startsWith("draft:prev:") || data.startsWith("draft:next:")
+    const parsedOffset = data.startsWith("draft:prev:") || data.startsWith("draft:next:")
       ? parseInt(data.split(":")[2] || "0", 10)
       : 0;
-
+    const offset = Number.isSafeInteger(parsedOffset) && parsedOffset > 0 ? parsedOffset : 0;
     const statusFilter = data === "menu:approvals" ? ["needs_review"] : ["draft", "needs_review"];
 
-    const { data: drafts, error: draftsError } = await supabase
-      .from("content_posts")
-      .select("id, internal_title, text, status, created_at")
-      .eq("workspace_id", workspaceId)
-      .in("status", statusFilter)
-      .order("created_at", { ascending: false })
-      .range(offset, offset + 4);
+    const list = await buildDraftList(supabase, workspaceId, statusFilter, offset);
+    await editTelegramMessage(ctx.chatId, ctx.messageId, list.text, list.markup);
+    return;
+  }
 
-    if (draftsError) {
-      await editTelegramMessage(ctx.chatId, ctx.messageId, "❌ *Could not load drafts\\.* Please retry\\.", { inline_keyboard: [navRow()] });
-      return;
-    }
-    if (!drafts || drafts.length === 0) {
+  // ── View a draft as an image ──
+  if (data.startsWith("draft:view:")) {
+    const postId = data.slice("draft:view:".length);
+    const { data: post, error: postError } = await supabase
+      .from("content_posts")
+      .select("id, internal_title, text, status")
+      .eq("id", postId)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+
+    if (postError || !post || !["draft", "needs_review"].includes(post.status)) {
       await editTelegramMessage(
         ctx.chatId,
         ctx.messageId,
-        "📝 *No drafts awaiting review\\.*\n\nYour review queue is currently clear\\.",
-        { inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]] }
+        "This draft is no longer available\\.",
+        { inline_keyboard: [[{ text: "📝 My Drafts", callback_data: "menu:drafts" }]] }
       );
       return;
     }
 
-    let msgText = `📝 *Drafts \\(showing ${offset + 1}\\-${offset + drafts.length}\\)*\n\n`;
-    const buttons: any[] = [];
-
-    drafts.forEach((d: any, idx: number) => {
-      const title = escapeMd((d.internal_title || d.text || "Untitled").slice(0, 50));
-      const statusEmoji = d.status === "needs_review" ? "🔍" : "📄";
-      msgText += `${offset + idx + 1}\\. ${statusEmoji} *${title}*\n   \`${d.id.slice(0, 8)}\`\n\n`;
-      buttons.push([
-        { text: `✅ Approve`, callback_data: `draft:approve:${d.id}` },
-        { text: `❌ Reject`, callback_data: `draft:reject:${d.id}` },
-      ]);
-    });
-
-    // Pagination
-    const pagination: any[] = [];
-    if (offset > 0) pagination.push({ text: "⬅️ Prev", callback_data: `draft:prev:${Math.max(0, offset - 5)}` });
-    if (drafts.length === 5) pagination.push({ text: "Next ➡️", callback_data: `draft:next:${offset + 5}` });
-    if (pagination.length > 0) buttons.push(pagination);
-    buttons.push([{ text: "🏠 Main Menu", callback_data: "menu:main" }]);
-
-    await editTelegramMessage(ctx.chatId, ctx.messageId, msgText.trim(), { inline_keyboard: buttons });
+    const browser = await getRequestBrowserBinding();
+    await sendTelegramDraftPreview(ctx.chatId, post, false, browser, { fastFail: true });
     return;
   }
 
@@ -857,7 +737,7 @@ export async function handleCallbackQuery(
       await editTelegramMessage(
         ctx.chatId,
         ctx.messageId,
-        "This draft is no longer available for revision. Use /drafts to review your current drafts.",
+        "This draft is no longer available for revision\\.",
         { inline_keyboard: [[{ text: "📝 My Drafts", callback_data: "menu:drafts" }]] }
       );
       return;
@@ -886,10 +766,11 @@ export async function handleCallbackQuery(
       return;
     }
 
+    const approveTitle = await loadPostTitle(supabase, workspaceId, postId);
     await editTelegramMessage(
       ctx.chatId,
       ctx.messageId,
-      `✅ *Confirm Approval*\n\nApprove post \`${escapeMd(postId.slice(0, 8))}\` for publishing?`,
+      `✅ *Confirm Approval*\n\nApprove _${escapeMd(approveTitle)}_ for publishing?`,
       {
         inline_keyboard: [
           [
@@ -984,10 +865,11 @@ export async function handleCallbackQuery(
   if (data.startsWith("draft:reject:") && !data.startsWith("draft:reject_confirm:")) {
     const postId = data.replace("draft:reject:", "");
 
+    const rejectTitle = await loadPostTitle(supabase, workspaceId, postId);
     await editTelegramMessage(
       ctx.chatId,
       ctx.messageId,
-      `❌ *Confirm Rejection*\n\nReject post \`${escapeMd(postId.slice(0, 8))}\`? This cannot be undone\\.`,
+      `❌ *Confirm Rejection*\n\nReject _${escapeMd(rejectTitle)}_? This cannot be undone\\.`,
       {
         inline_keyboard: [
           [
@@ -1417,17 +1299,9 @@ export async function handleCallbackQuery(
       ctx.chatId,
       ctx.messageId,
       `❓ *Help*\n\n` +
-      `*Commands:*\n` +
-      `/start \\— Main menu\n` +
-      `/status \\— Agent status\n` +
-      `/drafts \\— Review drafts\n` +
-      `/approve \\<id\\> \\— Approve a draft\n` +
-      `/reject \\<id\\> \\— Reject a draft\n` +
-      `/pause \\— Pause agent\n` +
-      `/resume \\— Resume agent\n` +
-      `/report \\— Performance report\n` +
-      `/settings \\— Account settings\n\n` +
-      `Or use the inline buttons above for a guided experience\\.`,
+      `Send me a message describing the LinkedIn post you want and I will write a draft in your voice\\. ` +
+      `Every draft arrives as an image with buttons to approve, reject or ask for changes\\.\n\n` +
+      `Use the Menu button next to the message box for shortcuts, or the buttons below\\.`,
       { inline_keyboard: [navRow()] }
     );
     return;
@@ -1496,21 +1370,28 @@ export async function sendTelegramMessage(
   }
 }
 
+export interface DraftPreviewOptions {
+  /**
+   * Use short deadlines so the whole delivery, including the fallback notice,
+   * finishes inside the 30 seconds a Worker keeps running after its response
+   * (`waitUntil`). The queue consumer keeps the longer defaults.
+   */
+  fastFail?: boolean;
+}
+
+/**
+ * Sends a draft to Telegram as an IMAGE with the review buttons.
+ *
+ * The draft text itself is never sent as a Telegram message. If the image
+ * cannot be rendered, the user gets a short notice with the same buttons and a
+ * link to the draft in Nunuza instead of the raw text.
+ */
 export async function sendTelegramDraftPreview(
   chatId: number,
   post: { id: string; internal_title?: string | null; text?: string | null },
   revised = false,
-  browserBinding?: {
-    quickAction(
-      action: "screenshot",
-      options: {
-        url: string;
-        viewport?: { width: number; height: number; deviceScaleFactor?: number };
-        screenshotOptions?: { fullPage?: boolean };
-        gotoOptions?: { waitUntil?: "load" | "domcontentloaded" | "networkidle0" | "networkidle2"; timeout?: number };
-      }
-    ): Promise<Response>;
-  }
+  browserBinding?: TelegramBrowserBinding,
+  options: DraftPreviewOptions = {}
 ): Promise<{ ok: boolean; error?: string }> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const signingSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
@@ -1530,26 +1411,39 @@ export async function sendTelegramDraftPreview(
   };
 
   // A saved draft must not be held hostage by image rendering. If Browser
-  // Rendering is unavailable or slow, deliver the actual draft as text and
-  // complete the generation job instead of retrying AI generation.
-  const sendTextFallback = async (reason: string): Promise<{ ok: boolean; error?: string }> => {
-    console.warn("[telegram] Draft image preview unavailable; sending text fallback:", reason);
+  // Rendering is unavailable or slow, tell the user the draft is ready and keep
+  // the review buttons, but never paste the draft text into the chat.
+  const sendUnavailableNotice = async (reason: string): Promise<{ ok: boolean; error?: string }> => {
+    console.warn("[telegram] Draft image preview unavailable; sending notice without draft text:", reason);
     const title = (post.internal_title || "Your LinkedIn draft").slice(0, 120);
-    const draftText = (post.text || "").slice(0, 3000);
+    const keyboard = appUrl?.trim().startsWith("https://")
+      ? {
+          inline_keyboard: [
+            ...replyMarkup.inline_keyboard,
+            [{ text: "📝 Open in Nunuza", url: new URL(`/app/content?post=${encodeURIComponent(post.id)}`, appUrl).toString() }],
+          ],
+        }
+      : replyMarkup;
     const message =
       (revised ? "✏️ Your LinkedIn draft has been revised." : "📝 Your LinkedIn draft is ready.") +
-      "\n\n" + title + "\n\n" + draftText +
-      "\n\nSaved in Nunuza. Nothing has been published. The image preview could not be generated, but your draft is safe.";
-    const delivery = await sendTelegramMessage(chatId, message, replyMarkup);
-    return delivery.ok ? { ok: true } : { ok: false, error: delivery.error || "Could not deliver the saved draft in Telegram." };
+      "\n\n" + title +
+      "\n\nThe image preview is not available right now. Your draft is saved in Nunuza and nothing has been published.";
+    const delivery = await sendTelegramMessage(chatId, escapeMd(message), keyboard);
+    return delivery.ok ? { ok: true } : { ok: false, error: delivery.error || "Could not notify you about the saved draft in Telegram." };
   };
 
   if (!signingSecret?.trim() || !appUrl?.trim()) {
-    return sendTextFallback("preview configuration is incomplete");
+    return sendUnavailableNotice("preview configuration is incomplete");
   }
   if (!browserBinding) {
-    return sendTextFallback("Browser Rendering binding is unavailable");
+    return sendUnavailableNotice("Browser Rendering binding is unavailable");
   }
+
+  const fast = options.fastFail === true;
+  const gotoTimeoutMs = fast ? 12_000 : 45_000;
+  const renderDeadlineMs = fast ? 15_000 : 60_000;
+  const readDeadlineMs = fast ? 4_000 : 15_000;
+  const uploadDeadlineMs = fast ? 8_000 : 20_000;
 
   const withTimeout = async <T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1581,26 +1475,26 @@ export async function sendTelegramDraftPreview(
         // Square canvas: Telegram shows a square photo fully in the chat.
         viewport: { width: 1080, height: 1080 },
         screenshotOptions: { fullPage: true },
-        gotoOptions: { waitUntil: "networkidle0", timeout: 45_000 },
+        gotoOptions: { waitUntil: "networkidle0", timeout: gotoTimeoutMs },
       }),
-      60_000,
+      renderDeadlineMs,
       "Browser Rendering request timed out"
     );
     if (!imageResponse.ok) {
-      return sendTextFallback(`Browser Rendering returned HTTP ${imageResponse.status}`);
+      return sendUnavailableNotice(`Browser Rendering returned HTTP ${imageResponse.status}`);
     }
 
     const imageType = imageResponse.headers.get("content-type") || "";
     if (!imageType.includes("image/")) {
-      return sendTextFallback("Browser Rendering did not return an image");
+      return sendUnavailableNotice("Browser Rendering did not return an image");
     }
     const image = await withTimeout(
       imageResponse.arrayBuffer(),
-      15_000,
+      readDeadlineMs,
       "Reading the rendered image timed out"
     );
     if (image.byteLength === 0 || image.byteLength > 10 * 1024 * 1024) {
-      return sendTextFallback("The rendered image size was invalid");
+      return sendUnavailableNotice("The rendered image size was invalid");
     }
 
     const form = new FormData();
@@ -1617,15 +1511,47 @@ export async function sendTelegramDraftPreview(
     const response = await fetch(TG_API(token, "sendPhoto"), {
       method: "POST",
       body: form,
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(uploadDeadlineMs),
     });
     const result: any = await response.json();
     if (!response.ok || !result?.ok) {
-      return sendTextFallback(result?.description || `Telegram photo upload failed (HTTP ${response.status})`);
+      return sendUnavailableNotice(result?.description || `Telegram photo upload failed (HTTP ${response.status})`);
     }
     return { ok: true };
   } catch (error) {
-    return sendTextFallback(error instanceof Error ? error.message : "Unknown preview delivery error");
+    return sendUnavailableNotice(error instanceof Error ? error.message : "Unknown preview delivery error");
+  }
+}
+
+/**
+ * Sends a draft to the workspace's linked Telegram chat as an image with the
+ * review buttons. Used by every path that creates a draft outside the Telegram
+ * chat itself (dashboard, MCP, autonomous cycle). Resolves the Browser
+ * Rendering binding from the Worker request when the caller does not have one.
+ */
+export async function notifyWorkspaceTelegramDraft(
+  workspaceId: string,
+  post: { id: string; internal_title?: string | null; text?: string | null },
+  options: { revised?: boolean; supabase?: any; browser?: TelegramBrowserBinding; fastFail?: boolean } = {}
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const supabase = options.supabase || createServiceClient();
+    const { data: link, error } = await supabase
+      .from("telegram_links")
+      .select("chat_id")
+      .eq("workspace_id", workspaceId)
+      .is("revoked_at", null)
+      .maybeSingle();
+    if (error || !link?.chat_id) {
+      return { ok: false, error: "No active Telegram link for workspace" };
+    }
+    const browser = options.browser ?? (await getRequestBrowserBinding());
+    return await sendTelegramDraftPreview(link.chat_id, post, options.revised ?? false, browser, {
+      fastFail: options.fastFail,
+    });
+  } catch (err: any) {
+    console.warn(`[telegram] notifyWorkspaceTelegramDraft error for workspace ${workspaceId}:`, err?.message);
+    return { ok: false, error: err?.message || "Draft notification failed" };
   }
 }
 
@@ -1670,8 +1596,6 @@ export async function registerBotCommands(): Promise<{ ok: boolean; description?
     { command: "start", description: "Open main menu" },
     { command: "status", description: "Agent & workspace status" },
     { command: "drafts", description: "Review pending drafts" },
-    { command: "approve", description: "Approve a draft post" },
-    { command: "reject", description: "Reject a draft post" },
     { command: "pause", description: "Pause the agent" },
     { command: "resume", description: "Resume the agent" },
     { command: "report", description: "Monthly performance report" },

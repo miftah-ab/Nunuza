@@ -30,9 +30,12 @@ describe("intelligence cycle notifications", () => {
     const autopilotMessage = buildCycleNotificationMessage("autopilot");
 
     expect(approvalMessage).toContain("draft is ready for your review");
-    expect(approvalMessage).toContain("/drafts");
     expect(autopilotMessage).toContain("queued a LinkedIn post");
-    expect(autopilotMessage).toContain("/drafts");
+
+    // Buttons replace typed commands everywhere in the bot.
+    for (const message of [approvalMessage, autopilotMessage]) {
+      expect(message).not.toMatch(/\/(drafts|approve|reject)/);
+    }
 
     for (const message of [approvalMessage, autopilotMessage]) {
       expect(message).not.toContain("http");
