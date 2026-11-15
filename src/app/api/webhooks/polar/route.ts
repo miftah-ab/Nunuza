@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyPolarWebhookSignature } from "@/lib/integrations/polar/crypto";
 import { PolarService } from "@/lib/integrations/polar/service";
-import type { PolarWebhookEvent } from "@/lib/integrations/polar/types";
+import { normalizePolarWebhookEvent } from "@/lib/integrations/polar/webhook";
 
 export async function POST(req: NextRequest) {
   try {
@@ -30,12 +30,12 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Parse event payload safely
-    let event: PolarWebhookEvent;
+    let event;
     try {
-      event = JSON.parse(rawBody);
+      event = normalizePolarWebhookEvent(JSON.parse(rawBody), headers.id);
     } catch {
       return NextResponse.json(
-        { error: "Bad Request: Malformed JSON payload." },
+        { error: "Bad Request: Malformed or incomplete webhook payload." },
         { status: 400 }
       );
     }
