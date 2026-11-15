@@ -329,6 +329,10 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
     } as any);
     service = new PolarService(polarClient);
     dbTables.workspaces[0].entitlement_type = "paid_active";
+    dbTables.billing_customers.push({
+      workspace_id: WORKSPACE_ID,
+      polar_customer_id: "cust_polar_1",
+    });
     dbTables.subscriptions.push({
       id: "sub-row-1",
       workspace_id: WORKSPACE_ID,
