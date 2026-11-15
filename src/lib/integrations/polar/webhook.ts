@@ -24,7 +24,7 @@ export function normalizePolarWebhookEvent(
   }
 
   const value = payload as PolarWebhookPayload;
-  if (typeof value.type !== "string" || (!value.type.startsWith("subscription.") && !value.type.startsWith("checkout."))) {
+  if (typeof value.type !== "string" || value.type.length === 0 || value.type.length > 120) {
     throw new Error("Polar webhook event type is invalid.");
   }
   if (!value.data || typeof value.data !== "object" || Array.isArray(value.data)) {
