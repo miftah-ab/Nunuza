@@ -124,12 +124,17 @@ export class PolarService {
       }
 
       const subData = event.data as PolarSubscriptionData | null;
-      if (!subData?.id || !subData.customer_id || !subData.product_id || !subData.price_id) {
-        await this.markWebhookEvent(supabase, eventId, "failed", "INVALID_SUBSCRIPTION_DATA");
-        return { status: "failed", reason: "Subscription event is missing required provider fields." };
+      const configuredPriceId = this.polarClient.getMatchingPriceId(
+        subData?.product_id,
+        subData?.prices,
+        subData?.price_id
+      );
+      if (!subData?.id || !subData.customer_id || !subData.product_id || !configuredPriceId) {
+        await this.markWebhookEvent(supabase, eventId, "processed", "UNRELATED_OR_INVALID_OFFER");
+        return { status: "skipped", reason: "Subscription does not match the configured Nunuza offer." };
       }
 
-      if (!this.polarClient.matchesConfiguredOffer(subData.product_id, subData.price_id)) {
+      if (!this.polarClient.matchesConfiguredOffer(subData.product_id, configuredPriceId)) {
         await this.markWebhookEvent(supabase, eventId, "processed", "UNRELATED_PRODUCT_OR_PRICE");
         return { status: "skipped", reason: "Subscription does not match the configured Nunuza offer." };
       }
@@ -245,7 +250,7 @@ export class PolarService {
         workspace_id: workspaceId,
         polar_subscription_id: subData.id,
         product_id: subData.product_id,
-        price_id: subData.price_id,
+        price_id: configuredPriceId,
         status: subData.status,
         trial_start: subData.trial_start,
         trial_end: subData.trial_end,
@@ -341,7 +346,10 @@ export class PolarService {
 
     if (
       liveSubscription?.id !== subscription.polar_subscription_id ||
-      !this.polarClient.matchesConfiguredOffer(liveSubscription?.product_id, liveSubscription?.price_id)
+      !this.polarClient.matchesConfiguredOffer(
+        liveSubscription?.product_id,
+        liveSubscription?.prices ?? liveSubscription?.price_id
+      )
     ) {
       throw new Error("The provider subscription does not match the configured Nunuza offer.");
     }
