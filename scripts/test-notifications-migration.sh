@@ -49,6 +49,7 @@ CREATE TABLE public.content_posts (
   workspace_id uuid NOT NULL REFERENCES public.workspaces(id),
   status public.post_status NOT NULL,
   internal_title text,
+  scheduled_at timestamptz,
   telegram_job_id uuid,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -84,6 +85,7 @@ SQL
 psql -v ON_ERROR_STOP=1 -f supabase/migrations/0020_durable_notifications.sql
 psql -v ON_ERROR_STOP=1 -f supabase/migrations/0021_telegram_job_failure_notifications.sql
 psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261113091500_telegram_stale_failure_message.sql
+psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261115054000_scheduled_post_notifications.sql
 
 psql -v ON_ERROR_STOP=1 <<'SQL'
 INSERT INTO public.profiles(id) VALUES ('00000000-0000-0000-0000-000000000001');
@@ -93,6 +95,9 @@ VALUES ('00000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-00000000
 INSERT INTO public.content_posts(id,workspace_id,status,internal_title)
 VALUES ('00000000-0000-0000-0000-000000000020','00000000-0000-0000-0000-000000000010','needs_review','Test review');
 UPDATE public.content_posts SET status='published' WHERE id='00000000-0000-0000-0000-000000000020';
+
+INSERT INTO public.content_posts(id,workspace_id,status,internal_title,scheduled_at)
+VALUES ('00000000-0000-0000-0000-000000000022','00000000-0000-0000-0000-000000000010','scheduled','Scheduled post',now() + interval '1 hour');
 
 INSERT INTO public.agent_jobs(id,workspace_id,status,job_type)
 VALUES ('00000000-0000-0000-0000-000000000030','00000000-0000-0000-0000-000000000010','queued','other');
@@ -158,12 +163,24 @@ END;
 $telegram_notification_test$;
 
 
+DO $scheduled_notification_test$
+DECLARE v_title text; v_body text;
+BEGIN
+  SELECT title, body INTO v_title, v_body
+    FROM public.notification_events
+   WHERE event_key LIKE 'post:00000000-0000-0000-0000-000000000022:scheduled:%';
+  IF v_title <> 'Your post is scheduled' OR v_body NOT LIKE '% UTC.' THEN
+    RAISE EXCEPTION 'Scheduled post notification is missing its time: %, %', v_title, v_body;
+  END IF;
+END;
+$scheduled_notification_test$;
+
 DO $notification_count_test$
 DECLARE v_count integer;
 BEGIN
   SELECT count(*) INTO v_count FROM public.notification_events;
-  IF v_count <> 10 THEN
-    RAISE EXCEPTION 'Expected 10 notification events, got %', v_count;
+  IF v_count <> 11 THEN
+    RAISE EXCEPTION 'Expected 11 notification events, got %', v_count;
   END IF;
 END;
 $notification_count_test$;
@@ -174,7 +191,7 @@ DO $$
 DECLARE v_count integer;
 BEGIN
   SELECT count(*) INTO v_count FROM public.notification_events;
-  IF v_count <> 10 THEN RAISE EXCEPTION 'Owner cannot read all workspace notifications'; END IF;
+  IF v_count <> 11 THEN RAISE EXCEPTION 'Owner cannot read all workspace notifications'; END IF;
   UPDATE public.notification_events SET read_at=now()
   WHERE workspace_id='00000000-0000-0000-0000-000000000010' AND read_at IS NULL;
 END;
@@ -186,7 +203,7 @@ DECLARE v_count integer;
 BEGIN
   SELECT count(*) INTO v_count
   FROM public.claim_pending_notification_deliveries(50);
-  IF v_count <> 10 THEN RAISE EXCEPTION 'Expected to claim 10 delivery records, got %', v_count; END IF;
+  IF v_count <> 11 THEN RAISE EXCEPTION 'Expected to claim 11 delivery records, got %', v_count; END IF;
 END;
 $$;
 
