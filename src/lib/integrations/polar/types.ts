@@ -52,6 +52,7 @@ export type PolarWebhookEventType =
   | "subscription.active"
   | "subscription.past_due"
   | "subscription.canceled"
+  | "subscription.uncanceled"
   | "subscription.revoked"
   | "checkout.created"
   | "checkout.updated";
