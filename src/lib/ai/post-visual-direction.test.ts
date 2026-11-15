@@ -119,6 +119,7 @@ describe("post visual art direction", () => {
   it("uses paid OpenRouter when Groq is not configured", async () => {
     delete process.env.GROQ_API_KEY;
     process.env.OPENROUTER_API_KEY = "test-openrouter-key";
+    process.env.OPENROUTER_DEFAULT_MODEL = "openrouter/free";
     const fetchMock = vi.fn().mockResolvedValueOnce(providerResponse(validBrief));
     vi.stubGlobal("fetch", fetchMock);
 
