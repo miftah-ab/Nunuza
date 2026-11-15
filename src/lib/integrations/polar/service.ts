@@ -45,11 +45,12 @@ export class PolarService {
         return isFuture(trialEnd) ? "paid_trial" : "inactive";
       case "active":
         return isFuture(currentPeriodEnd) ? "paid_active" : "inactive";
-      // Polar's current past_due state is its recoverable payment-retry/grace
-      // state. Access ends when Polar changes the subscription to unpaid/revoked.
-      // Paid actions fetch the provider state before allowing work to proceed.
+      // Polar's past_due state is recoverable, but benefits may already be
+      // revoked depending on the seller's configured grace-period policy.
+      // Keep drafts readable/editable, but do not grant paid operations until
+      // Polar confirms the subscription is active again.
       case "past_due":
-        return "paid_active";
+        return "draft_only";
       case "canceled":
         return cancelAtPeriodEnd && isFuture(currentPeriodEnd)
           ? "paid_active"
@@ -289,8 +290,8 @@ export class PolarService {
 
   /**
    * Re-fetch the provider's current subscription before any paid operation.
-   * Polar's past_due status represents its configured retry/grace state; the
-   * provider changes it to unpaid/revoked when that grace is exhausted.
+   * A past_due subscription remains in the restricted draft tier because
+   * Polar may revoke benefits during payment recovery depending on seller policy.
    */
   async getVerifiedWorkspaceEntitlement(
     workspaceId: string,
