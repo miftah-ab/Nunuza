@@ -113,6 +113,13 @@ describe("Polar Client & Seller Eligibility", () => {
     });
 
     expect(client.matchesConfiguredOffer("prod_nunuza_solo", "price_29_mo")).toBe(true);
+    // Current Polar subscription payloads expose prices[] rather than price_id.
+    expect(client.matchesConfiguredOffer("prod_nunuza_solo", [
+      { id: "price_29_mo", product_id: "prod_nunuza_solo" },
+    ])).toBe(true);
+    expect(client.matchesConfiguredOffer("prod_nunuza_solo", [
+      { id: "price_other", product_id: "prod_nunuza_solo" },
+    ])).toBe(false);
     expect(client.matchesConfiguredOffer("prod_other", "price_29_mo")).toBe(false);
     expect(client.matchesConfiguredOffer("prod_nunuza_solo", "price_other")).toBe(false);
 
@@ -309,7 +316,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
       id: "sub_polar_100",
       status: "unpaid",
       product_id: "prod_nunuza_solo",
-      price_id: "price_29_mo",
+      prices: [{ id: "price_29_mo", product_id: "prod_nunuza_solo" }],
       customer_id: "cust_polar_1",
       current_period_start: null,
       current_period_end: null,
@@ -393,7 +400,7 @@ describe("Polar Subscription Lifecycle & Entitlement Reconciliation", () => {
         id: "sub_polar_100",
         status: "trialing",
         product_id: "prod_nunuza_solo",
-        price_id: "price_29_mo",
+        prices: [{ id: "price_29_mo", product_id: "prod_nunuza_solo" }],
         customer_id: "cust_polar_1",
         customer: { id: "cust_polar_1", email: "founder@nunuza.test" },
         current_period_start: new Date().toISOString(),
