@@ -8,6 +8,8 @@ const job = (over: Partial<FailedJobRow> = {}): FailedJobRow => ({
   safe_error_message: "Could not verify monthly draft usage.",
   last_error_code: "TERMINAL_ERROR",
   finished_at: "2026-11-15T00:03:37Z",
+  attempt_count: 2,
+  max_attempts: 2,
   ...over,
 });
 
