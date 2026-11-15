@@ -265,6 +265,52 @@ describe("LinkedIn Client & Crypto Suite", () => {
       expect(sentBody.visibility).toBe("PUBLIC");
     });
 
+    it("escapes LinkedIn reserved characters so the post text is not cut off", async () => {
+      const mockSupabase = {
+        from: vi.fn().mockReturnValue({
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                maybeSingle: vi.fn().mockResolvedValue({
+                  data: {
+                    id: "conn-1",
+                    workspace_id: "ws-1",
+                    provider: "linkedin",
+                    status: "connected",
+                    encrypted_token_ref: validEncryptedRef,
+                    external_account_id: validMemberUrn,
+                    granted_scopes: ["w_member_social", "openid", "profile", "email"],
+                    expires_at: new Date(Date.now() + 86400000).toISOString(),
+                    metadata: {},
+                  },
+                  error: null,
+                }),
+              }),
+            }),
+          }),
+        }),
+      };
+
+      const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        headers: new Headers({ "x-restli-id": "urn:li:share:123" }),
+        json: async () => ({}),
+        text: async () => "",
+      } as any);
+
+      await publishPostToLinkedIn({
+        workspaceId: "ws-1",
+        text: "We shipped it (finally).\n\nThe rest of the post #Launch",
+        supabaseOverride: mockSupabase as any,
+      });
+
+      const sentBody = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+      expect(sentBody.commentary).toBe(
+        "We shipped it \\(finally\\).\n\nThe rest of the post {hashtag|\\#|Launch}"
+      );
+    });
+
     it("handles 401/403 authorization failures by updating connection status to expired", async () => {
       const updateMock = vi.fn().mockReturnValue({
         eq: vi.fn().mockResolvedValue({ error: null }),

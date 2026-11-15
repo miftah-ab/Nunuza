@@ -112,7 +112,7 @@ export function isClaimedAgentJobEnvelope(value: unknown): value is AgentJob {
 /** Registered handlers. Each job_type that may be queued must be present here. */
 const handlers: Record<string, JobHandler> = {
   publish_post: (job, supabase) => executePublishJob(job, supabase, { deferJobFinalization: true }),
-  agent_cycle: (job, supabase) => executeAutonomousCycle(job, supabase),
+  agent_cycle: (job, supabase, runtime) => executeAutonomousCycle(job, supabase, runtime?.browser),
   telegram_content_generation: (job, supabase, runtime) => executeTelegramContentJob(job, supabase, runtime?.browser),
 };
 

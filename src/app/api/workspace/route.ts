@@ -150,8 +150,15 @@ export async function PATCH(request: Request) {
       if (typeof body.paused === "boolean") {
         notifyWorkspaceTelegram(workspace.id, {
           text: body.paused
-            ? "⏸️ **Agent Paused**\nAutonomous drafting and operations are paused via web dashboard. Send `/resume` to reactivate."
-            : "▶️ **Agent Resumed**\nAutonomous operations are active.",
+            ? "⏸️ *Agent paused*\nAutonomous drafting and operations are paused from the web dashboard\\. Tap Resume to reactivate\\."
+            : "▶️ *Agent resumed*\nAutonomous operations are active\\.",
+          replyMarkup: {
+            inline_keyboard: [[
+              body.paused
+                ? { text: "▶️ Resume", callback_data: "agent:resume" }
+                : { text: "🤖 Agent Status", callback_data: "menu:agent" },
+            ]],
+          },
         }).catch(() => {});
       }
     }

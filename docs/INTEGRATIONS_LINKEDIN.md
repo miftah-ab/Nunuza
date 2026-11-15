@@ -96,6 +96,8 @@ Content-Type: application/json
 
 **Success response:** HTTP 201; post URN in `x-restli-id` header. This URN must be persisted in `content_posts.linkedin_post_id`.
 
+**`commentary` is "little text", not plain text.** LinkedIn reads these characters as markup: `\ | { } @ [ ] ( ) < > # * _ ~`. Unescaped, they can cut the post off at that point. `src/lib/integrations/linkedin/little-text.ts` (`escapeLinkedInCommentary`) escapes them once, right before the request body is built, and writes `#tag` as the documented hashtag template `{hashtag|\#|tag}` so hashtags stay real hashtags. Both publish paths (text and media posts) must use it. Reference: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/little-text-format
+
 ---
 
 ## Rate limits

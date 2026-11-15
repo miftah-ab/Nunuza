@@ -17,7 +17,8 @@ import { aiService } from "@/lib/ai/service";
 import { checkDraftLimit, reserveDraftUsage, createDraftWithUsage, releaseDraftUsage } from "@/lib/db/usage";
 import { getVoiceProfile, getContentStrategy, logAuditEvent } from "@/lib/db/workspace";
 import { createClient } from "@/lib/supabase/server";
-import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
+import { notifyWorkspaceTelegramDraft } from "@/lib/integrations/telegram/service";
+import { runAfterResponse } from "@/lib/integrations/telegram/runtime";
 import { assertNoExcludedPhrase } from "@/lib/ai/exclusions";
 import { assertVoiceConstraints, VoiceConstraintError } from "@/lib/ai/voice-constraints";
 
@@ -145,22 +146,13 @@ export async function POST(request: Request) {
       },
     });
 
-    // 7. Proactive notification to linked Telegram chat (BED-09)
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const snippet = (post.text || "").slice(0, 140).replace(/\n/g, " ");
-    notifyWorkspaceTelegram(workspace.id, {
-      text:
-        `🔔 **New Draft Ready for Review**\n\n` +
-        `**${post.internal_title || "LinkedIn Draft"}**\n\n` +
-        `"${snippet}..."\n\n` +
-        `• Quick Approve: \`/approve ${post.id.slice(0, 8)}\`\n` +
-        `• Reject: \`/reject ${post.id.slice(0, 8)}\``,
-      replyMarkup: {
-        inline_keyboard: [
-          [{ text: "📝 Review in Nunuza", url: `${appUrl}/app/content` }],
-        ],
-      },
-    }).catch(() => {});
+    // 7. Proactive notification to linked Telegram chat (BED-09). The draft is
+    // sent as an image with approve/reject/revise buttons, never as raw text.
+    // It runs after the response (waitUntil) so a slow render never delays the
+    // dashboard, and a Worker does not cancel it when the response returns.
+    await runAfterResponse(
+      notifyWorkspaceTelegramDraft(workspace.id, post, { fastFail: true })
+    );
 
     return ok({
       post,

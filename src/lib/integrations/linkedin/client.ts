@@ -13,6 +13,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { logAuditEvent } from "@/lib/db/workspace";
 import type { IntegrationConnection } from "@/types/database";
 import { validateLinkedInMedia } from "./media-validation";
+import { escapeLinkedInCommentary } from "./little-text";
 
 export const LINKEDIN_API_VERSION = "202610";
 export const LINKEDIN_SCOPES = ["w_member_social", "openid", "profile", "email"];
@@ -342,7 +343,7 @@ export async function publishPostToLinkedIn(
   // 4. Construct payload for LinkedIn Posts REST API
   const payload = {
     author: memberUrn,
-    commentary: options.text,
+    commentary: escapeLinkedInCommentary(options.text),
     visibility: "PUBLIC",
     distribution: {
       feedDistribution: "MAIN_FEED",
@@ -616,7 +617,7 @@ export async function publishMediaPostToLinkedIn(
     content,
     lifecycleState: "PUBLISHED",
     isReshareDisabledByAuthor: false,
-    commentary: draftText,
+    commentary: escapeLinkedInCommentary(draftText),
   };
 
   let response: Response;
