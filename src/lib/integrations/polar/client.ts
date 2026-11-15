@@ -51,12 +51,26 @@ export class PolarClient {
     return this.priceId;
   }
 
-  matchesConfiguredOffer(productId: string | null | undefined, priceId: string | null | undefined): boolean {
-    return Boolean(
-      this.isConfigured() &&
-      productId === this.productId &&
-      priceId === this.priceId
+  getMatchingPriceId(
+    productId: string | null | undefined,
+    prices?: Array<{ id: string; product_id?: string | null }> | null,
+    legacyPriceId?: string | null
+  ): string | null {
+    if (!this.isConfigured() || productId !== this.productId || !this.priceId) return null;
+    if (legacyPriceId === this.priceId) return this.priceId;
+    const hasConfiguredPrice = prices?.some(
+      (price) => price.id === this.priceId && (!price.product_id || price.product_id === this.productId)
     );
+    return hasConfiguredPrice ? this.priceId : null;
+  }
+
+  matchesConfiguredOffer(
+    productId: string | null | undefined,
+    price: string | Array<{ id: string; product_id?: string | null }> | null | undefined
+  ): boolean {
+    return typeof price === "string"
+      ? this.getMatchingPriceId(productId, null, price) !== null
+      : this.getMatchingPriceId(productId, price ?? null) !== null;
   }
 
   /**
