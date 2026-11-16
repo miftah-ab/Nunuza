@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { aiService } from "@/lib/ai/service";
 import { buildDraftPrompt } from "@/lib/ai/prompts";
 import type { AgentJob } from "@/types/database";
-import { executeTelegramContentJob, handleTelegramConversation, isRevisionRequest } from "./conversation";
+import { executeTelegramContentJob, handleTelegramConversation, isRevisionRequest, resolveActiveDraftId } from "./conversation";
 import { sendTelegramMessage } from "./service";
 
 vi.mock("@/lib/ai/service", () => ({
@@ -385,4 +385,47 @@ describe("Telegram conversational content", () => {
     expect(db.audit[0].action).toBe("telegram_draft_revised");
   });
 
+});
+
+describe("resolveActiveDraftId", () => {
+  function fakeSupabase(rows: Array<{ id: string; updated_at: string; status: string }>) {
+    return {
+      from() {
+        const f: any = { id: undefined, status: undefined };
+        const q: any = {
+          select: () => q,
+          eq: (col: string, v: string) => { if (col === "id") f.id = v; return q; },
+          gte: () => q,
+          order: () => q,
+          limit: () => q,
+          maybeSingle: async () => ({
+            data: f.id
+              ? rows.find((r) => r.id === f.id) ?? null
+              : [...rows].filter((r) => r.status === "draft").sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0] ?? null,
+          }),
+        };
+        return q;
+      },
+    };
+  }
+  const now = Date.now();
+  const iso = (msAgo: number) => new Date(now - msAgo).toISOString();
+
+  it("uses a newer web draft over the chat's older active draft", async () => {
+    const supabase = fakeSupabase([
+      { id: "old", updated_at: iso(3_600_000), status: "draft" },
+      { id: "web", updated_at: iso(60_000), status: "draft" },
+    ]);
+    expect(await resolveActiveDraftId({ supabase, workspaceId: "w" } as any, "old")).toBe("web");
+  });
+
+  it("keeps the chat's draft when it is the newest", async () => {
+    const supabase = fakeSupabase([{ id: "chat", updated_at: iso(60_000), status: "draft" }]);
+    expect(await resolveActiveDraftId({ supabase, workspaceId: "w" } as any, "chat")).toBe("chat");
+  });
+
+  it("finds a web draft when the chat has none", async () => {
+    const supabase = fakeSupabase([{ id: "web", updated_at: iso(60_000), status: "draft" }]);
+    expect(await resolveActiveDraftId({ supabase, workspaceId: "w" } as any, undefined)).toBe("web");
+  });
 });
