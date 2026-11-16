@@ -21,6 +21,7 @@ import {
 import { enqueueAutonomousCycles } from "@/lib/jobs/intelligence";
 import { dispatchPendingNotifications } from "@/lib/notifications/dispatcher";
 import { alertFailedJobs } from "@/lib/ops/failure-alerts";
+import { sendReviewReminders } from "@/lib/jobs/review-reminders";
 import type { AgentJob } from "@/types/database";
 
 // Preserve OpenNext's Durable Object exports when its generated worker uses them.
@@ -130,6 +131,14 @@ export default {
               await alertFailedJobs();
             } catch (error) {
               console.error("[worker-scheduled] Failure alert pass failed:", error);
+            }
+          }
+
+          if (scheduledMinute % 5 === 4) {
+            try {
+              await sendReviewReminders({ browser: env.BROWSER });
+            } catch (error) {
+              console.error("[worker-scheduled] Review reminder pass failed:", error);
             }
           }
 

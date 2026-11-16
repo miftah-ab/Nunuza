@@ -21,6 +21,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { handleTelegramConversation } from "./conversation";
 import { getDraftUsagePeriod } from "@/lib/db/usage";
 import { escapeMd } from "./markdown";
+import { scheduleApprovedPost, cancelScheduledPostByAgent, formatScheduledTime, APPROVAL_LEAD_MS } from "@/lib/jobs/agent-scheduling";
 import { getRequestBrowserBinding, type TelegramBrowserBinding } from "./runtime";
 
 export type { TelegramBrowserBinding } from "./runtime";
@@ -848,10 +849,43 @@ export async function handleCallbackQuery(
     });
 
     const title = escapeMd((post.internal_title || "Post").slice(0, 40));
+    // Approval means "publish this": put it on the next preferred slot instead
+    // of leaving it parked. The user can still cancel from the buttons below.
+    const { data: ownerRow } = await supabase.from("workspaces").select("owner_user_id").eq("id", workspaceId).maybeSingle();
+    const scheduled = ownerRow?.owner_user_id
+      ? await scheduleApprovedPost(supabase, {
+          workspaceId, ownerUserId: ownerRow.owner_user_id, postId: post.id,
+          minLeadMs: APPROVAL_LEAD_MS, autopilot: false,
+        })
+      : { ok: false as const, reason: "WORKSPACE_ACCESS_DENIED" };
+    if (scheduled.ok) {
+      await supabase.from("audit_events").insert({
+        workspace_id: workspaceId, actor_type: "telegram", action: "schedule_post",
+        resource_type: "content_post", resource_id: post.id,
+        safe_metadata: { source: "telegram_callback", scheduledFor: scheduled.scheduledFor },
+      });
+      await editTelegramMessage(
+        ctx.chatId,
+        ctx.messageId,
+        `✅ *Approved\\!*\n\n_${title}_ will be published on ${escapeMd(formatScheduledTime(scheduled.scheduledFor, scheduled.timezone))}\\.`,
+        {
+          inline_keyboard: [
+            [{ text: "🛑 Cancel schedule", callback_data: `post:cancel:${post.id}` }],
+            [{ text: "📝 More Drafts", callback_data: "menu:drafts" }, { text: "🏠 Menu", callback_data: "menu:main" }],
+          ],
+        }
+      );
+      return;
+    }
+    const whyNot: Record<string, string> = {
+      DAILY_CAP_REACHED: "your daily posting limit is reached",
+      WEEKLY_CAP_REACHED: "your 7\\-day posting limit is reached",
+      WORKSPACE_PAUSED: "Nunuza is paused",
+    };
     await editTelegramMessage(
       ctx.chatId,
       ctx.messageId,
-      `✅ *Approved\\!*\n\n_${title}_ is approved and ready for scheduling\\.`,
+      `✅ *Approved\\!*\n\n_${title}_ is approved but was not scheduled${whyNot[scheduled.reason] ? ": " + whyNot[scheduled.reason] : ""}\\. You can schedule it from the dashboard\\.`,
       {
         inline_keyboard: [
           [{ text: "📝 More Drafts", callback_data: "menu:drafts" }, { text: "🏠 Menu", callback_data: "menu:main" }],
@@ -1076,6 +1110,42 @@ export async function handleCallbackQuery(
     return;
   }
 
+  // ── Stop an Autopilot post before it publishes ──
+  if (data.startsWith("draft:stop:")) {
+    const postId = data.slice("draft:stop:".length);
+    const { data: post } = await supabase
+      .from("content_posts").select("id, status, internal_title")
+      .eq("id", postId).eq("workspace_id", workspaceId).maybeSingle();
+    const back = { inline_keyboard: [[{ text: "📝 Drafts", callback_data: "menu:drafts" }, { text: "🏠 Menu", callback_data: "menu:main" }]] };
+    if (!post) {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, "❌ *Post not found\\.*", back);
+      return;
+    }
+    if (post.status === "published" || post.status === "publishing") {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, "⚠️ *Too late to stop\\.* This post is already live or being published\\.", back);
+      return;
+    }
+    const stopped = post.status === "scheduled"
+      ? await cancelScheduledPostByAgent(supabase, workspaceId, postId)
+      : { ok: post.status === "approved" || post.status === "needs_review" };
+    if (!stopped.ok) {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, "⚠️ *Too late to stop\\.* This post is already being published\\.", back);
+      return;
+    }
+    // Back to review so it can be edited, approved or rejected later.
+    await supabase.from("content_posts").update({ status: "needs_review", scheduled_at: null })
+      .eq("id", postId).eq("workspace_id", workspaceId).eq("status", "approved");
+    await supabase.from("audit_events").insert({
+      workspace_id: workspaceId, actor_type: "telegram", action: "autopilot_post_stopped",
+      resource_type: "content_post", resource_id: postId, safe_metadata: { source: "telegram_callback" },
+    });
+    const title = escapeMd((post.internal_title || "Post").slice(0, 40));
+    await editTelegramMessage(ctx.chatId, ctx.messageId,
+      `🛑 *Stopped\\.* _${title}_ will not be published\\. It is back in your drafts\\.`,
+      { inline_keyboard: [[{ text: "👁 View draft", callback_data: `draft:view:${postId}` }], [{ text: "🏠 Menu", callback_data: "menu:main" }]] });
+    return;
+  }
+
   // ── Cancel Scheduled Post ──
   if (data.startsWith("post:cancel:")) {
     const postId = data.replace("post:cancel:", "");
@@ -1097,16 +1167,11 @@ export async function handleCallbackQuery(
       return;
     }
 
-    const { data: canceledRows, error: cancelError } = await supabase
-      .from("content_posts")
-      .update({ status: "approved", scheduled_at: null })
-      .eq("id", postId)
-      .eq("workspace_id", workspaceId)
-      .eq("status", "scheduled")
-      .select("id");
-
-    if (cancelError || !canceledRows?.length) {
-      await editTelegramMessage(ctx.chatId, ctx.messageId, "❌ *Could not cancel this schedule\\.* Refresh the schedule and try again\\.", { inline_keyboard: [[{ text: "📅 Schedule", callback_data: "menu:schedule" }]] });
+    const canceled = await cancelScheduledPostByAgent(supabase, workspaceId, postId);
+    if (!canceled.ok) {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, canceled.reason === "JOB_NOT_CANCELLABLE"
+        ? "⚠️ *Too late to cancel\\.* This post is already being published\\."
+        : "❌ *Could not cancel this schedule\\.* Refresh the schedule and try again\\.", { inline_keyboard: [[{ text: "📅 Schedule", callback_data: "menu:schedule" }]] });
       return;
     }
 
@@ -1372,6 +1437,11 @@ export async function sendTelegramMessage(
 
 export interface DraftPreviewOptions {
   /**
+   * Set when the agent has already scheduled this post (Autopilot). The
+   * buttons become Stop / Request Changes and the caption states the time.
+   */
+  scheduledLabel?: string;
+  /**
    * Use short deadlines so the whole delivery, including the fallback notice,
    * finishes inside the 30 seconds a Worker keeps running after its response
    * (`waitUntil`). The queue consumer keeps the longer defaults.
@@ -1400,15 +1470,23 @@ export async function sendTelegramDraftPreview(
     return { ok: false, error: "Telegram bot is not configured." };
   }
 
-  const replyMarkup = {
-    inline_keyboard: [
-      [
-        { text: "✅ Approve & Publish", callback_data: `draft:approve:${post.id}` },
-        { text: "❌ Reject", callback_data: `draft:reject:${post.id}` },
-      ],
-      [{ text: "✏️ Request Changes", callback_data: `draft:revise:${post.id}` }],
-    ],
-  };
+  const scheduledLabel = options.scheduledLabel;
+  const replyMarkup = scheduledLabel
+    ? {
+        inline_keyboard: [
+          [{ text: "🛑 Stop — don't publish", callback_data: `draft:stop:${post.id}` }],
+          [{ text: "✏️ Request Changes", callback_data: `draft:revise:${post.id}` }],
+        ],
+      }
+    : {
+        inline_keyboard: [
+          [
+            { text: "✅ Approve & Publish", callback_data: `draft:approve:${post.id}` },
+            { text: "❌ Reject", callback_data: `draft:reject:${post.id}` },
+          ],
+          [{ text: "✏️ Request Changes", callback_data: `draft:revise:${post.id}` }],
+        ],
+      };
 
   // A saved draft must not be held hostage by image rendering. If Browser
   // Rendering is unavailable or slow, tell the user the draft is ready and keep
@@ -1424,10 +1502,12 @@ export async function sendTelegramDraftPreview(
           ],
         }
       : replyMarkup;
-    const message =
-      (revised ? "✏️ Your LinkedIn draft has been revised." : "📝 Your LinkedIn draft is ready.") +
-      "\n\n" + title +
-      "\n\nThe image preview is not available right now. Your draft is saved in Nunuza and nothing has been published.";
+    const message = scheduledLabel
+      ? "🕐 Nunuza will publish this LinkedIn post on " + scheduledLabel + ".\n\n" + title +
+        "\n\nThe image preview is not available right now. Tap Stop if you do not want it published."
+      : (revised ? "✏️ Your LinkedIn draft has been revised." : "📝 Your LinkedIn draft is ready.") +
+        "\n\n" + title +
+        "\n\nThe image preview is not available right now. Your draft is saved in Nunuza and nothing has been published.";
     const delivery = await sendTelegramMessage(chatId, escapeMd(message), keyboard);
     return delivery.ok ? { ok: true } : { ok: false, error: delivery.error || "Could not notify you about the saved draft in Telegram." };
   };
@@ -1502,9 +1582,11 @@ export async function sendTelegramDraftPreview(
     form.append("photo", new Blob([image], { type: imageType }), "nunuza-draft.png");
     form.append(
       "caption",
-      revised
-        ? "✏️ Your LinkedIn draft has been revised.\nSaved as a draft. Nothing has been published."
-        : "📝 Your LinkedIn draft is ready.\nSaved as a draft. Nothing has been published."
+      scheduledLabel
+        ? `🕐 Scheduled to publish on ${scheduledLabel}.\nTap Stop if you do not want it published.`
+        : revised
+          ? "✏️ Your LinkedIn draft has been revised.\nSaved as a draft. Nothing has been published."
+          : "📝 Your LinkedIn draft is ready.\nSaved as a draft. Nothing has been published."
     );
     form.append("reply_markup", JSON.stringify(replyMarkup));
 
@@ -1532,7 +1614,7 @@ export async function sendTelegramDraftPreview(
 export async function notifyWorkspaceTelegramDraft(
   workspaceId: string,
   post: { id: string; internal_title?: string | null; text?: string | null },
-  options: { revised?: boolean; supabase?: any; browser?: TelegramBrowserBinding; fastFail?: boolean } = {}
+  options: { revised?: boolean; supabase?: any; browser?: TelegramBrowserBinding; fastFail?: boolean; scheduledLabel?: string } = {}
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const supabase = options.supabase || createServiceClient();
@@ -1548,6 +1630,7 @@ export async function notifyWorkspaceTelegramDraft(
     const browser = options.browser ?? (await getRequestBrowserBinding());
     return await sendTelegramDraftPreview(link.chat_id, post, options.revised ?? false, browser, {
       fastFail: options.fastFail,
+      scheduledLabel: options.scheduledLabel,
     });
   } catch (err: any) {
     console.warn(`[telegram] notifyWorkspaceTelegramDraft error for workspace ${workspaceId}:`, err?.message);

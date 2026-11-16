@@ -604,7 +604,7 @@ Every agent-state transition must be validated server-side and recorded. Use exp
     - `/pause`: pause autonomous work
     - `/resume`: resume after checks
     - `/drafts`: list drafts needing review
-    - `/approve <draft-id>`: approve a specific draft when policy allows
+    - Approving is done with the buttons under each draft image (no typed draft IDs)
     - `/reject <draft-id>`: reject a draft and optionally collect feedback
     - `/report`: recent activity and available performance summary
     - `/help`: commands and explanation
