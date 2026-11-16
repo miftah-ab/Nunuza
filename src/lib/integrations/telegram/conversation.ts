@@ -59,6 +59,32 @@ export function isRevisionRequest(text: string, hasActiveDraft: boolean): boolea
   return true;
 }
 
+const ACTIVE_DRAFT_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+/**
+ * Picks the draft that a follow-up message refers to: the most recently
+ * updated open draft of the workspace (within 48 hours), or the draft this chat
+ * is already working on when that one is at least as recent.
+ */
+export async function resolveActiveDraftId(input: TelegramConversationInput, chatActiveId?: string): Promise<string | undefined> {
+  try {
+    const { data: latest } = await input.supabase.from("content_posts")
+      .select("id, updated_at")
+      .eq("workspace_id", input.workspaceId).eq("status", "draft")
+      .gte("updated_at", new Date(Date.now() - ACTIVE_DRAFT_WINDOW_MS).toISOString())
+      .order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    if (!latest?.id) return chatActiveId;
+    if (!chatActiveId || chatActiveId === latest.id) return latest.id;
+    const { data: current } = await input.supabase.from("content_posts")
+      .select("id, updated_at, status")
+      .eq("workspace_id", input.workspaceId).eq("id", chatActiveId).maybeSingle();
+    if (current?.status === "draft" && Date.parse(current.updated_at) >= Date.parse(latest.updated_at)) return chatActiveId;
+    return latest.id;
+  } catch {
+    return chatActiveId;
+  }
+}
+
 function readConversationState(value: unknown): ConversationState {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const state = value as Record<string, unknown>;
@@ -237,12 +263,17 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
       return { replyText: "Ready for a new post. Tell me what you want to write about." };
     }
 
-    const isRevision = isRevisionRequest(text, Boolean(state.activePostId));
+    // The draft being discussed is the newest open draft in the workspace, not
+    // only one created in this chat. Drafts made on the web, by the daily agent
+    // or through MCP arrive here as an image, and "make it shorter" must edit
+    // that draft instead of starting a new post about "make it shorter".
+    const activePostId = await resolveActiveDraftId(input, state.activePostId);
+    const isRevision = isRevisionRequest(text, Boolean(activePostId));
     let existingPost: any = null;
-    if (isRevision && state.activePostId) {
+    if (isRevision && activePostId) {
       const { data, error } = await input.supabase.from("content_posts")
         .select("id, text, internal_title, pillar, version, status")
-        .eq("workspace_id", input.workspaceId).eq("id", state.activePostId).maybeSingle();
+        .eq("workspace_id", input.workspaceId).eq("id", activePostId).maybeSingle();
       if (error) throw new Error("Could not load the active draft.");
       if (data?.status === "draft") existingPost = data;
       else {
@@ -267,7 +298,7 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
     };
     const jobId = crypto.randomUUID();
     const nextState: ConversationState = {
-      ...(state.activePostId ? { activePostId: state.activePostId } : {}),
+      ...(existingPost ? { activePostId: existingPost.id } : state.activePostId ? { activePostId: state.activePostId } : {}),
       topic,
       ...(payload.pillar ? { pillar: payload.pillar } : {}),
       updatedAt: new Date().toISOString(),

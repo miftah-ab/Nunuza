@@ -1498,6 +1498,7 @@ export async function sendTelegramDraftPreview(
       ? {
           inline_keyboard: [
             ...replyMarkup.inline_keyboard,
+            [{ text: "🖼 Show image preview", callback_data: `draft:view:${post.id}` }],
             [{ text: "📝 Open in Nunuza", url: new URL(`/app/content?post=${encodeURIComponent(post.id)}`, appUrl).toString() }],
           ],
         }
@@ -1520,10 +1521,13 @@ export async function sendTelegramDraftPreview(
   }
 
   const fast = options.fastFail === true;
-  const gotoTimeoutMs = fast ? 12_000 : 45_000;
-  const renderDeadlineMs = fast ? 15_000 : 60_000;
-  const readDeadlineMs = fast ? 4_000 : 15_000;
-  const uploadDeadlineMs = fast ? 8_000 : 20_000;
+  // "fast" is for request-scoped work (dashboard, MCP, webhook) that a Worker
+  // cuts off ~30s after the response. A cold browser needs more than the old
+  // 15s, which is why web drafts fell back to the "preview not available" notice.
+  const gotoTimeoutMs = fast ? 18_000 : 45_000;
+  const renderDeadlineMs = fast ? 23_000 : 60_000;
+  const readDeadlineMs = fast ? 2_000 : 15_000;
+  const uploadDeadlineMs = fast ? 4_000 : 20_000;
 
   const withTimeout = async <T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
     let timer: ReturnType<typeof setTimeout> | undefined;
