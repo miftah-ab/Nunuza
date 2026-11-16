@@ -8,6 +8,7 @@
 
 import { createServiceClient } from "@/lib/supabase/server";
 import { aiService } from "@/lib/ai/service";
+import { notifyAgentSkip } from "@/lib/notifications/agent-alerts";
 import { checkDraftAgainstSource } from "@/lib/ai/draft-check";
 import { assertVoiceConstraints, VoiceConstraintError } from "@/lib/ai/voice-constraints";
 import { notifyWorkspaceTelegram, notifyWorkspaceTelegramDraft, type TelegramBrowserBinding } from "@/lib/integrations/telegram/service";
@@ -400,6 +401,9 @@ async function recordAgentEvent(
     safe_metadata: metadata,
   });
   if (error) throw new Error("Could not persist agent decision: " + error.message);
+  if (action === "agent_cycle_decision" && metadata.decision === "no_op") {
+    await notifyAgentSkip(supabase, workspaceId, metadata.reason, String(metadata.cycleDate ?? new Date().toISOString().slice(0, 10)));
+  }
 }
 
 export async function enqueueAutonomousCycles(supabaseOverride?: any): Promise<{ queued: number; skipped: number }> {

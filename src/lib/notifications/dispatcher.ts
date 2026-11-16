@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { notifyWorkspaceTelegram } from "@/lib/integrations/telegram/service";
+import { createLinkedInExpiryNotifications } from "./agent-alerts";
 import { decryptSubscriptionValue } from "./subscription-crypto";
 import { sendWebPush } from "./web-push";
 
@@ -18,6 +19,15 @@ export function classifyTelegramDeliveryError(
   ) return "permanent_link";
   if (/not configured|unauthorized|invalid bot token/.test(message)) return "configuration";
   return "transient";
+}
+
+/**
+ * These events already reach Telegram as the draft image with buttons (agent
+ * drafts, Autopilot previews, Telegram approvals), so the generic text
+ * message would only be a duplicate. They stay in the inbox and push.
+ */
+export function isCoveredByTelegramDraftMessage(title: string): boolean {
+  return title === "A post is ready for your approval" || title === "Your post is scheduled";
 }
 
 function retryAt(attempt: number): string {
@@ -59,6 +69,7 @@ async function createUpcomingScheduledNotifications(db: ReturnType<typeof create
 export async function dispatchPendingNotifications(limit = 50): Promise<{ processed: number; failed: number }> {
   const db = createServiceClient();
   await createUpcomingScheduledNotifications(db);
+  await createLinkedInExpiryNotifications(db);
   const { data: events, error } = await db.rpc("claim_pending_notification_deliveries", { p_limit: limit });
   if (error) throw new Error("Could not claim pending notifications.");
   let processed = 0;
@@ -147,7 +158,9 @@ export async function dispatchPendingNotifications(limit = 50): Promise<{ proces
       }
     }
 
-    if (event.priority !== "normal" && event.telegram_status === "pending") {
+    if (event.telegram_status === "pending" && isCoveredByTelegramDraftMessage(event.title)) {
+      updates.telegram_status = "skipped";
+    } else if (event.priority !== "normal" && event.telegram_status === "pending") {
       const { data: link, error: linkError } = await db.from("telegram_links")
         .select("chat_id").eq("workspace_id", event.workspace_id).is("revoked_at", null).maybeSingle();
       if (linkError) {
