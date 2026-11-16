@@ -132,6 +132,45 @@ export function parseResearchFeed(xml: string, now = Date.now()): ResearchItem[]
   return items;
 }
 
+/**
+ * Bing News RSS: same idea as the Google feed, but the link is a Bing click
+ * URL that carries the real article in its `url` parameter, and the publisher
+ * name is in <News:Source>.
+ */
+export function parseBingFeed(xml: string, now = Date.now()): ResearchItem[] {
+  const items: ResearchItem[] = [];
+  const itemPattern = /<item(?:\s[^>]*)?>([\s\S]*?)<\/item>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = itemPattern.exec(xml)) && items.length < MAX_FEED_ITEMS) {
+    const block = match[1];
+    const title = tagValue(block, "title");
+    const link = tagValue(block, "link");
+    const description = tagValue(block, "description");
+    const source = tagValue(block, "News:Source");
+    const timestamp = Date.parse(tagValue(block, "pubDate"));
+    if (!title || !source || description.length < 35 || !Number.isFinite(timestamp)) continue;
+    if (timestamp > now + 60 * 60 * 1000 || now - timestamp > RESEARCH_MAX_AGE_MS) continue;
+    let articleUrl: URL;
+    try {
+      const wrapper = new URL(link);
+      articleUrl = new URL(wrapper.searchParams.get("url") ?? link);
+    } catch {
+      continue;
+    }
+    if (articleUrl.protocol !== "https:" || /(^|\.)bing\.com$/i.test(articleUrl.hostname)) continue;
+    items.push({
+      title: title.slice(0, 240),
+      url: articleUrl.toString(),
+      sourceUrl: articleUrl.origin + "/",
+      source: source.slice(0, 100),
+      evidence: description.slice(0, 1200),
+      publishedAt: new Date(timestamp).toISOString(),
+      retrievedAt: new Date(now).toISOString(),
+    });
+  }
+  return items;
+}
+
 function tokens(value: string): string[] {
   const stop = new Set([
     "about", "after", "again", "also", "and", "are", "for", "from", "how",
@@ -347,18 +386,45 @@ export function buildEvergreenOpportunity(
 const RESEARCH_TIMEOUT_MS = 20_000;
 const RESEARCH_ATTEMPTS = 2;
 
-async function fetchResearchOnce(query: string): Promise<ResearchItem[]> {
-  const url = new URL("https://news.google.com/rss/search");
-  url.searchParams.set("q", query);
-  url.searchParams.set("hl", "en-US");
-  url.searchParams.set("gl", "US");
-  url.searchParams.set("ceid", "US:en");
+interface NewsProvider {
+  name: string;
+  buildUrl(query: string): string;
+  parse(xml: string): ResearchItem[];
+}
+
+export const NEWS_PROVIDERS: NewsProvider[] = [
+  {
+    name: "google",
+    buildUrl(query) {
+      const url = new URL("https://news.google.com/rss/search");
+      url.searchParams.set("q", query);
+      url.searchParams.set("hl", "en-US");
+      url.searchParams.set("gl", "US");
+      url.searchParams.set("ceid", "US:en");
+      return url.toString();
+    },
+    parse: (xml) => parseResearchFeed(xml),
+  },
+  {
+    name: "bing",
+    buildUrl(query) {
+      const url = new URL("https://www.bing.com/news/search");
+      url.searchParams.set("q", query);
+      url.searchParams.set("format", "rss");
+      url.searchParams.set("setlang", "en-US");
+      return url.toString();
+    },
+    parse: (xml) => parseBingFeed(xml),
+  },
+];
+
+async function fetchFromProvider(provider: NewsProvider, query: string): Promise<ResearchItem[]> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), RESEARCH_TIMEOUT_MS);
   try {
-    // Google News answers anonymous Worker requests (no browser-like headers)
+    // News sites answer anonymous Worker requests (no browser-like headers)
     // with errors far more often than identified ones, so identify the bot.
-    const response = await fetch(url.toString(), {
+    const response = await fetch(provider.buildUrl(query), {
       headers: {
         Accept: "application/rss+xml, application/xml, text/xml",
         "Accept-Language": "en-US,en;q=0.9",
@@ -367,15 +433,44 @@ async function fetchResearchOnce(query: string): Promise<ResearchItem[]> {
       redirect: "follow",
       signal: controller.signal,
     });
-    if (!response.ok) throw new Error("Research provider returned HTTP " + response.status);
-    const xml = await response.text();
-    return parseResearchFeed(xml);
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    return provider.parse(await response.text());
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") throw new Error("Research provider timed out");
+    if (error instanceof Error && error.name === "AbortError") throw new Error("timed out");
     throw error;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/**
+ * Tries each news provider in turn. Returns the first non-empty result; an
+ * empty result from a provider that answered is fine. Throws (naming every
+ * provider's failure) only when none of them answered.
+ */
+export async function fetchResearchFromProviders(
+  query: string,
+  providers: Array<{ name: string; fetch: (query: string) => Promise<ResearchItem[]> }>
+): Promise<ResearchItem[]> {
+  const failures: string[] = [];
+  let answered = false;
+  for (const provider of providers) {
+    try {
+      const items = await provider.fetch(query);
+      answered = true;
+      if (items.length > 0) return items;
+    } catch (error) {
+      failures.push(provider.name + ": " + (error instanceof Error ? error.message : "failed"));
+    }
+  }
+  if (answered) return [];
+  throw new Error(failures.join("; ") || "no news provider configured");
+}
+
+function fetchResearchOnce(query: string): Promise<ResearchItem[]> {
+  return fetchResearchFromProviders(query, NEWS_PROVIDERS.map((provider) => ({
+    name: provider.name, fetch: (q: string) => fetchFromProvider(provider, q),
+  })));
 }
 
 /** A slow or briefly failing news provider must not cost a customer their daily run. */

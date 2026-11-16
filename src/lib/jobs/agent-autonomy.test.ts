@@ -58,3 +58,36 @@ describe("agent scheduling", () => {
     expect(formatScheduledTime("2026-11-17T09:00:00.000Z", "Africa/Addis_Ababa")).toContain("12:00");
   });
 });
+
+import { parseBingFeed, fetchResearchFromProviders } from "./intelligence";
+
+const NOW = Date.parse("2026-11-16T09:00:00Z");
+const bingXml = `<rss><channel><item>
+<title>Freight rates climb as ports clog</title>
+<link>http://www.bing.com/news/apiclick.aspx?ref=FexRss&amp;aid=&amp;tid=1&amp;url=https%3a%2f%2fwww.example-news.com%2Ffreight-rates&amp;c=1</link>
+<description>Container freight rates rose sharply this week as congestion at major ports continued to delay shipments.</description>
+<pubDate>Mon, 16 Nov 2026 06:00:00 GMT</pubDate>
+<News:Source>Example News</News:Source>
+</item><item>
+<title>Too old</title><link>http://www.bing.com/news/apiclick.aspx?url=https%3a%2f%2fold.example.com%2Fa</link>
+<description>This description is long enough to pass the minimum length check easily.</description>
+<pubDate>Mon, 01 Jun 2026 06:00:00 GMT</pubDate><News:Source>Old</News:Source></item></channel></rss>`;
+
+describe("Bing news fallback", () => {
+  it("extracts the real article URL and publisher", () => {
+    const items = parseBingFeed(bingXml, NOW);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      url: "https://www.example-news.com/freight-rates", sourceUrl: "https://www.example-news.com/", source: "Example News",
+    });
+  });
+
+  it("uses the next provider when one fails, and names all failures when none answer", async () => {
+    const item = parseBingFeed(bingXml, NOW);
+    const down = { name: "google", fetch: async () => { throw new Error("HTTP 429"); } };
+    expect(await fetchResearchFromProviders("q", [down, { name: "bing", fetch: async () => item }])).toEqual(item);
+    await expect(fetchResearchFromProviders("q", [down, { name: "bing", fetch: async () => { throw new Error("timed out"); } }]))
+      .rejects.toThrow("google: HTTP 429; bing: timed out");
+    expect(await fetchResearchFromProviders("q", [down, { name: "bing", fetch: async () => [] }])).toEqual([]);
+  });
+});
