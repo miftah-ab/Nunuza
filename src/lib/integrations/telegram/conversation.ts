@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { classifyTelegramIntent } from "./intent";
 import { aiService } from "@/lib/ai/service";
 import { assertNoExcludedPhrase, StrategyExclusionError } from "@/lib/ai/exclusions";
 import { assertVoiceConstraints, VoiceConstraintError } from "@/lib/ai/voice-constraints";
@@ -13,6 +14,8 @@ type ConversationState = {
   updatedAt?: string;
   pendingJobId?: string;
   pendingSince?: string;
+  /** A vague message waiting for the user to confirm what to do with it. */
+  proposedText?: string;
 };
 
 type TelegramConversationInput = {
@@ -23,6 +26,8 @@ type TelegramConversationInput = {
   updateId?: number;
   text: string;
   supabase: any;
+  /** Set when the user tapped a button on a "what should I do with this?" prompt. */
+  proposal?: "create" | "revise";
 };
 
 type TelegramContentJobPayload = {
@@ -40,6 +45,35 @@ export type TelegramConversationResult = { replyText: string; replyMarkup?: any 
 
 // Replies point to the drafts list with a button, never with a typed command.
 const DRAFTS_BUTTON = { inline_keyboard: [[{ text: "📝 My Drafts", callback_data: "menu:drafts" }]] };
+
+const WRITE_BUTTONS = {
+  inline_keyboard: [
+    [{ text: "✍️ Write a post", callback_data: "conversation:create" }],
+    [{ text: "📝 My Drafts", callback_data: "menu:drafts" }, { text: "🏠 Main Menu", callback_data: "menu:main" }],
+  ],
+};
+const DRAFT_CHAT_BUTTONS = {
+  inline_keyboard: [
+    [{ text: "📝 My Drafts", callback_data: "menu:drafts" }, { text: "✍️ Write a post", callback_data: "conversation:create" }],
+    [{ text: "🏠 Main Menu", callback_data: "menu:main" }],
+  ],
+};
+
+function chitchatReply(hasDraft: boolean): string {
+  return escapeMarkdownV2(
+    hasDraft
+      ? "Hi! Your open draft is saved and unchanged. Tell me what to change, or tap Write a post for something new."
+      : "Hi! I'm Nunuza, your LinkedIn content agent. Tell me what you'd like to post about, or tap Write a post."
+  );
+}
+
+function questionReply(hasDraft: boolean): string {
+  return escapeMarkdownV2(
+    "I'm not a general chat assistant. I write, edit, schedule and publish your LinkedIn posts, and nothing is posted without your approval." +
+    (hasDraft ? " To change your open draft, tell me what to change, for example: make it shorter." : " Tell me a topic or idea and I'll draft it.") +
+    " Your drafts, schedule and settings are in the menu."
+  );
+}
 
 function escapeMarkdownV2(value: string): string {
   return value.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, "\\$1");
@@ -95,6 +129,7 @@ function readConversationState(value: unknown): ConversationState {
     ...(typeof state.updatedAt === "string" ? { updatedAt: state.updatedAt } : {}),
     ...(typeof state.pendingJobId === "string" ? { pendingJobId: state.pendingJobId } : {}),
     ...(typeof state.pendingSince === "string" ? { pendingSince: state.pendingSince } : {}),
+    ...(typeof state.proposedText === "string" ? { proposedText: state.proposedText.slice(0, 1000) } : {}),
   };
 }
 
@@ -164,10 +199,10 @@ function helpReply(): TelegramConversationResult {
 }
 
 export async function handleTelegramConversation(input: TelegramConversationInput): Promise<TelegramConversationResult> {
-  const text = input.text.trim();
-  if (!text) return { replyText: "Tell me what you want your LinkedIn post to be about." };
+  let text = input.text.trim();
+  if (!text && !input.proposal) return { replyText: "Tell me what you want your LinkedIn post to be about." };
   if (text.length > 4000) return { replyText: "That message is too long. Keep a content request under 4,000 characters and send it again." };
-  if (text === "/help" || (text.startsWith("/") && text !== "/new" && text !== "/cancel")) return helpReply();
+  if (!input.proposal && (text === "/help" || (text.startsWith("/") && text !== "/new" && text !== "/cancel"))) return helpReply();
 
   const lockToken = crypto.randomUUID();
   const { data: claim, error: claimError } = await input.supabase.rpc("claim_telegram_conversation", {
@@ -248,16 +283,6 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
       state = stateWithoutPending(state);
     }
 
-    if (/^(hi|hello|hey|thanks|thank you|ok|okay|great|nice|cool)[.! ]*$/i.test(text)) {
-      await releaseConversation(input, lockToken, stateWithoutPending(state));
-      return {
-        replyText: state.activePostId
-          ? "Your draft is still saved and unchanged. Ask me to revise it, or use /new to create another post. Tap My Drafts when you're ready to review or approve it."
-          : "Hi. Tell me a LinkedIn topic, rough idea, audience, or point of view, and I'll turn it into a draft.",
-        ...(state.activePostId ? { replyMarkup: DRAFTS_BUTTON } : {}),
-      };
-    }
-
     if (text === "/new") {
       await releaseConversation(input, lockToken, {});
       return { replyText: "Ready for a new post. Tell me what you want to write about." };
@@ -268,7 +293,46 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
     // or through MCP arrive here as an image, and "make it shorter" must edit
     // that draft instead of starting a new post about "make it shorter".
     const activePostId = await resolveActiveDraftId(input, state.activePostId);
-    const isRevision = isRevisionRequest(text, Boolean(activePostId));
+
+    // Work out what the message means before generating anything. Only a clear
+    // request (or a button the user tapped) creates or edits a draft.
+    let intent: "create" | "revise" | "chitchat" | "question" | "vague";
+    if (input.proposal) {
+      const proposed = state.proposedText;
+      if (!proposed) {
+        await releaseConversation(input, lockToken, stateWithoutPending(state));
+        return { replyText: "That suggestion expired. Send your idea again.", replyMarkup: WRITE_BUTTONS };
+      }
+      text = proposed;
+      intent = input.proposal === "revise" && activePostId ? "revise" : "create";
+    } else {
+      intent = classifyTelegramIntent(text, Boolean(activePostId));
+    }
+
+    if (intent === "chitchat" || intent === "question") {
+      await releaseConversation(input, lockToken, stateWithoutPending(state));
+      return {
+        replyText: intent === "chitchat" ? chitchatReply(Boolean(activePostId)) : questionReply(Boolean(activePostId)),
+        replyMarkup: activePostId ? DRAFT_CHAT_BUTTONS : WRITE_BUTTONS,
+      };
+    }
+
+    if (intent === "vague") {
+      await releaseConversation(input, lockToken, { ...stateWithoutPending(state), proposedText: text.slice(0, 1000) });
+      const preview = text.length > 90 ? text.slice(0, 87) + "..." : text;
+      return {
+        replyText: escapeMarkdownV2("Do you want me to write a LinkedIn post from this?") + "\n\n_" + escapeMarkdownV2(preview) + "_",
+        replyMarkup: {
+          inline_keyboard: [
+            [{ text: "✍️ Write a post", callback_data: "chat:propose:create" }],
+            ...(activePostId ? [[{ text: "✏️ Edit my open draft", callback_data: "chat:propose:revise" }]] : []),
+            [{ text: "Not now", callback_data: "chat:dismiss" }],
+          ],
+        },
+      };
+    }
+
+    const isRevision = intent === "revise";
     let existingPost: any = null;
     if (isRevision && activePostId) {
       const { data, error } = await input.supabase.from("content_posts")

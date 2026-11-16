@@ -724,6 +724,32 @@ export async function handleCallbackQuery(
     return;
   }
 
+  // ── Chat prompts: write a post / confirm a vague message / dismiss ──
+  if (data === "chat:dismiss") {
+    await editTelegramMessage(
+      ctx.chatId,
+      ctx.messageId,
+      "Okay, nothing was created\\.",
+      { inline_keyboard: [[{ text: "📝 My Drafts", callback_data: "menu:drafts" }, { text: "🏠 Main Menu", callback_data: "menu:main" }]] }
+    );
+    return;
+  }
+  if (data === "chat:propose:create" || data === "chat:propose:revise") {
+    const proposal = data === "chat:propose:revise" ? "revise" : "create";
+    if (!workspace?.owner_user_id) return;
+    const result = await handleTelegramConversation({
+      telegramUserId: ctx.telegramUserId,
+      chatId: ctx.chatId,
+      workspaceId,
+      ownerUserId: workspace.owner_user_id,
+      text: "",
+      proposal,
+      supabase,
+    });
+    await editTelegramMessage(ctx.chatId, ctx.messageId, result.replyText, result.replyMarkup);
+    return;
+  }
+
   // ── Request changes to the active draft ──
   if (data.startsWith("draft:revise:")) {
     const postId = data.slice("draft:revise:".length);
