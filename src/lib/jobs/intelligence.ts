@@ -356,13 +356,23 @@ async function fetchResearchOnce(query: string): Promise<ResearchItem[]> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), RESEARCH_TIMEOUT_MS);
   try {
+    // Google News answers anonymous Worker requests (no browser-like headers)
+    // with errors far more often than identified ones, so identify the bot.
     const response = await fetch(url.toString(), {
-      headers: { Accept: "application/rss+xml, application/xml, text/xml" },
+      headers: {
+        Accept: "application/rss+xml, application/xml, text/xml",
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent": "Mozilla/5.0 (compatible; NunuzaBot/1.0" + (process.env.NEXT_PUBLIC_APP_URL ? "; +" + process.env.NEXT_PUBLIC_APP_URL : "") + ")",
+      },
+      redirect: "follow",
       signal: controller.signal,
     });
     if (!response.ok) throw new Error("Research provider returned HTTP " + response.status);
     const xml = await response.text();
     return parseResearchFeed(xml);
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw new Error("Research provider timed out");
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -701,20 +711,25 @@ export async function executeAutonomousCycle(
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
   }
 
-  let research: ResearchItem[];
+  let research: ResearchItem[] = [];
+  let researchFailed = false;
   try {
     research = await fetchResearch(query);
-  } catch {
+  } catch (error) {
+    // News being unreachable must not stop the agent or raise a "task failed"
+    // alert. Record the real cause, then carry on without news: the cycle
+    // falls back to an evergreen post, which always goes to review.
+    researchFailed = true;
     await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {
       cycleDate,
       decision: "research_unavailable",
       reason: "news_provider_did_not_respond",
-      nextAction: "retry_shortly",
+      nextAction: "evergreen_fallback_for_review",
+      providerError: (error instanceof Error ? error.message : "unknown").slice(0, 200),
       query,
     });
-    return fail("Recent news could not be reached. Nunuza will try again shortly.");
   }
-  if (research.length < 3) {
+  if (!researchFailed && research.length < 3) {
     const widened = buildWidenedResearchQuery(strategy);
     if (widened && widened !== query) {
       try {
