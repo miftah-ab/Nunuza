@@ -15,6 +15,9 @@ Research metadata and the evidence excerpt are stored in workspace-scoped audit 
 - **Review reminders.** Agent drafts still waiting after 24 hours get one reminder (the draft image with buttons), recorded as `review_reminder_sent`.
 - **Research retry.** When fewer than 3 stories come back, a wider phrase-based query runs once. If nothing qualifies, an evergreen pillar post is drafted. Evergreen posts always go to review, even in Autopilot.
 - **Claim self-check.** Figures and links in a draft must appear in the source. One corrected retry; if it still fails, Autopilot hands the post to the user for review.
+- **Tells you why it stopped.** When a cycle is skipped for a reason you can fix (LinkedIn disconnected, draft limit reached, strategy empty, everything excluded) you get one notice per reason per week in the inbox, push and Telegram.
+- **LinkedIn expiry warnings.** At 7, 3 and 1 days before the 60-day token ends, and once after it has ended.
+- **No duplicate Telegram text.** The generic "ready for approval" and "scheduled" notifications are inbox/push only, because Telegram already gets the draft image with buttons.
 - **Not done:** attaching generated images to agent posts. Publishing supports only carousels (2+ images) and PDFs, so a single generated image needs a schema change first.
 
 ## Worker execution guarantees
