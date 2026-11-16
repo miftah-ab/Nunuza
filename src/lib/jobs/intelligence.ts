@@ -8,11 +8,13 @@
 
 import { createServiceClient } from "@/lib/supabase/server";
 import { aiService } from "@/lib/ai/service";
+import { checkDraftAgainstSource } from "@/lib/ai/draft-check";
 import { assertVoiceConstraints, VoiceConstraintError } from "@/lib/ai/voice-constraints";
 import { notifyWorkspaceTelegram, notifyWorkspaceTelegramDraft, type TelegramBrowserBinding } from "@/lib/integrations/telegram/service";
 import { canUseAutopilot } from "@/lib/auth/workspace";
 import { getDraftUsagePeriod } from "@/lib/db/usage";
 import { getPolarService } from "@/lib/integrations/polar/service";
+import { scheduleApprovedPost, formatScheduledTime, AUTOPILOT_VETO_WINDOW_MS } from "./agent-scheduling";
 import type { AgentJob } from "@/types/database";
 import type { JobExecutionResult } from "./types";
 
@@ -300,6 +302,47 @@ export function buildCycleNotificationMessage(mode: "autopilot" | "approval_requ
     : "A new LinkedIn draft is ready for your review. It is sent here as an image with buttons to approve or reject it.";
 }
 
+/**
+ * Second, wider search used when the first one is thin: whole pillar and goal
+ * phrases instead of single words, so a niche business still finds stories.
+ */
+export function buildWidenedResearchQuery(strategy: any): string {
+  const phrases = researchKeywords(strategy)
+    .map((value) => value.trim().replace(/"/g, ""))
+    .filter((value) => value.length >= 3 && value.length <= 60)
+    .filter((value, index, all) => all.indexOf(value) === index)
+    .slice(0, 6);
+  return phrases.length ? phrases.map((phrase) => '"' + phrase + '"').join(" OR ") : "";
+}
+
+/**
+ * Evergreen topic from a content pillar, used only when no fresh story
+ * qualifies. It rotates through pillars by day and skips recent titles.
+ */
+export function buildEvergreenOpportunity(
+  strategy: any,
+  recentTitles: string[],
+  cycleDate: string,
+  nowIso = new Date().toISOString()
+): ScoredOpportunity | null {
+  const pillars: string[] = (Array.isArray(strategy.pillars) ? strategy.pillars : [])
+    .map((pillar: any) => typeof pillar === "string" ? pillar : pillar?.name ?? pillar?.title ?? "")
+    .filter((name: unknown): name is string => typeof name === "string" && name.trim().length > 0);
+  if (pillars.length === 0) return null;
+  const dayNumber = Math.floor(new Date(cycleDate + "T00:00:00Z").getTime() / 86400000) || 0;
+  for (let offset = 0; offset < pillars.length; offset += 1) {
+    const pillar = pillars[(dayNumber + offset) % pillars.length].trim();
+    const title = "Evergreen perspective: " + pillar;
+    if (isDuplicateOpportunity(title, recentTitles)) continue;
+    return {
+      title, url: "", sourceUrl: "", source: "Evergreen (no news source)", evidence: "",
+      publishedAt: nowIso, retrievedAt: nowIso, score: 0, matchedKeywords: tokens(pillar), relevance: "low",
+      scoreBreakdown: { businessAudienceRelevance: 0, timeliness: 0, evidenceQuality: 0, potentialValue: 0, approvalPreference: 0, editPreference: 0 },
+    };
+  }
+  return null;
+}
+
 const RESEARCH_TIMEOUT_MS = 20_000;
 const RESEARCH_ATTEMPTS = 2;
 
@@ -430,6 +473,45 @@ export function isValidCycleDate(value: unknown): value is string {
   return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value;
 }
 
+
+/**
+ * Autopilot with a veto window: the post goes on the workspace's next preferred
+ * slot (never sooner than the veto window) and the user gets the draft image
+ * with a Stop button. If it cannot be scheduled (caps, pause) it becomes a
+ * normal review draft instead of being dropped or published blindly.
+ */
+async function scheduleAutopilotPost(
+  supabase: any,
+  workspace: any,
+  post: { id: string; internal_title?: string | null; text?: string | null; status?: string },
+  browserBinding: TelegramBrowserBinding | undefined,
+  notify = true
+): Promise<{ ok: true } | { ok: false; retryable: boolean; message: string }> {
+  const scheduled = await scheduleApprovedPost(supabase, {
+    workspaceId: workspace.id, ownerUserId: workspace.owner_user_id, postId: post.id,
+    minLeadMs: AUTOPILOT_VETO_WINDOW_MS, autopilot: true,
+  });
+  if (scheduled.ok) {
+    if (notify) {
+      await notifyWorkspaceTelegramDraft(workspace.id, post, {
+        supabase, browser: browserBinding,
+        scheduledLabel: formatScheduledTime(scheduled.scheduledFor, scheduled.timezone),
+      });
+    }
+    return { ok: true };
+  }
+  if (scheduled.reason === "RPC_ERROR") {
+    return { ok: false, retryable: true, message: "Post was created but could not be scheduled; the cycle will retry." };
+  }
+  // Caps, pause or state conflicts: hand the post to the user for review.
+  await supabase.from("content_posts").update({ status: "needs_review", scheduled_at: null })
+    .eq("id", post.id).eq("workspace_id", workspace.id).eq("status", "approved");
+  await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {
+    decision: "autopilot_scheduling_deferred_to_review", reason: scheduled.reason, postId: post.id,
+  });
+  if (notify) await notifyWorkspaceTelegramDraft(workspace.id, post, { supabase, browser: browserBinding });
+  return { ok: true };
+}
 export async function executeAutonomousCycle(
   job: AgentJob,
   supabaseOverride?: any,
@@ -531,28 +613,14 @@ export async function executeAutonomousCycle(
 
     const recoveredAutopilot = workspace.state === "active_autopilot" &&
       workspace.operating_mode === "autopilot" && canUseAutopilot(workspace);
+    let recoveredNotified = false;
     if (recoveredAutopilot && existingPost.status === "approved") {
-      const publishKey = "publish-" + workspace.id + "-" + existingPost.id;
-      const { error: publishJobError } = await supabase.from("agent_jobs").insert({
-        workspace_id: workspace.id,
-        job_type: "publish_post",
-        status: "queued",
-        idempotency_key: publishKey,
-        payload: {
-          postId: existingPost.id,
-          workspaceId: workspace.id,
-          userId: workspace.owner_user_id,
-          targetProvider: "linkedin",
-          scheduledFor: new Date().toISOString(),
-          autopilot: true,
-        },
-        scheduled_for: new Date().toISOString(),
-        attempt_count: 0,
-        max_attempts: 3,
-      });
-      if (publishJobError && publishJobError.code !== "23505") {
-        return fail("Recovered post exists but its Autopilot publish job could not be queued.");
-      }
+      const { data: priorDecisionForPost } = await supabase.from("audit_events").select("id")
+        .eq("workspace_id", workspace.id).eq("resource_id", existingPost.id)
+        .eq("action", "agent_cycle_decision").maybeSingle();
+      const outcome = await scheduleAutopilotPost(supabase, workspace, existingPost, browserBinding, !priorDecisionForPost);
+      if (!outcome.ok && outcome.retryable) return fail(outcome.message);
+      recoveredNotified = !priorDecisionForPost;
     }
 
     const { data: priorDecision, error: decisionLookupError } = await supabase
@@ -572,9 +640,8 @@ export async function executeAutonomousCycle(
         sourceTitle: existingPost.internal_title,
       });
       if (recoveredAutopilot) {
-        await notifyWorkspaceTelegram(workspace.id, {
-          text: "Nunuza recovered an interrupted Autopilot cycle and queued the existing post: " + existingPost.internal_title,
-        }, supabase);
+        // The scheduled preview (with Stop) was already sent above.
+        if (!recoveredNotified) await notifyWorkspaceTelegramDraft(workspace.id, existingPost, { supabase, browser: browserBinding });
       } else {
         // The recovered draft goes out as an image with the review buttons.
         await notifyWorkspaceTelegramDraft(workspace.id, existingPost, { supabase, browser: browserBinding });
@@ -642,6 +709,18 @@ export async function executeAutonomousCycle(
       query,
     });
     return fail("Recent news could not be reached. Nunuza will try again shortly.");
+  }
+  if (research.length < 3) {
+    const widened = buildWidenedResearchQuery(strategy);
+    if (widened && widened !== query) {
+      try {
+        const extra = await fetchResearch(widened);
+        const known = new Set(research.map((item) => item.url));
+        research = [...research, ...extra.filter((item) => !known.has(item.url))];
+      } catch {
+        // The first search already succeeded; widening is best effort.
+      }
+    }
   }
   const learningSince = new Date(Date.now() - 90 * 86400000).toISOString();
   const [{ data: approvalEvents, error: approvalError }, { data: editVersions, error: editError }] =
@@ -729,7 +808,12 @@ export async function executeAutonomousCycle(
     ...activeRecentPosts.map((post: any) => String(post.internal_title ?? "")),
     ...previousResearchTitles,
   ];
-  const opportunity = scored.find((item) => !isDuplicateOpportunity(item.title, previousTitles));
+  let opportunity = scored.find((item) => !isDuplicateOpportunity(item.title, previousTitles));
+  const evergreenCandidate = !opportunity && !(ranked.length > 0 && excludedByBrand.length === ranked.length)
+    ? buildEvergreenOpportunity(strategy, previousTitles, cycleDate)
+    : null;
+  const isEvergreen = !opportunity && !!evergreenCandidate;
+  if (evergreenCandidate && !opportunity) opportunity = evergreenCandidate;
 
   if (!opportunity) {
     await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {
@@ -779,10 +863,14 @@ export async function executeAutonomousCycle(
     exclusions: voice.exclusions,
   } : undefined;
 
-  const generated = await aiService.generateDraft({
+  const draftInput = {
     topic: "What this development means for " + String(workspace.name ?? "your business") + ": " + title,
     pillar: pillarName,
-    notes: [
+    notes: isEvergreen ? [
+      "No news source today. Write an original, timeless perspective on this content pillar: " + opportunity.title,
+      "Do not cite statistics, studies, dates, quotes, company news or links. Share a practical idea or lesson from experience.",
+      "Recent internal approval signals: " + JSON.stringify(approvalSummary),
+    ].join("\n") : [
       "Research source: " + opportunity.source,
       "Source title: " + title,
       "Source URL: " + opportunity.url,
@@ -795,7 +883,7 @@ export async function executeAutonomousCycle(
       "Write a useful, original perspective for this workspace's audience. Attribute factual claims to the source. Do not claim facts not supported by the source title and evidence excerpt.",
       "Recent internal approval signals: " + JSON.stringify(approvalSummary),
     ].join("\n"),
-    targetLength: "medium",
+    targetLength: "medium" as const,
     voiceProfile: voiceContext,
     strategy: {
       audience: strategy.audience,
@@ -805,7 +893,8 @@ export async function executeAutonomousCycle(
       ctaPreferences: strategy.cta_preferences,
     },
     companyName: workspace.name,
-  });
+  };
+  let generated = await aiService.generateDraft(draftInput);
 
   try {
     assertVoiceConstraints(generated.text, voiceContext);
@@ -831,9 +920,34 @@ export async function executeAutonomousCycle(
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
   }
 
-  const autopilot = canUseAutopilot(workspace) && workspace.state === "active_autopilot";
+  // Self-check: figures and links must come from the source. One corrected
+  // retry, then a human decides instead of Autopilot.
+  const claimSource = isEvergreen
+    ? { text: "", urls: [] as string[] }
+    : { text: opportunity.title + " " + opportunity.evidence, urls: [opportunity.url, opportunity.sourceUrl] };
+  let claimCheck = checkDraftAgainstSource(generated.text, claimSource);
+  if (!claimCheck.ok) {
+    const retry = await aiService.generateDraft({
+      ...draftInput,
+      notes: draftInput.notes + "\nFix these problems from the previous attempt: " + claimCheck.issues.join(" ") +
+        " Remove unsupported figures and links; keep only what the source states.",
+    });
+    if (retry.providerUsed !== "mock_deterministic") {
+      try {
+        assertVoiceConstraints(retry.text, voiceContext);
+        generated = retry;
+        claimCheck = checkDraftAgainstSource(retry.text, claimSource);
+      } catch (error) {
+        if (!(error instanceof VoiceConstraintError)) throw error;
+      }
+    }
+  }
+  const needsHumanReview = isEvergreen || !claimCheck.ok;
+
+  const autopilotMode = canUseAutopilot(workspace) && workspace.state === "active_autopilot";
+  const autopilot = autopilotMode && !needsHumanReview;
   const approvalMode = workspace.state === "active_approval_required" && workspace.operating_mode === "approval_required";
-  if (autopilot) {
+  if (autopilotMode) {
     const { data: connection, error: connectionError } = await supabase.from("integration_connections")
       .select("status, expires_at, granted_scopes").eq("workspace_id", workspace.id)
       .eq("provider", "linkedin").maybeSingle();
@@ -849,7 +963,7 @@ export async function executeAutonomousCycle(
       return { jobId: job.id, success: true, status: "succeeded", retryable: false };
     }
   }
-  if (!autopilot && !approvalMode) {
+  if (!autopilotMode && !approvalMode) {
     return fail("Workspace operating mode and state do not agree; refusing autonomous action.", false);
   }
 
@@ -878,9 +992,9 @@ export async function executeAutonomousCycle(
       text: generated.text.slice(0, 3000),
       internal_title: title.slice(0, 180),
       pillar: pillarName ?? null,
-      source_notes: "Source: " + opportunity.source + "\nArticle: " + opportunity.url + "\nPublisher: " + opportunity.sourceUrl + "\nPublished: " + opportunity.publishedAt + "\nEvidence: " + opportunity.evidence,
+      source_notes: "Source: " + opportunity.source + "\nArticle: " + opportunity.url + "\nPublisher: " + opportunity.sourceUrl + "\nPublished: " + opportunity.publishedAt + "\nEvidence: " + opportunity.evidence + (claimCheck.ok ? "" : "\nSelf-check: " + claimCheck.issues.join(" ")),
       status: autopilot ? "approved" : "needs_review",
-      scheduled_at: autopilot ? new Date().toISOString() : null,
+      scheduled_at: null,
       version: 1,
     })
     .select()
@@ -922,7 +1036,10 @@ export async function executeAutonomousCycle(
   await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {
     cycleDate,
     decision: autopilot ? "queue_autopilot_publish" : "create_review_draft",
-    reason: "Fresh evidence matched workspace strategy terms: " + opportunity.matchedKeywords.join(", ") + ".",
+    evergreen: isEvergreen,
+    selfCheckIssues: claimCheck.issues,
+    sentToReviewBecause: autopilotMode && needsHumanReview ? (isEvergreen ? "evergreen_post_has_no_source" : "claims_not_supported_by_source") : undefined,
+    reason: isEvergreen ? "No fresh story qualified; drafted an evergreen post for review." : "Fresh evidence matched workspace strategy terms: " + opportunity.matchedKeywords.join(", ") + ".",
     postId: post.id,
     sourceTitle: opportunity.title,
     sourceUrl: opportunity.sourceUrl,
@@ -941,30 +1058,8 @@ export async function executeAutonomousCycle(
   });
 
   if (autopilot) {
-    const publishKey = "publish-" + workspace.id + "-" + post.id;
-    const { error: publishJobError } = await supabase.from("agent_jobs").insert({
-      workspace_id: workspace.id,
-      job_type: "publish_post",
-      status: "queued",
-      idempotency_key: publishKey,
-      payload: {
-        postId: post.id,
-        workspaceId: workspace.id,
-        userId: workspace.owner_user_id,
-        targetProvider: "linkedin",
-        scheduledFor: new Date().toISOString(),
-        autopilot: true,
-      },
-      scheduled_for: new Date().toISOString(),
-      attempt_count: 0,
-      max_attempts: 3,
-    });
-    if (publishJobError && publishJobError.code !== "23505") {
-      return fail("Post was created but the publish job could not be queued: " + publishJobError.message);
-    }
-    await notifyWorkspaceTelegram(workspace.id, {
-      text: buildCycleNotificationMessage("autopilot"),
-    }, supabase);
+    const outcome = await scheduleAutopilotPost(supabase, workspace, post, browserBinding);
+    if (!outcome.ok && outcome.retryable) return fail(outcome.message);
   } else {
     // The draft itself goes out as an image with approve/reject buttons.
     await notifyWorkspaceTelegramDraft(workspace.id, post, { supabase, browser: browserBinding });

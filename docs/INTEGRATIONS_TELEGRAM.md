@@ -37,6 +37,7 @@ Until this gate passes, the Integrations page shows only: "Integration not enabl
 ## Bot message rules
 
 - **Drafts are always images.** Every draft sent to Telegram (chat-created, dashboard, MCP, autonomous cycle, "View" button) goes through `sendTelegramDraftPreview` / `notifyWorkspaceTelegramDraft`. The post text is never sent as a message. If the image cannot be rendered, the user gets a short notice with the same buttons and an "Open in Nunuza" link.
+- **Scheduling buttons.** Approving schedules the post and shows **Cancel schedule**; Autopilot previews show **Stop — don't publish** until the post goes out.
 - **No typed IDs.** Approve, reject, revise and view are inline buttons. Nothing in the bot asks the user to type `/approve <id>`; typed `/approve` and `/reject` just show the drafts list.
 - **The Menu button** (left of the message box) is filled by `registerBotCommands` (`GET /api/webhooks/telegram` with the webhook secret header). Re-run it after changing the command list.
 

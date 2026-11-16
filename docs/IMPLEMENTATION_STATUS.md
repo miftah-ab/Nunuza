@@ -80,7 +80,7 @@
 |------|--------|------|-------|
 | LinkedIn OAuth Crypto | VERIFIED | `src/lib/integrations/linkedin/crypto.ts` | AES-256-GCM encryption at rest |
 | LinkedIn Client & REST Publishing | VERIFIED | `src/lib/integrations/linkedin/client.ts` | OAuth code flow, userinfo member URN resolution, and `publishPostToLinkedIn` REST API (`LinkedIn-Version: 202410`). Fail-closed when disconnected or expired. |
-| Telegram Bot Service | VERIFIED | `src/lib/integrations/telegram/service.ts` | 15-min pairing tokens, 1-active-link constraint, full command dispatcher (`/status`, `/drafts`, `/approve`, `/reject`, `/pause`, `/resume`, `/report`, `/help`) |
+| Telegram Bot Service | VERIFIED | `src/lib/integrations/telegram/service.ts` | 15-min pairing tokens, 1-active-link constraint, full command dispatcher (`/status`, `/drafts`, `/pause`, `/resume`, `/report`, `/help`) |
 | Telegram Webhook & Linking Routes | VERIFIED | `src/app/api/webhooks/telegram/route.ts`, `/api/integrations/telegram/link/route.ts` | Secret token verification & `update_id` deduplication |
 | Telegram Service Unit Tests | VERIFIED | `src/lib/integrations/telegram/service.test.ts` | 13 tests passing |
 | Remote MCP Server Core & Tools | VERIFIED | `src/lib/integrations/mcp/tokens.ts`, `tools.ts`, `/api/mcp/route.ts` | JSON-RPC 2.0 over HTTP; `nunuza_mcp_...` bearer tokens; tenant isolation; `approve_draft` strictly excluded per BED-11 |

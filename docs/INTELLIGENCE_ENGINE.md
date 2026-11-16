@@ -8,6 +8,15 @@ Each cycle reads the workspace strategy, audience, goals, pillars, voice profile
 
 Research metadata and the evidence excerpt are stored in workspace-scoped audit events. The existing dashboard activity feed shows the discovery, short evidence excerpt, relevance band, decision reason, and source link. Telegram draft/autopilot notices include the concise reason and source. The generated post retains the source, article link, publisher link, publication time, and excerpt in source_notes. Retrieved source text is untrusted: it is passed as evidence, never as instructions.
 
+## Autonomy behaviour
+
+- **Autopilot veto window.** Autopilot never publishes instantly. The post is scheduled for the workspace's next preferred time (strategy `preferred_time`, `preferred_days`, `timezone`) but never sooner than 15 minutes out, through the same `schedule_post_atomic` function the dashboard uses. The user gets the draft image in Telegram with a **Stop** button. Stop cancels the publish job and returns the post to review. If caps or pause block scheduling, the post becomes a normal review draft.
+- **Telegram approval schedules.** Approving a draft in Telegram schedules it at the next preferred slot (at least 5 minutes out) with a **Cancel schedule** button.
+- **Review reminders.** Agent drafts still waiting after 24 hours get one reminder (the draft image with buttons), recorded as `review_reminder_sent`.
+- **Research retry.** When fewer than 3 stories come back, a wider phrase-based query runs once. If nothing qualifies, an evergreen pillar post is drafted. Evergreen posts always go to review, even in Autopilot.
+- **Claim self-check.** Figures and links in a draft must appear in the source. One corrected retry; if it still fails, Autopilot hands the post to the user for review.
+- **Not done:** attaching generated images to agent posts. Publishing supports only carousels (2+ images) and PDFs, so a single generated image needs a schema change first.
+
 ## Worker execution guarantees
 
 - Jobs are claimed by the PostgreSQL `claim_due_agent_jobs` RPC using row locks and `SKIP LOCKED`; attempts increment only on a successful claim.
