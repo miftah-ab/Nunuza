@@ -175,6 +175,7 @@ export function OnboardingClient({ initialDisplayName, initialTimezone }: Onboar
   });
   const [telegramConnected, setTelegramConnected] = useState(false);
   const [telegramOpened, setTelegramOpened] = useState(false);
+  const [telegramSkipped, setTelegramSkipped] = useState(false);
   const topicsSeeded = useRef(false);
 
   const index = STEPS.indexOf(step);
@@ -500,12 +501,30 @@ export function OnboardingClient({ initialDisplayName, initialTimezone }: Onboar
                     </span>
                   )}
                 </div>
-                {!telegramConnected && (
-                  <div className="mt-4">
-                    <button type="button" onClick={handleTelegram} disabled={busy !== null} className="btn-primary">
-                      {busy === "telegram" ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Send size={16} aria-hidden="true" />}
-                      {telegramOpened ? "Open Telegram again" : "Connect Telegram"}
+                {!telegramConnected && telegramSkipped && (
+                  <p className="mt-3 text-sm text-ink-secondary">
+                    Skipped. You can connect Telegram anytime in Integrations.{" "}
+                    <button type="button" onClick={() => setTelegramSkipped(false)} className="text-forest font-medium underline-offset-4 hover:underline">
+                      Connect now
                     </button>
+                  </p>
+                )}
+                {!telegramConnected && !telegramSkipped && (
+                  <div className="mt-4">
+                    <div className="flex flex-wrap items-center gap-4">
+                      <button type="button" onClick={handleTelegram} disabled={busy !== null} className="btn-primary">
+                        {busy === "telegram" ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Send size={16} aria-hidden="true" />}
+                        {telegramOpened ? "Open Telegram again" : "Connect Telegram"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTelegramSkipped(true)}
+                        disabled={busy !== null}
+                        className="text-sm text-ink-secondary hover:text-ink underline-offset-4 hover:underline"
+                      >
+                        Skip for now
+                      </button>
+                    </div>
                     {telegramOpened && (
                       <p className="mt-2 text-xs text-ink-secondary" aria-live="polite">
                         Tap Start in the bot. This page updates when it connects.
@@ -536,10 +555,10 @@ export function OnboardingClient({ initialDisplayName, initialTimezone }: Onboar
                 type="button"
                 onClick={handleStart}
                 disabled={busy !== null}
-                className={telegramConnected ? "btn-primary" : "btn-secondary"}
+                className={telegramConnected || telegramSkipped ? "btn-primary" : "btn-secondary"}
               >
                 {busy === "finish" && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
-                {telegramConnected ? "Start" : "Skip for now"}
+                {telegramConnected || telegramSkipped ? "Start" : "Go to dashboard"}
               </button>
             </div>
           </div>
