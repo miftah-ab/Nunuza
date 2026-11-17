@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, ArrowLeft, Check, Loader2, Plus, Send } from "lucide-react";
 import { Logo } from "@/components/layout/Logo";
@@ -16,7 +16,7 @@ import {
 } from "./onboarding-options";
 
 type StepKey = "name" | "role" | "goals" | "audience" | "topics" | "tone" | "cadence" | "connect";
-const STEPS: StepKey[] = ["name", "role", "goals", "audience", "topics", "tone", "cadence", "connect"];
+const QUESTION_STEPS: StepKey[] = ["role", "goals", "audience", "topics", "tone", "cadence", "connect"];
 
 interface OnboardingClientProps {
   initialDisplayName?: string | null;
@@ -71,7 +71,7 @@ function ChipGroup({
   };
 
   const chip = (selected: boolean) =>
-    `inline-flex items-center gap-1.5 rounded-full border px-4 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2 ${
+    `inline-flex items-center gap-1.5 rounded-full border px-4 py-3 text-[15px] font-medium sm:py-2.5 sm:text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2 ${
       selected
         ? "border-forest bg-forest text-white"
         : "border-border bg-white text-ink hover:border-forest-muted hover:bg-forest-light"
@@ -153,7 +153,11 @@ function ChipGroup({
 
 export function OnboardingClient({ initialDisplayName, initialTimezone }: OnboardingClientProps) {
   const router = useRouter();
-  const [step, setStep] = useState<StepKey>("name");
+  // The name comes from the sign-in, so it is only asked when it is missing.
+  const hasName = Boolean(initialDisplayName?.trim());
+  const STEPS = useMemo<StepKey[]>(() => (hasName ? QUESTION_STEPS : ["name", ...QUESTION_STEPS]), [hasName]);
+  const [step, setStep] = useState<StepKey>(STEPS[0]);
+  const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"finish" | "linkedin" | "telegram" | null>(null);
 
@@ -245,8 +249,11 @@ export function OnboardingClient({ initialDisplayName, initialTimezone }: Onboar
     setBusy("finish");
     setError(null);
     if (await finish()) {
-      router.push("/app/overview");
-      router.refresh();
+      setDone(true);
+      setTimeout(() => {
+        router.push("/app/overview");
+        router.refresh();
+      }, 1400);
       return;
     }
     setBusy(null);
@@ -305,17 +312,17 @@ export function OnboardingClient({ initialDisplayName, initialTimezone }: Onboar
     };
   }, [telegramOpened, telegramConnected]);
 
-  const topicOptions = (() => {
-    const base = suggestTopics(roles);
-    return base.map((value) => ({ value }));
-  })();
-
+  const topicOptions = suggestTopics(roles).map((value) => ({ value }));
   const questionCount = STEPS.length - 1;
-  const progress = Math.min(index, questionCount) / questionCount;
+  const firstName = cleanAnswer(displayName, 40).split(" ")[0];
 
-  const renderFooter = ({ canSkip = true, nextLabel = "Continue" }: { canSkip?: boolean; nextLabel?: string } = {}) => (
-    <div className="mt-10 flex items-center justify-between">
-      <button type="button" onClick={goBack} className="btn-secondary" aria-label="Back">
+  // Mobile: the action bar sticks to the bottom so it stays under the thumb.
+  const footerClass =
+    "sticky bottom-0 -mx-6 mt-10 flex items-center justify-between border-t border-border bg-white/95 px-6 py-4 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0";
+
+  const renderFooter = ({ canSkip = true }: { canSkip?: boolean } = {}) => (
+    <div className={footerClass}>
+      <button type="button" onClick={goBack} className="btn-secondary" aria-label="Back" disabled={index === 0}>
         <ArrowLeft size={16} aria-hidden="true" />
         Back
       </button>
@@ -326,163 +333,174 @@ export function OnboardingClient({ initialDisplayName, initialTimezone }: Onboar
           </button>
         )}
         <button type="button" onClick={goNext} className="btn-primary">
-          {nextLabel}
+          Continue
         </button>
       </div>
     </div>
   );
 
   const renderTitle = (children: React.ReactNode, hint?: string) => (
-    <div className="mb-6">
-      <h1 className="text-2xl font-bold text-ink">{children}</h1>
-      {hint && <p className="mt-1.5 text-sm text-ink-secondary">{hint}</p>}
+    <div className="mb-7">
+      <h1 className="text-[26px] leading-tight font-bold tracking-tight text-ink sm:text-3xl">{children}</h1>
+      {hint && <p className="mt-2 text-[15px] text-ink-secondary">{hint}</p>}
     </div>
   );
+
+  if (done) {
+    return (
+      <div className="min-h-screen bg-white flex flex-col items-center justify-center px-6 text-center animate-slide-up">
+        <span className="flex h-16 w-16 items-center justify-center rounded-full bg-forest text-white" aria-hidden="true">
+          <Check size={32} strokeWidth={3} />
+        </span>
+        <h1 className="mt-6 text-3xl font-bold tracking-tight text-ink">You&apos;re set{firstName ? `, ${firstName}` : ""}.</h1>
+        <p className="mt-2 max-w-sm text-[15px] text-ink-secondary" role="status">
+          Your agent is ready. Taking you to your dashboard…
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
       <header className="flex items-center justify-between h-16 px-6 border-b border-border bg-white">
         <Logo height={24} asLink={false} />
-        {step !== "connect" && <span className="text-xs text-ink-secondary">{index + 1} of {questionCount}</span>}
+        {step !== "connect" && (
+          <span className="text-xs text-ink-secondary">{index + 1} of {questionCount}</span>
+        )}
       </header>
       <div
-        className="h-1 bg-forest-light"
+        className="flex gap-1.5 px-6 pt-4 max-w-5xl mx-auto w-full"
         role="progressbar"
         aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(progress * 100)}
+        aria-valuemax={STEPS.length}
+        aria-valuenow={index + 1}
         aria-label="Setup progress"
       >
-        <div className="h-full bg-forest transition-all duration-300" style={{ width: `${Math.max(progress, 0.04) * 100}%` }} />
+        {STEPS.map((key, i) => (
+          <span
+            key={key}
+            className={`h-1 flex-1 rounded-full transition-colors duration-300 ${i <= index ? "bg-forest" : "bg-forest-light"}`}
+          />
+        ))}
       </div>
 
-      <main id="main-content" className="flex-1 w-full max-w-xl mx-auto px-6 py-10 sm:py-16">
-        {error && (
-          <div className="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800 flex items-start gap-2.5" role="alert">
-            <AlertCircle size={18} className="text-red-600 flex-shrink-0 mt-0.5" aria-hidden="true" />
-            <p>{error}</p>
-          </div>
-        )}
-
-        {step === "name" && (
-          <div>
-            {renderTitle("Welcome to Nunuza", "A few taps and your agent starts working. You can change any answer later.")}
-            <label htmlFor="display-name" className="block text-sm font-medium text-ink mb-1.5">
-              What should we call you?
-            </label>
-            <input
-              id="display-name"
-              type="text"
-              maxLength={60}
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") goNext();
-              }}
-              placeholder="Your name"
-              autoComplete="name"
-              className="input-field w-full"
-            />
-            <div className="mt-10 flex justify-end">
-              <button type="button" onClick={goNext} className="btn-primary">
-                Get started
-              </button>
+      <div className="flex-1 w-full max-w-5xl mx-auto px-6 py-8 sm:py-14 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-16">
+        <main id="main-content" className="w-full max-w-xl">
+          {error && (
+            <div className="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800 flex items-start gap-2.5" role="alert">
+              <AlertCircle size={18} className="text-red-600 flex-shrink-0 mt-0.5" aria-hidden="true" />
+              <p>{error}</p>
             </div>
-          </div>
-        )}
+          )}
 
-        {step === "role" && (
-          <div>
-            {renderTitle("What best describes you?")}
-            <ChipGroup
-              label="What best describes you?"
-              options={ROLE_OPTIONS.map((value) => ({ value }))}
-              value={roles}
-              onChange={setRoles}
-              multiple={false}
-              onSingleChosen={() => setTimeout(() => goNextRef.current(), 250)}
-            />
-            {renderFooter()}
-          </div>
-        )}
+          <div key={step} className="animate-slide-up">
+            {step === "name" && (
+              <div>
+                {renderTitle("What should we call you?")}
+                <input
+                  id="display-name"
+                  type="text"
+                  maxLength={60}
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") goNext();
+                  }}
+                  placeholder="Your name"
+                  aria-label="Your name"
+                  autoComplete="name"
+                  autoFocus
+                  className="input-field w-full"
+                />
+                {renderFooter({ canSkip: false })}
+              </div>
+            )}
 
-        {step === "goals" && (
-          <div>
-            {renderTitle("What do you want from LinkedIn?", "Pick all that apply.")}
-            <ChipGroup label="What do you want from LinkedIn?" options={GOAL_OPTIONS.map((value) => ({ value }))} value={goals} onChange={setGoals} multiple />
-            {renderFooter()}
-          </div>
-        )}
+            {step === "role" && (
+              <div>
+                {renderTitle(firstName ? `Hi ${firstName}. What best describes you?` : "What best describes you?")}
+                <ChipGroup
+                  label="What best describes you?"
+                  options={ROLE_OPTIONS.map((value) => ({ value }))}
+                  value={roles}
+                  onChange={setRoles}
+                  multiple={false}
+                  onSingleChosen={() => setTimeout(() => goNextRef.current(), 250)}
+                />
+                {renderFooter()}
+              </div>
+            )}
 
-        {step === "audience" && (
-          <div>
-            {renderTitle("Who do you want to reach?", "Pick all that apply.")}
-            <ChipGroup label="Who do you want to reach?" options={AUDIENCE_OPTIONS.map((value) => ({ value }))} value={audience} onChange={setAudience} multiple />
-            {renderFooter()}
-          </div>
-        )}
+            {step === "goals" && (
+              <div>
+                {renderTitle("What do you want from LinkedIn?", "Pick all that apply.")}
+                <ChipGroup label="What do you want from LinkedIn?" options={GOAL_OPTIONS.map((value) => ({ value }))} value={goals} onChange={setGoals} multiple />
+                {renderFooter()}
+              </div>
+            )}
 
-        {step === "topics" && (
-          <div>
-            {renderTitle("What do you want to post about?", "We picked a few for you. Change them any time.")}
-            <ChipGroup
-              label="What do you want to post about?"
-              options={topicOptions}
-              value={topics}
-              onChange={setTopics}
-              multiple
-              otherLabel="Add your own"
-            />
-            {renderFooter()}
-          </div>
-        )}
+            {step === "audience" && (
+              <div>
+                {renderTitle("Who do you want to reach?", "Pick all that apply.")}
+                <ChipGroup label="Who do you want to reach?" options={AUDIENCE_OPTIONS.map((value) => ({ value }))} value={audience} onChange={setAudience} multiple />
+                {renderFooter()}
+              </div>
+            )}
 
-        {step === "tone" && (
-          <div>
-            {renderTitle("How should you sound?", "This shapes how your drafts sound. You can add a writing sample later for a closer match.")}
-            <ChipGroup
-              label="How should you sound?"
-              options={TONE_OPTIONS.map((t) => ({ value: t.value, hint: t.hint }))}
-              value={tones}
-              onChange={setTones}
-              multiple={false}
-              onSingleChosen={() => setTimeout(() => goNextRef.current(), 250)}
-            />
-            {renderFooter()}
-          </div>
-        )}
+            {step === "topics" && (
+              <div>
+                {renderTitle("What do you want to post about?", "We picked a few for you. Change them any time.")}
+                <ChipGroup label="What do you want to post about?" options={topicOptions} value={topics} onChange={setTopics} multiple otherLabel="Add your own" />
+                {renderFooter()}
+              </div>
+            )}
 
-        {step === "cadence" && (
-          <div>
-            {renderTitle("How often do you want to post?", `You approve every post before it goes out. Times use your timezone (${timezone}).`)}
-            <div role="radiogroup" aria-label="Posts per week" className="grid grid-cols-3 gap-3">
-              {CADENCE_OPTIONS.map((o) => {
-                const selected = postsPerWeek === o.value;
-                return (
-                  <button
-                    key={o.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    onClick={() => {
-                      setPostsPerWeek(o.value);
-                      setTimeout(() => goNextRef.current(), 250);
-                    }}
-                    className={`rounded-xl border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2 ${
-                      selected ? "border-forest bg-forest text-white" : "border-border bg-white hover:border-forest-muted hover:bg-forest-light"
-                    }`}
-                  >
-                    <span className="block text-sm font-semibold">{o.label}</span>
-                    <span className={`block text-xs mt-0.5 ${selected ? "text-white/80" : "text-ink-secondary"}`}>{o.hint}</span>
-                  </button>
-                );
-              })}
-            </div>
-            {renderFooter({ canSkip: false })}
-          </div>
-        )}
+            {step === "tone" && (
+              <div>
+                {renderTitle("How should you sound?", "This shapes how your drafts read. You can add a writing sample later for a closer match.")}
+                <ChipGroup
+                  label="How should you sound?"
+                  options={TONE_OPTIONS.map((t) => ({ value: t.value, hint: t.hint }))}
+                  value={tones}
+                  onChange={setTones}
+                  multiple={false}
+                  onSingleChosen={() => setTimeout(() => goNextRef.current(), 250)}
+                />
+                {renderFooter()}
+              </div>
+            )}
 
-        {step === "connect" && (
+            {step === "cadence" && (
+              <div>
+                {renderTitle("How often do you want to post?", `You approve every post before it goes out. Times use your timezone (${timezone}).`)}
+                <div role="radiogroup" aria-label="Posts per week" className="grid grid-cols-3 gap-3">
+                  {CADENCE_OPTIONS.map((o) => {
+                    const selected = postsPerWeek === o.value;
+                    return (
+                      <button
+                        key={o.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        onClick={() => {
+                          setPostsPerWeek(o.value);
+                          setTimeout(() => goNextRef.current(), 250);
+                        }}
+                        className={`rounded-2xl border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2 ${
+                          selected ? "border-forest bg-forest text-white" : "border-border bg-white hover:border-forest-muted hover:bg-forest-light"
+                        }`}
+                      >
+                        <span className="block text-[15px] font-semibold">{o.label}</span>
+                        <span className={`block text-xs mt-0.5 ${selected ? "text-white/80" : "text-ink-secondary"}`}>{o.hint}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {renderFooter({ canSkip: false })}
+              </div>
+            )}
+
+            {step === "connect" && (
           <div>
             {renderTitle("Connect where you want to work", "Your drafts arrive in Telegram. Review them there, and nothing is posted without your OK.")}
 
@@ -546,7 +564,7 @@ export function OnboardingClient({ initialDisplayName, initialTimezone }: Onboar
               </div>
             </div>
 
-            <div className="mt-10 flex items-center justify-between">
+            <div className={footerClass}>
               <button type="button" onClick={goBack} disabled={busy !== null} className="btn-secondary">
                 <ArrowLeft size={16} aria-hidden="true" />
                 Back
@@ -563,7 +581,55 @@ export function OnboardingClient({ initialDisplayName, initialTimezone }: Onboar
             </div>
           </div>
         )}
-      </main>
+          </div>
+        </main>
+
+        <aside className="hidden lg:block" aria-label="Preview of your drafts">
+          <PreviewCard name={displayName} role={roles[0]} topic={topics[0]} tone={tones[0]} />
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A live, honest preview of what the agent will send: the person's own name,
+ * role, topic and tone as they tap. The post body is skeleton lines on purpose,
+ * since real copy is written later from the profile.
+ */
+function PreviewCard({ name, role, topic, tone }: { name: string; role?: string; topic?: string; tone?: string }) {
+  const shownName = cleanAnswer(name, 40) || "You";
+  const initial = shownName.charAt(0).toUpperCase();
+  return (
+    <div className="sticky top-10">
+      <p className="mb-3 text-xs font-medium text-ink-secondary">Preview of your drafts</p>
+      <div className="rounded-2xl border border-border bg-white p-5 shadow-card">
+        <div className="flex items-center gap-3">
+          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-forest text-base font-semibold text-white" aria-hidden="true">
+            {initial}
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-ink">{shownName}</p>
+            <p className="truncate text-xs text-ink-secondary">{role || "Your role"}</p>
+          </div>
+        </div>
+        <p className="mt-4 text-[15px] font-semibold leading-snug text-ink transition-opacity" aria-live="polite">
+          {topic ? `${topic}: what I'd tell my past self` : "Your next post starts here"}
+        </p>
+        <div className="mt-3 space-y-2" aria-hidden="true">
+          <div className="h-2 w-full rounded-full bg-forest-light" />
+          <div className="h-2 w-11/12 rounded-full bg-forest-light" />
+          <div className="h-2 w-8/12 rounded-full bg-forest-light" />
+        </div>
+        {tone && (
+          <span className="mt-4 inline-block rounded-full bg-forest-light px-3 py-1 text-xs font-medium text-forest">{tone}</span>
+        )}
+        <div className="mt-5 grid grid-cols-2 gap-2" aria-hidden="true">
+          <span className="rounded-lg bg-forest py-2 text-center text-xs font-semibold text-white">Approve</span>
+          <span className="rounded-lg border border-border py-2 text-center text-xs font-semibold text-ink">Request changes</span>
+        </div>
+      </div>
+      <p className="mt-3 text-xs text-ink-secondary">You approve every post. Nothing is published without your OK.</p>
     </div>
   );
 }
