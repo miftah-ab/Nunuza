@@ -1,3 +1,4 @@
+import { describeCycleOutcome } from "@/lib/jobs/cycle-outcome";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -174,7 +175,20 @@ export default async function OverviewPage() {
   const linkedinConnected = linkedin?.status === "connected" && !linkedinExpired;
   const linkedinProfileName = (linkedin?.metadata as Record<string, unknown> | null)?.name;
   const latestJob = latestJobRes.data;
-  const workerStatus = workerJobLabel(latestJob);
+  let workerStatus = workerJobLabel(latestJob);
+  if (latestJob?.job_type === "agent_cycle" && latestJob.status === "succeeded") {
+    // "Succeeded" only means the run finished. Say what it actually did.
+    const { data: decisionEvent } = await supabase.from("audit_events").select("safe_metadata, created_at")
+      .eq("workspace_id", workspace.id).eq("action", "agent_cycle_decision")
+      .gte("created_at", latestJob.created_at).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    const outcome = decisionEvent ? describeCycleOutcome(decisionEvent.safe_metadata?.decision, decisionEvent.safe_metadata?.reason) : null;
+    if (outcome) {
+      workerStatus = {
+        label: outcome.label, detail: outcome.detail,
+        tone: outcome.tone === "success" ? "text-success" : outcome.tone === "warning" ? "text-warning" : "text-ink-muted",
+      };
+    }
+  }
   const effectiveState: AgentState = workspace.paused_at ? "paused" : workspace.state;
   const stateInfo = STATE_CONFIG[effectiveState] ?? STATE_CONFIG.attention_required;
   const StateIcon = stateInfo.icon;

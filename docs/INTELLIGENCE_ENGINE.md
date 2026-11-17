@@ -18,6 +18,8 @@ Research metadata and the evidence excerpt are stored in workspace-scoped audit 
 - **Tells you why it stopped.** When a cycle is skipped for a reason you can fix (LinkedIn disconnected, draft limit reached, strategy empty, everything excluded) you get one notice per reason per week in the inbox, push and Telegram.
 - **LinkedIn expiry warnings.** At 7, 3 and 1 days before the 60-day token ends, and once after it has ended.
 - **No duplicate Telegram text.** The generic "ready for approval" and "scheduled" notifications are inbox/push only, because Telegram already gets the draft image with buttons.
+- **Honest capacity rules.** The weekly cadence counts only posts that are going out (approved, scheduled, publishing, published). Drafts waiting for review are never counted as "made". If 3 or more drafts are waiting the agent pauses new drafts and says so; agent drafts unreviewed for 7 days are retired automatically (status canceled, not a rejection).
+- **Honest dashboard.** The Overview "Latest task" card reports what the last cycle actually did (draft ready, post scheduled, ran without news, or ran but created nothing and why) instead of a bare "Completed".
 - **Not done:** attaching generated images to agent posts. Publishing supports only carousels (2+ images) and PDFs, so a single generated image needs a schema change first.
 
 ## Worker execution guarantees
