@@ -1,0 +1,38 @@
+name: Diagnose Cloudflare token (temporary)
+
+on:
+  push:
+    branches: [diag/cloudflare-token]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Inspect the secrets (never prints values)
+        shell: bash
+        run: |
+          echo "token length: ${#CLOUDFLARE_API_TOKEN}"
+          echo "token prefix (first 4): ${CLOUDFLARE_API_TOKEN:0:4}"
+          echo "token has whitespace/newline: $([[ "$CLOUDFLARE_API_TOKEN" =~ [[:space:]] ]] && echo YES || echo no)"
+          echo "account id length: ${#CLOUDFLARE_ACCOUNT_ID}"
+          echo "account id has whitespace: $([[ "$CLOUDFLARE_ACCOUNT_ID" =~ [[:space:]] ]] && echo YES || echo no)"
+      - name: Ask Cloudflare (status codes and error codes only)
+        shell: bash
+        run: |
+          call() {
+            echo "== $1"
+            code=$(curl -s -o /tmp/body.json -w "%{http_code}" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$2")
+            echo "HTTP $code"
+            node -e 'try{const b=JSON.parse(require("fs").readFileSync("/tmp/body.json","utf8"));console.log(JSON.stringify({success:b.success,errors:b.errors,status:b.result&&b.result.status,expires_on:b.result&&b.result.expires_on,queues:Array.isArray(b.result)?b.result.length:undefined}))}catch(e){console.log("non-JSON body")}'
+          }
+          call "account token verify" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify"
+          call "user token verify" "https://api.cloudflare.com/client/v4/user/tokens/verify"
+          call "list queues (what the deploy does)" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/queues?per_page=100"
+          call "list workers (what the deploy needs)" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts"
