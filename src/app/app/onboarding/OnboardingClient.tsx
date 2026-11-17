@@ -164,23 +164,20 @@ export function OnboardingClient({ initialDisplayName, initialTimezone }: Onboar
   const [topics, setTopics] = useState<string[]>([]);
   const [tones, setTones] = useState<string[]>([]);
   const [postsPerWeek, setPostsPerWeek] = useState(3);
-  const [timezone, setTimezone] = useState(initialTimezone && initialTimezone !== "UTC" ? initialTimezone : "UTC");
+  // Detect the timezone instead of asking for it.
+  const [timezone] = useState(() => {
+    if (initialTimezone && initialTimezone !== "UTC") return initialTimezone;
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    } catch {
+      return "UTC";
+    }
+  });
   const [telegramConnected, setTelegramConnected] = useState(false);
   const [telegramOpened, setTelegramOpened] = useState(false);
   const topicsSeeded = useRef(false);
 
   const index = STEPS.indexOf(step);
-
-  // Detect the timezone instead of asking for it.
-  useEffect(() => {
-    if (initialTimezone && initialTimezone !== "UTC") return;
-    try {
-      const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      if (detected) setTimezone(detected);
-    } catch {
-      // keep the default
-    }
-  }, [initialTimezone]);
 
   const payload = useCallback(
     () => buildOnboardingPayload({ displayName, roles, goals, audience, topics, tones, postsPerWeek, timezone }),
@@ -215,7 +212,9 @@ export function OnboardingClient({ initialDisplayName, initialTimezone }: Onboar
   };
 
   const goNextRef = useRef(goNext);
-  goNextRef.current = goNext;
+  useEffect(() => {
+    goNextRef.current = goNext;
+  });
 
   const goBack = () => {
     const prev = STEPS[index - 1];
