@@ -51,6 +51,25 @@ export interface OnboardingBody {
 
   // Finish setup flag
   finishSetup?: boolean;
+
+  /** The question the user just answered, recorded to see where people drop off. */
+  onboardingStep?: string;
+}
+
+const ONBOARDING_STEP_KEYS = new Set(["name", "role", "goals", "audience", "topics", "tone", "cadence", "connect"]);
+
+/** Free-text answers go into AI prompts, so cap their length and strip control characters. */
+function cleanField(value: unknown, max: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const cleaned = value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/[ \t]+/g, " ").trim().slice(0, max);
+  return cleaned || undefined;
+}
+
+/** Newline-separated list (topics): each line capped, at most 12 lines. */
+function cleanLines(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const lines = value.split("\n").map((l) => cleanField(l, 80)).filter(Boolean).slice(0, 12);
+  return lines.length ? lines.join("\n") : undefined;
 }
 
 export async function POST(request: Request) {
@@ -64,6 +83,16 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    // Answers arrive from tapped chips plus free-text "Other" boxes.
+    body.displayName = cleanField(body.displayName, 60);
+    body.role = cleanField(body.role, 80);
+    body.positioning = cleanField(body.positioning, 160);
+    body.primaryGoal = cleanField(body.primaryGoal, 300);
+    body.audienceRoles = cleanField(body.audienceRoles, 300);
+    body.tone = cleanField(body.tone, 120);
+    if (typeof body.pillars === "string") body.pillars = cleanLines(body.pillars);
+    if (body.timezone !== undefined) body.timezone = cleanField(body.timezone, 64);
 
     const supabase = await createClient();
 
@@ -169,6 +198,22 @@ export async function POST(request: Request) {
         exclusions,
         cta_preferences: ctaPreferences,
       });
+    }
+
+    if (body.onboardingStep && ONBOARDING_STEP_KEYS.has(body.onboardingStep)) {
+      try {
+        await logAuditEvent({
+          workspaceId: workspace.id,
+          actorType: "user",
+          actorId: workspace.owner_user_id,
+          action: "onboarding_step",
+          resourceType: "workspace",
+          resourceId: workspace.id,
+          safeMetadata: { step: body.onboardingStep },
+        });
+      } catch {
+        // Step tracking must never block setup.
+      }
     }
 
     // 4. Handle finishSetup: transition state from setup_required to active_approval_required
