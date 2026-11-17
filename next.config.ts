@@ -16,6 +16,24 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
 
 
+  // Baseline browser security headers for every route. A full
+  // Content-Security-Policy is deliberately not set here: Next.js needs
+  // per-request nonces for it, which is a separate change.
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+        ],
+      },
+    ];
+  },
+
   // TypeScript strict checks
   typescript: {
     ignoreBuildErrors: false,

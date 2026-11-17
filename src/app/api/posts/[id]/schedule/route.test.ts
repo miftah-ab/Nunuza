@@ -30,6 +30,8 @@ vi.mock("@/lib/jobs/scheduling", () => ({
   cancelScheduledPost: vi.fn(),
 }));
 
+const FUTURE_TIME = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
 describe("POST /api/posts/[id]/schedule", () => {
   const draftOnlyWorkspace: Workspace = {
     id: "ws-draft-only-1",
@@ -69,7 +71,7 @@ describe("POST /api/posts/[id]/schedule", () => {
     const req = new Request("http://localhost/api/posts/post-1/schedule", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scheduledFor: "2026-12-01T10:00:00Z" }),
+      body: JSON.stringify({ scheduledFor: FUTURE_TIME }),
     });
 
     const res = await scheduleRoute(req, { params: Promise.resolve({ id: "post-1" }) });
@@ -98,7 +100,7 @@ describe("POST /api/posts/[id]/schedule", () => {
     const req = new Request("http://localhost/api/posts/post-1/schedule", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scheduledFor: "2026-12-01T10:00:00Z" }),
+      body: JSON.stringify({ scheduledFor: FUTURE_TIME }),
     });
 
     const res = await scheduleRoute(req, { params: Promise.resolve({ id: "post-1" }) });
@@ -115,7 +117,7 @@ describe("POST /api/posts/[id]/schedule", () => {
         workspace_id: "ws-beta-1",
         job_type: "publish_post",
         status: "queued",
-        scheduled_for: "2026-12-01T10:00:00Z",
+        scheduled_for: FUTURE_TIME,
         attempt_count: 0,
         max_attempts: 3,
         payload: { postId: "post-1" },
@@ -136,7 +138,7 @@ describe("POST /api/posts/[id]/schedule", () => {
         text: "Test post text for LinkedIn publishing beta",
         status: "scheduled",
         version: 1,
-        scheduled_at: "2026-12-01T10:00:00Z",
+        scheduled_at: FUTURE_TIME,
         published_at: null,
         linkedin_post_id: null,
         internal_title: "Test Post",
@@ -151,7 +153,7 @@ describe("POST /api/posts/[id]/schedule", () => {
     const req = new Request("http://localhost/api/posts/post-1/schedule", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scheduledFor: "2026-12-01T10:00:00Z" }),
+      body: JSON.stringify({ scheduledFor: FUTURE_TIME }),
     });
 
     const res = await scheduleRoute(req, { params: Promise.resolve({ id: "post-1" }) });
@@ -174,7 +176,7 @@ describe("POST /api/posts/[id]/schedule", () => {
     const req = new Request("http://localhost/api/posts/post-1/schedule", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scheduledFor: "2026-12-01T10:00:00Z" }),
+      body: JSON.stringify({ scheduledFor: FUTURE_TIME }),
     });
 
     const res = await scheduleRoute(req, { params: Promise.resolve({ id: "post-1" }) });
