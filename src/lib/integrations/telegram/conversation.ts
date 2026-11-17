@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { classifyTelegramIntent } from "./intent";
+import { routeTelegramMessage } from "@/lib/ai/chat-router";
 import { aiService } from "@/lib/ai/service";
 import { assertNoExcludedPhrase, StrategyExclusionError } from "@/lib/ai/exclusions";
 import { assertVoiceConstraints, VoiceConstraintError } from "@/lib/ai/voice-constraints";
@@ -16,6 +17,9 @@ type ConversationState = {
   pendingSince?: string;
   /** A vague message waiting for the user to confirm what to do with it. */
   proposedText?: string;
+  /** The last chat exchange, so a follow-up like "yes, write it" has context. */
+  lastUserText?: string;
+  lastReply?: string;
 };
 
 type TelegramConversationInput = {
@@ -130,6 +134,8 @@ function readConversationState(value: unknown): ConversationState {
     ...(typeof state.pendingJobId === "string" ? { pendingJobId: state.pendingJobId } : {}),
     ...(typeof state.pendingSince === "string" ? { pendingSince: state.pendingSince } : {}),
     ...(typeof state.proposedText === "string" ? { proposedText: state.proposedText.slice(0, 1000) } : {}),
+    ...(typeof state.lastUserText === "string" ? { lastUserText: state.lastUserText.slice(0, 300) } : {}),
+    ...(typeof state.lastReply === "string" ? { lastReply: state.lastReply.slice(0, 400) } : {}),
   };
 }
 
@@ -306,7 +312,42 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
       text = proposed;
       intent = input.proposal === "revise" && activePostId ? "revise" : "create";
     } else {
-      intent = classifyTelegramIntent(text, Boolean(activePostId));
+      // Ask the AI what the user means, like a chat assistant. If it is
+      // unavailable, fall back to the keyword classifier so the bot still
+      // answers instead of drafting on a guess.
+      let draftText: string | undefined;
+      if (activePostId) {
+        try {
+          const { data: openDraft } = await input.supabase.from("content_posts")
+            .select("text").eq("workspace_id", input.workspaceId).eq("id", activePostId).maybeSingle();
+          draftText = typeof openDraft?.text === "string" ? openDraft.text : undefined;
+        } catch {
+          draftText = undefined;
+        }
+      }
+      const routed = await routeTelegramMessage({
+        text,
+        draftText,
+        lastUserText: state.lastUserText,
+        lastReply: state.lastReply,
+      });
+      if (routed?.intent === "chat") {
+        await releaseConversation(input, lockToken, {
+          ...stateWithoutPending(state),
+          lastUserText: text.slice(0, 300),
+          lastReply: routed.reply.slice(0, 400),
+        });
+        return {
+          replyText: escapeMarkdownV2(routed.reply),
+          replyMarkup: activePostId ? DRAFT_CHAT_BUTTONS : WRITE_BUTTONS,
+        };
+      }
+      if (routed) {
+        intent = routed.intent;
+        if (routed.intent === "create" && routed.topic) text = routed.topic;
+      } else {
+        intent = classifyTelegramIntent(text, Boolean(activePostId));
+      }
     }
 
     if (intent === "chitchat" || intent === "question") {

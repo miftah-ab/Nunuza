@@ -4,9 +4,13 @@ import { buildDraftPrompt } from "@/lib/ai/prompts";
 import type { AgentJob } from "@/types/database";
 import { executeTelegramContentJob, handleTelegramConversation, isRevisionRequest, resolveActiveDraftId } from "./conversation";
 import { sendTelegramMessage } from "./service";
+import { routeTelegramMessage } from "@/lib/ai/chat-router";
 
 vi.mock("@/lib/ai/service", () => ({
   aiService: { generateDraft: vi.fn() },
+}));
+vi.mock("@/lib/ai/chat-router", () => ({
+  routeTelegramMessage: vi.fn().mockResolvedValue(null),
 }));
 vi.mock("./service", () => ({
   sendTelegramMessage: vi.fn().mockResolvedValue({ ok: true }),
@@ -427,5 +431,34 @@ describe("resolveActiveDraftId", () => {
   it("finds a web draft when the chat has none", async () => {
     const supabase = fakeSupabase([{ id: "web", updated_at: iso(60_000), status: "draft" }]);
     expect(await resolveActiveDraftId({ supabase, workspaceId: "w" } as any, undefined)).toBe("web");
+  });
+});
+
+describe("AI message routing", () => {
+  const base = { telegramUserId: 111, chatId: 222, workspaceId: "workspace-1", ownerUserId: "user-1" };
+
+  it("answers chat conversationally and queues no draft", async () => {
+    vi.mocked(routeTelegramMessage).mockResolvedValueOnce({ intent: "chat", reply: "Hi! What would you like to post about?", topic: "" });
+    const db = new FakeDb();
+    const result = await handleTelegramConversation({ ...base, text: "hey whats up", supabase: db });
+    expect(result.replyText).toContain("What would you like to post about");
+    expect(db.jobs).toHaveLength(0);
+    expect(db.conversationState.lastUserText).toBe("hey whats up");
+  });
+
+  it("queues a draft when the AI understands a create request and uses its topic", async () => {
+    vi.mocked(routeTelegramMessage).mockResolvedValueOnce({ intent: "create", reply: "", topic: "Why remote hiring beats office hiring" });
+    const db = new FakeDb();
+    await handleTelegramConversation({ ...base, text: "yes do it", supabase: db });
+    expect(db.jobs).toHaveLength(1);
+    expect(JSON.stringify(db.jobs[0].payload)).toContain("Why remote hiring beats office hiring");
+  });
+
+  it("falls back to keywords when the AI is unavailable, and still does not draft a greeting", async () => {
+    vi.mocked(routeTelegramMessage).mockResolvedValueOnce(null);
+    const db = new FakeDb();
+    const result = await handleTelegramConversation({ ...base, text: "hello", supabase: db });
+    expect(db.jobs).toHaveLength(0);
+    expect(result.replyText).toBeTruthy();
   });
 });
