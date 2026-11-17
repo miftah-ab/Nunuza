@@ -383,6 +383,22 @@ export function buildEvergreenOpportunity(
   return null;
 }
 
+/**
+ * Whether the agent has room for a new post. Only posts that are going out
+ * count toward the weekly cadence; unreviewed drafts are limited separately.
+ */
+export function cycleCapacityBlock(input: {
+  recentPosts: Array<{ status: string }>; waitingDrafts: number; cadencePerWeek: unknown;
+}): "weekly_cadence_already_met" | "drafts_waiting_for_review" | null {
+  const committed = input.recentPosts.filter((post) =>
+    ["approved", "scheduled", "publishing", "published"].includes(post.status)).length;
+  if (committed >= Math.max(1, Number(input.cadencePerWeek ?? 3))) return "weekly_cadence_already_met";
+  if (input.waitingDrafts >= MAX_DRAFTS_WAITING_FOR_REVIEW) return "drafts_waiting_for_review";
+  return null;
+}
+
+const STALE_DRAFT_DAYS = 7;
+const MAX_DRAFTS_WAITING_FOR_REVIEW = 3;
 const RESEARCH_TIMEOUT_MS = 20_000;
 const RESEARCH_ATTEMPTS = 2;
 
@@ -760,16 +776,53 @@ export async function executeAutonomousCycle(
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
   }
 
-  const activeRecentPosts = (recentPosts ?? []).filter((post: any) =>
-    ["draft", "needs_review", "approved", "scheduled", "published"].includes(post.status)
+  // Retire agent drafts nobody reviewed for a week, so old drafts neither pile
+  // up nor block new ones. Not a rejection: nothing is learned from them.
+  const staleCutoff = new Date(Date.now() - STALE_DRAFT_DAYS * 86400000).toISOString();
+  const { data: retired } = await supabase
+    .from("content_posts")
+    .update({ status: "canceled", scheduled_at: null })
+    .eq("workspace_id", workspace.id)
+    .eq("status", "needs_review")
+    .not("agent_cycle_key", "is", null)
+    .lt("created_at", staleCutoff)
+    .select("id");
+  if (retired?.length) {
+    await recordAgentEvent(supabase, workspace.id, "agent_stale_drafts_retired", {
+      cycleDate, count: retired.length, olderThanDays: STALE_DRAFT_DAYS,
+    });
+  }
+
+  // The weekly cadence counts posts that are actually going out. Drafts that
+  // are still waiting for review are counted separately, never as "made".
+  const committedRecentPosts = (recentPosts ?? []).filter((post: any) =>
+    ["approved", "scheduled", "publishing", "published"].includes(post.status)
   );
-  if (activeRecentPosts.length >= Math.max(1, Number(strategy.cadence_per_week ?? 3))) {
+  const activeRecentPosts = (recentPosts ?? []).filter((post: any) =>
+    ["draft", "needs_review", "approved", "scheduled", "publishing", "published"].includes(post.status)
+  );
+  if (committedRecentPosts.length >= Math.max(1, Number(strategy.cadence_per_week ?? 3))) {
     await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {
       cycleDate,
       decision: "no_op",
       reason: "weekly_cadence_already_met",
-      activeRecentPosts: activeRecentPosts.length,
+      committedRecentPosts: committedRecentPosts.length,
       cadencePerWeek: strategy.cadence_per_week,
+    });
+    return { jobId: job.id, success: true, status: "succeeded", retryable: false };
+  }
+
+  const { count: waitingDrafts } = await supabase
+    .from("content_posts")
+    .select("id", { count: "exact", head: true })
+    .eq("workspace_id", workspace.id)
+    .in("status", ["draft", "needs_review"]);
+  if ((waitingDrafts ?? 0) >= MAX_DRAFTS_WAITING_FOR_REVIEW) {
+    await recordAgentEvent(supabase, workspace.id, "agent_cycle_decision", {
+      cycleDate,
+      decision: "no_op",
+      reason: "drafts_waiting_for_review",
+      waitingDrafts,
     });
     return { jobId: job.id, success: true, status: "succeeded", retryable: false };
   }

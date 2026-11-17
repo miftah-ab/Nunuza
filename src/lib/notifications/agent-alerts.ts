@@ -25,6 +25,11 @@ const SKIP_NOTICES: Record<string, AgentNotice> = {
     body: "Your strategy has no pillars, goals or audience yet, so Nunuza has nothing to research. Add them and it will start.",
     href: "/app/strategy", priority: "high",
   },
+  drafts_waiting_for_review: {
+    title: "Nunuza paused new drafts: you have drafts waiting",
+    body: "You have drafts waiting for review, so Nunuza did not write a new one today. Approve or reject them and it carries on. Drafts older than 7 days are cleared automatically.",
+    href: "/app/content", priority: "high",
+  },
   all_candidates_excluded_by_brand: {
     title: "Everything Nunuza found is on your exclusion list",
     body: "Today's stories all matched your exclusions, so nothing was posted. Review your exclusions if this keeps happening.",

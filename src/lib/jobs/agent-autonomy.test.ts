@@ -91,3 +91,18 @@ describe("Bing news fallback", () => {
     expect(await fetchResearchFromProviders("q", [down, { name: "bing", fetch: async () => [] }])).toEqual([]);
   });
 });
+
+import { cycleCapacityBlock } from "./intelligence";
+
+describe("cycle capacity", () => {
+  const posts = (...statuses: string[]) => statuses.map((status) => ({ status }));
+  it("does not count unreviewed drafts as posts made", () => {
+    expect(cycleCapacityBlock({ recentPosts: posts("needs_review", "needs_review", "needs_review", "draft"), waitingDrafts: 2, cadencePerWeek: 3 })).toBeNull();
+  });
+  it("stops when the weekly cadence of real posts is met", () => {
+    expect(cycleCapacityBlock({ recentPosts: posts("published", "scheduled", "approved"), waitingDrafts: 0, cadencePerWeek: 3 })).toBe("weekly_cadence_already_met");
+  });
+  it("pauses and says so when too many drafts wait", () => {
+    expect(cycleCapacityBlock({ recentPosts: [], waitingDrafts: 3, cadencePerWeek: 3 })).toBe("drafts_waiting_for_review");
+  });
+});
