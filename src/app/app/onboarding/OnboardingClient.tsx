@@ -1,662 +1,551 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Circle, AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, Check, Loader2, Plus, Send } from "lucide-react";
 import { Logo } from "@/components/layout/Logo";
+import {
+  AUDIENCE_OPTIONS,
+  CADENCE_OPTIONS,
+  GOAL_OPTIONS,
+  ROLE_OPTIONS,
+  TONE_OPTIONS,
+  buildOnboardingPayload,
+  cleanAnswer,
+  suggestTopics,
+} from "./onboarding-options";
 
-const ONBOARDING_STEPS = [
-  { key: "welcome", label: "Welcome" },
-  { key: "profile", label: "Professional profile" },
-  { key: "audience", label: "Audience" },
-  { key: "strategy", label: "Content strategy" },
-  { key: "voice", label: "Voice profile" },
-  { key: "cadence", label: "Cadence & schedule" },
-  { key: "linkedin", label: "LinkedIn connection" },
-] as const;
-
-type StepKey = typeof ONBOARDING_STEPS[number]["key"];
+type StepKey = "name" | "role" | "goals" | "audience" | "topics" | "tone" | "cadence" | "connect";
+const STEPS: StepKey[] = ["name", "role", "goals", "audience", "topics", "tone", "cadence", "connect"];
 
 interface OnboardingClientProps {
   initialDisplayName?: string | null;
   initialTimezone?: string | null;
 }
 
-export function OnboardingClient({
-  initialDisplayName,
-  initialTimezone,
-}: OnboardingClientProps) {
-  const router = useRouter();
-  const [currentStep, setCurrentStep] = useState<StepKey>("welcome");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+/** One selectable option. Custom answers added through "Other" appear as chips too. */
+function ChipGroup({
+  label,
+  options,
+  value,
+  onChange,
+  multiple,
+  otherLabel = "Other",
+  onSingleChosen,
+}: {
+  label: string;
+  options: readonly { value: string; hint?: string }[];
+  value: string[];
+  onChange: (next: string[]) => void;
+  multiple: boolean;
+  otherLabel?: string;
+  /** Called after a single-choice tap so the flow can move on. */
+  onSingleChosen?: () => void;
+}) {
+  const [otherOpen, setOtherOpen] = useState(false);
+  const [otherText, setOtherText] = useState("");
+  const known = new Set(options.map((o) => o.value));
+  const custom = value.filter((v) => !known.has(v));
 
-  // Form State
-  const [displayName, setDisplayName] = useState(initialDisplayName || "");
-  const [role, setRole] = useState("");
-  const [company, setCompany] = useState("");
-  const [positioning, setPositioning] = useState("");
-  const [linkedinUrl, setLinkedinUrl] = useState("");
-
-  const [audienceRoles, setAudienceRoles] = useState("");
-  const [audienceProblems, setAudienceProblems] = useState("");
-  const [audienceOutcomes, setAudienceOutcomes] = useState("");
-
-  const [pillars, setPillars] = useState("Industry insights\nLessons from your work\nCustomer stories\nPractical advice");
-  const [primaryGoal, setPrimaryGoal] = useState("");
-  const [exclusions, setExclusions] = useState("");
-  const [ctaPreferences, setCtaPreferences] = useState("");
-
-  const [tone, setTone] = useState("Direct, warm, slightly informal");
-  const [sentenceLength, setSentenceLength] = useState("Short sentences, punchy paragraphs");
-  const [phrasesUse, setPhrasesUse] = useState("");
-  const [phrasesAvoid, setPhrasesAvoid] = useState("");
-  const [sampleWriting, setSampleWriting] = useState("");
-
-  const [postsPerWeek, setPostsPerWeek] = useState(3);
-  const [preferredDays, setPreferredDays] = useState<number[]>([1, 2, 3, 4, 5]); // Mon–Fri
-  const [timezone, setTimezone] = useState(initialTimezone || "UTC");
-
-  const currentIndex = ONBOARDING_STEPS.findIndex((s) => s.key === currentStep);
-
-  const goToStep = (step: StepKey) => {
-    setError(null);
-    setCurrentStep(step);
-  };
-
-  const handleNext = () => {
-    if (currentIndex < ONBOARDING_STEPS.length - 1) {
-      goToStep(ONBOARDING_STEPS[currentIndex + 1].key);
-    }
-  };
-
-  const handleBack = () => {
-    if (currentIndex > 0) {
-      goToStep(ONBOARDING_STEPS[currentIndex - 1].key);
-    }
-  };
-
-  const toggleDay = (dayIndex: number) => {
-    if (preferredDays.includes(dayIndex)) {
-      setPreferredDays(preferredDays.filter((d) => d !== dayIndex));
+  const toggle = (v: string) => {
+    if (multiple) {
+      onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
     } else {
-      setPreferredDays([...preferredDays, dayIndex].sort());
+      onChange([v]);
+      setOtherOpen(false);
+      onSingleChosen?.();
     }
   };
 
-  const handleFinishSetup = async () => {
-    setIsSubmitting(true);
+  const addOther = () => {
+    const text = cleanAnswer(otherText);
+    if (!text) return;
+    if (multiple) {
+      if (!value.includes(text)) onChange([...value, text]);
+      setOtherText("");
+    } else {
+      onChange([text]);
+      setOtherOpen(false);
+      onSingleChosen?.();
+    }
+  };
+
+  const chip = (selected: boolean) =>
+    `inline-flex items-center gap-1.5 rounded-full border px-4 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2 ${
+      selected
+        ? "border-forest bg-forest text-white"
+        : "border-border bg-white text-ink hover:border-forest-muted hover:bg-forest-light"
+    }`;
+
+  return (
+    <div role={multiple ? "group" : "radiogroup"} aria-label={label}>
+      <div className="flex flex-wrap gap-2.5">
+        {options.map((o) => {
+          const selected = value.includes(o.value);
+          return (
+            <button
+              key={o.value}
+              type="button"
+              role={multiple ? undefined : "radio"}
+              aria-checked={multiple ? undefined : selected}
+              aria-pressed={multiple ? selected : undefined}
+              onClick={() => toggle(o.value)}
+              title={o.hint}
+              className={chip(selected)}
+            >
+              {selected && multiple && <Check size={14} aria-hidden="true" />}
+              <span>{o.value}</span>
+            </button>
+          );
+        })}
+        {custom.map((v) => (
+          <button
+            key={v}
+            type="button"
+            role={multiple ? undefined : "radio"}
+            aria-checked={multiple ? undefined : true}
+            aria-pressed={multiple ? true : undefined}
+            onClick={() => onChange(value.filter((x) => x !== v))}
+            className={chip(true)}
+            title="Tap to remove"
+          >
+            <Check size={14} aria-hidden="true" />
+            <span>{v}</span>
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => setOtherOpen((open) => !open)}
+          aria-expanded={otherOpen}
+          className={chip(false) + " border-dashed"}
+        >
+          <Plus size={14} aria-hidden="true" />
+          <span>{otherLabel}</span>
+        </button>
+      </div>
+
+      {otherOpen && (
+        <div className="mt-4 flex gap-2">
+          <input
+            autoFocus
+            type="text"
+            maxLength={80}
+            value={otherText}
+            onChange={(e) => setOtherText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addOther();
+              }
+            }}
+            placeholder="Type your own"
+            aria-label={`${otherLabel}: type your own`}
+            className="input-field flex-1"
+          />
+          <button type="button" onClick={addOther} disabled={!cleanAnswer(otherText)} className="btn-primary">
+            Add
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function OnboardingClient({ initialDisplayName, initialTimezone }: OnboardingClientProps) {
+  const router = useRouter();
+  const [step, setStep] = useState<StepKey>("name");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"finish" | "linkedin" | "telegram" | null>(null);
+
+  const [displayName, setDisplayName] = useState(initialDisplayName || "");
+  const [roles, setRoles] = useState<string[]>([]);
+  const [goals, setGoals] = useState<string[]>([]);
+  const [audience, setAudience] = useState<string[]>([]);
+  const [topics, setTopics] = useState<string[]>([]);
+  const [tones, setTones] = useState<string[]>([]);
+  const [postsPerWeek, setPostsPerWeek] = useState(3);
+  const [timezone, setTimezone] = useState(initialTimezone && initialTimezone !== "UTC" ? initialTimezone : "UTC");
+  const [telegramConnected, setTelegramConnected] = useState(false);
+  const [telegramOpened, setTelegramOpened] = useState(false);
+  const topicsSeeded = useRef(false);
+
+  const index = STEPS.indexOf(step);
+
+  // Detect the timezone instead of asking for it.
+  useEffect(() => {
+    if (initialTimezone && initialTimezone !== "UTC") return;
+    try {
+      const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (detected) setTimezone(detected);
+    } catch {
+      // keep the default
+    }
+  }, [initialTimezone]);
+
+  const payload = useCallback(
+    () => buildOnboardingPayload({ displayName, roles, goals, audience, topics, tones, postsPerWeek, timezone }),
+    [displayName, roles, goals, audience, topics, tones, postsPerWeek, timezone]
+  );
+
+  // Save after every answer so a refresh or a closed tab loses nothing.
+  const saveProgress = useCallback(
+    (leaving: StepKey) => {
+      void fetch("/api/onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload(), onboardingStep: leaving }),
+      }).catch(() => {});
+    },
+    [payload]
+  );
+
+  const go = (next: StepKey) => {
     setError(null);
+    setStep(next);
+  };
 
-    const payload = {
-      displayName,
-      role,
-      company,
-      positioning,
-      linkedinUrl,
-      audienceRoles,
-      audienceProblems,
-      audienceOutcomes,
-      pillars,
-      primaryGoal,
-      exclusions,
-      ctaPreferences,
-      tone,
-      sentenceLength,
-      phrasesUse,
-      phrasesAvoid,
-      sampleWriting,
-      postsPerWeek,
-      preferredDays,
-      timezone,
-      finishSetup: true,
-    };
+  const goNext = () => {
+    saveProgress(step);
+    const next = STEPS[index + 1];
+    if (next === "topics" && !topicsSeeded.current) {
+      topicsSeeded.current = true;
+      if (topics.length === 0) setTopics(suggestTopics(roles).slice(0, 4));
+    }
+    if (next) go(next);
+  };
 
+  const goNextRef = useRef(goNext);
+  goNextRef.current = goNext;
+
+  const goBack = () => {
+    const prev = STEPS[index - 1];
+    if (prev) go(prev);
+  };
+
+  const finish = async (): Promise<boolean> => {
     try {
       const res = await fetch("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload(), finishSetup: true, onboardingStep: "connect" }),
       });
-
-      const json = (await res.json()) as {
-        error?: string;
-        data?: { completed?: boolean };
-      };
-
-      if (!res.ok || json.error) {
+      const json = (await res.json()) as { error?: string; data?: { completed?: boolean } };
+      if (!res.ok || json.error || !json.data?.completed) {
         setError(json.error || "We couldn’t finish setting up your workspace. Please try again.");
-        setIsSubmitting(false);
-        return;
+        return false;
       }
-
-      if (json.data?.completed) {
-        router.push("/app/overview");
-        router.refresh();
-      } else {
-        setError("Your setup wasn’t completed. Please try again.");
-        setIsSubmitting(false);
-      }
-    } catch (err: unknown) {
-      setError(
-        "We couldn’t save your setup. Check your connection and try again."
-      );
-      setIsSubmitting(false);
+      return true;
+    } catch {
+      setError("We couldn’t save your setup. Check your connection and try again.");
+      return false;
     }
   };
 
+  const handleStart = async () => {
+    setBusy("finish");
+    setError(null);
+    if (await finish()) {
+      router.push("/app/overview");
+      router.refresh();
+      return;
+    }
+    setBusy(null);
+  };
+
+  const handleLinkedIn = async () => {
+    setBusy("linkedin");
+    setError(null);
+    if (await finish()) {
+      window.location.href = "/api/integrations/linkedin/authorize";
+      return;
+    }
+    setBusy(null);
+  };
+
+  const handleTelegram = async () => {
+    setBusy("telegram");
+    setError(null);
+    try {
+      const res = await fetch("/api/integrations/telegram/link", { method: "POST" });
+      const json = (await res.json()) as { error?: string; data?: { botUrl?: string } };
+      const botUrl = json.data?.botUrl;
+      if (!res.ok || !botUrl) throw new Error(json.error || "link");
+      window.open(botUrl, "_blank", "noopener,noreferrer");
+      setTelegramOpened(true);
+    } catch {
+      setError("We couldn’t create your Telegram link. Please try again.");
+    }
+    setBusy(null);
+  };
+
+  // After Telegram opens, watch for the link to complete.
+  useEffect(() => {
+    if (!telegramOpened || telegramConnected) return;
+    let stopped = false;
+    const started = Date.now();
+    const timer = setInterval(async () => {
+      if (stopped || Date.now() - started > 5 * 60 * 1000) {
+        clearInterval(timer);
+        return;
+      }
+      try {
+        const res = await fetch("/api/integrations/telegram/link");
+        const json = (await res.json()) as { data?: { status?: { connected?: boolean } } };
+        if (json.data?.status?.connected) {
+          setTelegramConnected(true);
+          clearInterval(timer);
+        }
+      } catch {
+        // keep polling
+      }
+    }, 3000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [telegramOpened, telegramConnected]);
+
+  const topicOptions = (() => {
+    const base = suggestTopics(roles);
+    return base.map((value) => ({ value }));
+  })();
+
+  const questionCount = STEPS.length - 1;
+  const progress = Math.min(index, questionCount) / questionCount;
+
+  const renderFooter = ({ canSkip = true, nextLabel = "Continue" }: { canSkip?: boolean; nextLabel?: string } = {}) => (
+    <div className="mt-10 flex items-center justify-between">
+      <button type="button" onClick={goBack} className="btn-secondary" aria-label="Back">
+        <ArrowLeft size={16} aria-hidden="true" />
+        Back
+      </button>
+      <div className="flex items-center gap-4">
+        {canSkip && (
+          <button type="button" onClick={goNext} className="text-sm text-ink-secondary hover:text-ink underline-offset-4 hover:underline">
+            Skip
+          </button>
+        )}
+        <button type="button" onClick={goNext} className="btn-primary">
+          {nextLabel}
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderTitle = (children: React.ReactNode, hint?: string) => (
+    <div className="mb-6">
+      <h1 className="text-2xl font-bold text-ink">{children}</h1>
+      {hint && <p className="mt-1.5 text-sm text-ink-secondary">{hint}</p>}
+    </div>
+  );
+
   return (
-    <div className="min-h-screen bg-offwhite flex flex-col">
-      {/* Header */}
+    <div className="min-h-screen bg-white flex flex-col">
       <header className="flex items-center justify-between h-16 px-6 border-b border-border bg-white">
         <Logo height={24} asLink={false} />
-        <span className="text-xs text-ink-secondary">
-          Step {currentIndex + 1} of {ONBOARDING_STEPS.length}
-        </span>
+        {step !== "connect" && <span className="text-xs text-ink-secondary">{index + 1} of {questionCount}</span>}
       </header>
+      <div
+        className="h-1 bg-forest-light"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(progress * 100)}
+        aria-label="Setup progress"
+      >
+        <div className="h-full bg-forest transition-all duration-300" style={{ width: `${Math.max(progress, 0.04) * 100}%` }} />
+      </div>
 
-      <div className="flex flex-1 max-w-4xl mx-auto w-full gap-8 p-6">
-        {/* Step Sidebar */}
-        <aside className="hidden md:block w-52 flex-shrink-0" aria-label="Onboarding steps">
-          <nav>
-            <ol className="space-y-1">
-              {ONBOARDING_STEPS.map((step, i) => {
-                const done = i < currentIndex;
-                const active = i === currentIndex;
+      <main id="main-content" className="flex-1 w-full max-w-xl mx-auto px-6 py-10 sm:py-16">
+        {error && (
+          <div className="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800 flex items-start gap-2.5" role="alert">
+            <AlertCircle size={18} className="text-red-600 flex-shrink-0 mt-0.5" aria-hidden="true" />
+            <p>{error}</p>
+          </div>
+        )}
+
+        {step === "name" && (
+          <div>
+            {renderTitle("Welcome to Nunuza", "A few taps and your agent starts working. You can change any answer later.")}
+            <label htmlFor="display-name" className="block text-sm font-medium text-ink mb-1.5">
+              What should we call you?
+            </label>
+            <input
+              id="display-name"
+              type="text"
+              maxLength={60}
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") goNext();
+              }}
+              placeholder="Your name"
+              autoComplete="name"
+              className="input-field w-full"
+            />
+            <div className="mt-10 flex justify-end">
+              <button type="button" onClick={goNext} className="btn-primary">
+                Get started
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === "role" && (
+          <div>
+            {renderTitle("What best describes you?")}
+            <ChipGroup
+              label="What best describes you?"
+              options={ROLE_OPTIONS.map((value) => ({ value }))}
+              value={roles}
+              onChange={setRoles}
+              multiple={false}
+              onSingleChosen={() => setTimeout(() => goNextRef.current(), 250)}
+            />
+            {renderFooter()}
+          </div>
+        )}
+
+        {step === "goals" && (
+          <div>
+            {renderTitle("What do you want from LinkedIn?", "Pick all that apply.")}
+            <ChipGroup label="What do you want from LinkedIn?" options={GOAL_OPTIONS.map((value) => ({ value }))} value={goals} onChange={setGoals} multiple />
+            {renderFooter()}
+          </div>
+        )}
+
+        {step === "audience" && (
+          <div>
+            {renderTitle("Who do you want to reach?", "Pick all that apply.")}
+            <ChipGroup label="Who do you want to reach?" options={AUDIENCE_OPTIONS.map((value) => ({ value }))} value={audience} onChange={setAudience} multiple />
+            {renderFooter()}
+          </div>
+        )}
+
+        {step === "topics" && (
+          <div>
+            {renderTitle("What do you want to post about?", "We picked a few for you. Change them any time.")}
+            <ChipGroup
+              label="What do you want to post about?"
+              options={topicOptions}
+              value={topics}
+              onChange={setTopics}
+              multiple
+              otherLabel="Add your own"
+            />
+            {renderFooter()}
+          </div>
+        )}
+
+        {step === "tone" && (
+          <div>
+            {renderTitle("How should you sound?", "This shapes how your drafts sound. You can add a writing sample later for a closer match.")}
+            <ChipGroup
+              label="How should you sound?"
+              options={TONE_OPTIONS.map((t) => ({ value: t.value, hint: t.hint }))}
+              value={tones}
+              onChange={setTones}
+              multiple={false}
+              onSingleChosen={() => setTimeout(() => goNextRef.current(), 250)}
+            />
+            {renderFooter()}
+          </div>
+        )}
+
+        {step === "cadence" && (
+          <div>
+            {renderTitle("How often do you want to post?", `You approve every post before it goes out. Times use your timezone (${timezone}).`)}
+            <div role="radiogroup" aria-label="Posts per week" className="grid grid-cols-3 gap-3">
+              {CADENCE_OPTIONS.map((o) => {
+                const selected = postsPerWeek === o.value;
                 return (
-                  <li key={step.key}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (i <= currentIndex) goToStep(step.key);
-                      }}
-                      disabled={i > currentIndex}
-                      className={`w-full flex items-center gap-2.5 py-1.5 text-left transition-colors ${i <= currentIndex ? "cursor-pointer" : "cursor-not-allowed opacity-60"
-                        }`}
-                    >
-                      {done ? (
-                        <CheckCircle2 size={16} className="text-success flex-shrink-0" aria-hidden="true" />
-                      ) : (
-                        <Circle
-                          size={16}
-                          className={active ? "text-forest" : "text-border"}
-                          aria-hidden="true"
-                        />
-                      )}
-                      <span className={`text-sm ${active ? "font-semibold text-ink" : "text-ink-secondary"}`}>
-                        {step.label}
-                      </span>
-                    </button>
-                  </li>
+                  <button
+                    key={o.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => {
+                      setPostsPerWeek(o.value);
+                      setTimeout(() => goNextRef.current(), 250);
+                    }}
+                    className={`rounded-xl border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2 ${
+                      selected ? "border-forest bg-forest text-white" : "border-border bg-white hover:border-forest-muted hover:bg-forest-light"
+                    }`}
+                  >
+                    <span className="block text-sm font-semibold">{o.label}</span>
+                    <span className={`block text-xs mt-0.5 ${selected ? "text-white/80" : "text-ink-secondary"}`}>{o.hint}</span>
+                  </button>
                 );
               })}
-            </ol>
-          </nav>
-        </aside>
-
-        {/* Step Content */}
-        <main id="main-content" className="flex-1 card p-8 animate-fade-in">
-          {error && (
-            <div className="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800 flex items-start gap-2.5">
-              <AlertCircle size={18} className="text-red-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="font-semibold">We couldn’t finish setup</p>
-                <p className="mt-0.5">{error}</p>
-              </div>
             </div>
-          )}
+            {renderFooter({ canSkip: false })}
+          </div>
+        )}
 
-          {/* STEP 1: WELCOME */}
-          {currentStep === "welcome" && (
-            <div>
-              <h1 className="text-2xl font-bold text-ink mb-2">Welcome to Nunuza</h1>
-              <p className="text-ink-secondary mb-6">
-                Let&apos;s set up your workspace in a few steps. This takes about 5 minutes and
-                everything can be updated later from the dashboard.
-              </p>
-              <div className="space-y-3 mb-6">
-                <p className="text-sm text-ink">
-                  <strong>What we&apos;ll set up:</strong>
-                </p>
-                <ul className="space-y-1.5 text-sm text-ink-secondary">
-                  <li>• Your professional profile and positioning</li>
-                  <li>• Target audience and goals</li>
-                  <li>• Content pillars and strategy</li>
-                  <li>• Your writing voice and preferences</li>
-                  <li>• Posting cadence and time zone</li>
-                </ul>
-              </div>
-              <div className="rounded-lg bg-forest-light border border-forest-muted p-4 text-sm text-ink-secondary">
-                <strong className="text-ink">Full v1.0.0 Content Operations:</strong> This setup configures
-                your AI draft engine, audience targeting, and writing voice. Once completed, your workspace can
-                generate tailored drafts, manage review cycles, and publish directly to LinkedIn according to your
-                commercial subscription.
-              </div>
-              <div className="mt-8 flex justify-end">
-                <button
-                  type="button"
-                  onClick={handleNext}
-                  className="btn-primary"
-                >
-                  Get started
-                </button>
-              </div>
-            </div>
-          )}
+        {step === "connect" && (
+          <div>
+            {renderTitle("Connect where you want to work", "Your drafts arrive in Telegram. Review them there, and nothing is posted without your OK.")}
 
-          {/* STEP 2: PROFILE */}
-          {currentStep === "profile" && (
-            <div>
-              <h1 className="text-xl font-bold text-ink mb-1">Professional profile</h1>
-              <p className="text-sm text-ink-secondary mb-6">
-                Tell Nunuza about you. This shapes every draft it generates.
-              </p>
-              <div className="space-y-4">
-                <div>
-                  <label htmlFor="display-name" className="block text-sm font-medium text-ink mb-1.5">
-                    Display name
-                  </label>
-                  <input
-                    id="display-name"
-                    type="text"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="Your name"
-                    className="input-field"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="role" className="block text-sm font-medium text-ink mb-1.5">
-                    Role / title
-                  </label>
-                  <input
-                    id="role"
-                    type="text"
-                    value={role}
-                    onChange={(e) => setRole(e.target.value)}
-                    placeholder="e.g. Product manager, consultant, recruiter"
-                    className="input-field"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="company" className="block text-sm font-medium text-ink mb-1.5">
-                    Company or venture
-                  </label>
-                  <input
-                    id="company"
-                    type="text"
-                    value={company}
-                    onChange={(e) => setCompany(e.target.value)}
-                    placeholder="e.g. Acme Inc."
-                    className="input-field"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="positioning" className="block text-sm font-medium text-ink mb-1.5">
-                    Professional positioning <span className="text-ink-secondary font-normal">(optional)</span>
-                  </label>
-                  <textarea
-                    id="positioning"
-                    rows={3}
-                    value={positioning}
-                    onChange={(e) => setPositioning(e.target.value)}
-                    placeholder="e.g. I help teams improve customer experience through practical insights..."
-                    className="input-field resize-none"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="linkedin-url" className="block text-sm font-medium text-ink mb-1.5">
-                    LinkedIn profile URL <span className="text-ink-secondary font-normal">(optional)</span>
-                  </label>
-                  <input
-                    id="linkedin-url"
-                    type="url"
-                    value={linkedinUrl}
-                    onChange={(e) => setLinkedinUrl(e.target.value)}
-                    placeholder="https://linkedin.com/in/..."
-                    className="input-field"
-                  />
-                </div>
-              </div>
-              <div className="mt-8 flex justify-between">
-                <button type="button" onClick={handleBack} className="btn-secondary">
-                  Back
-                </button>
-                <button type="button" onClick={handleNext} className="btn-primary">
-                  Continue
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 3: AUDIENCE */}
-          {currentStep === "audience" && (
-            <div>
-              <h1 className="text-xl font-bold text-ink mb-1">Target audience</h1>
-              <p className="text-sm text-ink-secondary mb-6">
-                Who are you writing for? The more specific, the better.
-              </p>
-              <div className="space-y-4">
-                <div>
-                  <label htmlFor="audience-roles" className="block text-sm font-medium text-ink mb-1.5">
-                    Target roles and industries
-                  </label>
-                  <textarea
-                    id="audience-roles"
-                    rows={2}
-                    value={audienceRoles}
-                    onChange={(e) => setAudienceRoles(e.target.value)}
-                    placeholder="e.g. Operations leaders, hiring managers, small-business owners"
-                    className="input-field resize-none"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="audience-problems" className="block text-sm font-medium text-ink mb-1.5">
-                    Problems your audience faces
-                  </label>
-                  <textarea
-                    id="audience-problems"
-                    rows={3}
-                    value={audienceProblems}
-                    onChange={(e) => setAudienceProblems(e.target.value)}
-                    placeholder="e.g. Hard to share useful insights consistently while managing daily work..."
-                    className="input-field resize-none"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="audience-outcomes" className="block text-sm font-medium text-ink mb-1.5">
-                    Desired outcomes for your audience
-                  </label>
-                  <textarea
-                    id="audience-outcomes"
-                    rows={2}
-                    value={audienceOutcomes}
-                    onChange={(e) => setAudienceOutcomes(e.target.value)}
-                    placeholder="e.g. Build professional credibility, attract clients, or reach relevant peers..."
-                    className="input-field resize-none"
-                  />
-                </div>
-              </div>
-              <div className="mt-8 flex justify-between">
-                <button type="button" onClick={handleBack} className="btn-secondary">
-                  Back
-                </button>
-                <button type="button" onClick={handleNext} className="btn-primary">
-                  Continue
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 4: STRATEGY */}
-          {currentStep === "strategy" && (
-            <div>
-              <h1 className="text-xl font-bold text-ink mb-1">Content strategy</h1>
-              <p className="text-sm text-ink-secondary mb-6">
-                Define 3–5 content pillars — the recurring themes your posts will cover.
-              </p>
-              <div className="space-y-4">
-                <div>
-                  <label htmlFor="pillars" className="block text-sm font-medium text-ink mb-1.5">
-                    Content pillars <span className="text-ink-secondary font-normal">(one per line, 3–5)</span>
-                  </label>
-                  <textarea
-                    id="pillars"
-                    rows={5}
-                    value={pillars}
-                    onChange={(e) => setPillars(e.target.value)}
-                    className="input-field resize-none font-mono text-sm"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="primary-goal" className="block text-sm font-medium text-ink mb-1.5">
-                    Primary goal
-                  </label>
-                  <input
-                    id="primary-goal"
-                    type="text"
-                    value={primaryGoal}
-                    onChange={(e) => setPrimaryGoal(e.target.value)}
-                    placeholder="e.g. Attract design partners for my SaaS"
-                    className="input-field"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="exclusions" className="block text-sm font-medium text-ink mb-1.5">
-                    Topics to avoid <span className="text-ink-secondary font-normal">(optional)</span>
-                  </label>
-                  <textarea
-                    id="exclusions"
-                    rows={2}
-                    value={exclusions}
-                    onChange={(e) => setExclusions(e.target.value)}
-                    placeholder="e.g. Politics, religion, competitor comparisons"
-                    className="input-field resize-none"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="cta-preferences" className="block text-sm font-medium text-ink mb-1.5">
-                    Preferred calls to action <span className="text-ink-secondary font-normal">(optional)</span>
-                  </label>
-                  <input
-                    id="cta-preferences"
-                    type="text"
-                    value={ctaPreferences}
-                    onChange={(e) => setCtaPreferences(e.target.value)}
-                    placeholder="e.g. Book a call, reply with a question"
-                    className="input-field"
-                  />
-                </div>
-              </div>
-              <div className="mt-8 flex justify-between">
-                <button type="button" onClick={handleBack} className="btn-secondary">
-                  Back
-                </button>
-                <button type="button" onClick={handleNext} className="btn-primary">
-                  Continue
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 5: VOICE */}
-          {currentStep === "voice" && (
-            <div>
-              <h1 className="text-xl font-bold text-ink mb-1">Voice profile</h1>
-              <p className="text-sm text-ink-secondary mb-6">
-                Describe how you write. Nunuza uses this in every generation.
-              </p>
-              <div className="space-y-4">
-                <div>
-                  <label htmlFor="tone" className="block text-sm font-medium text-ink mb-1.5">Tone</label>
-                  <input
-                    id="tone"
-                    type="text"
-                    value={tone}
-                    onChange={(e) => setTone(e.target.value)}
-                    placeholder="e.g. Direct, warm, slightly informal"
-                    className="input-field"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="sentence-length" className="block text-sm font-medium text-ink mb-1.5">Sentence length</label>
-                  <input
-                    id="sentence-length"
-                    type="text"
-                    value={sentenceLength}
-                    onChange={(e) => setSentenceLength(e.target.value)}
-                    placeholder="e.g. Short sentences, punchy paragraphs"
-                    className="input-field"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="phrases-use" className="block text-sm font-medium text-ink mb-1.5">
-                    Phrases/words you use <span className="text-ink-secondary font-normal">(optional, comma-separated)</span>
-                  </label>
-                  <input
-                    id="phrases-use"
-                    type="text"
-                    value={phrasesUse}
-                    onChange={(e) => setPhrasesUse(e.target.value)}
-                    placeholder="e.g. ship it, real talk"
-                    className="input-field"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="phrases-avoid" className="block text-sm font-medium text-ink mb-1.5">
-                    Phrases/words to avoid <span className="text-ink-secondary font-normal">(optional, comma-separated)</span>
-                  </label>
-                  <input
-                    id="phrases-avoid"
-                    type="text"
-                    value={phrasesAvoid}
-                    onChange={(e) => setPhrasesAvoid(e.target.value)}
-                    placeholder="e.g. leverage, synergy, game-changer"
-                    className="input-field"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="sample-writing" className="block text-sm font-medium text-ink mb-1.5">
-                    Sample writing <span className="text-ink-secondary font-normal">(optional — paste a post you&apos;ve written)</span>
-                  </label>
-                  <textarea
-                    id="sample-writing"
-                    rows={4}
-                    value={sampleWriting}
-                    onChange={(e) => setSampleWriting(e.target.value)}
-                    placeholder="Paste a LinkedIn post or any writing that represents your voice..."
-                    className="input-field resize-none"
-                  />
-                </div>
-              </div>
-              <div className="mt-8 flex justify-between">
-                <button type="button" onClick={handleBack} className="btn-secondary">
-                  Back
-                </button>
-                <button type="button" onClick={handleNext} className="btn-primary">
-                  Continue
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 6: CADENCE */}
-          {currentStep === "cadence" && (
-            <div>
-              <h1 className="text-xl font-bold text-ink mb-1">Cadence and schedule</h1>
-              <p className="text-sm text-ink-secondary mb-6">
-                How often do you want to post? This sets the draft generation rhythm.
-              </p>
-              <div className="space-y-4">
-                <div>
-                  <label htmlFor="posts-per-week" className="block text-sm font-medium text-ink mb-1.5">
-                    Target posts per week
-                  </label>
-                  <select
-                    id="posts-per-week"
-                    value={postsPerWeek}
-                    onChange={(e) => setPostsPerWeek(parseInt(e.target.value, 10))}
-                    className="input-field"
-                  >
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <option key={n} value={n}>{n} post{n > 1 ? "s" : ""} per week</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label htmlFor="preferred-days" className="block text-sm font-medium text-ink mb-1.5">
-                    Preferred posting days
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d, i) => (
-                      <label key={d} className="flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={preferredDays.includes(i)}
-                          onChange={() => toggleDay(i)}
-                          className="accent-forest"
-                        />
-                        <span className="text-sm text-ink">{d}</span>
-                      </label>
-                    ))}
+            <div className="space-y-3">
+              <div className="rounded-xl border border-forest-muted bg-forest-light/40 p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold text-ink">Telegram</p>
+                    <p className="mt-0.5 text-sm text-ink-secondary">
+                      Get drafts as images, approve with a tap, and ask for changes by chatting.
+                    </p>
                   </div>
-                </div>
-                <div>
-                  <label htmlFor="timezone" className="block text-sm font-medium text-ink mb-1.5">
-                    Your time zone
-                  </label>
-                  <input
-                    id="timezone"
-                    type="text"
-                    value={timezone}
-                    onChange={(e) => setTimezone(e.target.value)}
-                    placeholder="e.g. Europe/Istanbul, America/New_York"
-                    className="input-field"
-                  />
-                  <p className="text-xs text-ink-secondary mt-1">
-                    Enter an IANA time zone name. Scheduled times will be shown in this zone.
-                  </p>
-                </div>
-              </div>
-              <div className="mt-8 flex justify-between">
-                <button type="button" onClick={handleBack} className="btn-secondary">
-                  Back
-                </button>
-                <button type="button" onClick={handleNext} className="btn-primary">
-                  Continue
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 7: LINKEDIN */}
-          {currentStep === "linkedin" && (
-            <div>
-              <h1 className="text-xl font-bold text-ink mb-1">LinkedIn connection</h1>
-              <p className="text-sm text-ink-secondary mb-6">
-                Connect your personal LinkedIn profile for automated drafting and direct-to-feed publishing.
-              </p>
-              <div className="card border-forest-muted bg-forest-light/40 p-4 mb-6 text-sm text-ink-secondary">
-                <strong className="text-ink">Direct Publishing Integration:</strong> Connecting your personal
-                profile grants secure publishing permissions via LinkedIn OAuth. You can connect now or link
-                your profile anytime from Workspace Integrations.
-              </div>
-              <div className="card p-5 text-center">
-                <p className="text-sm font-medium text-ink mb-1">LinkedIn OAuth Available</p>
-                <p className="text-xs text-ink-secondary">
-                  You can connect your LinkedIn account anytime from Workspace Integrations.
-                </p>
-              </div>
-
-              <div className="mt-8 flex justify-between items-center">
-                <button
-                  type="button"
-                  onClick={handleBack}
-                  disabled={isSubmitting}
-                  className="btn-secondary"
-                >
-                  Back
-                </button>
-                <button
-                  type="button"
-                  onClick={handleFinishSetup}
-                  disabled={isSubmitting}
-                  className="btn-primary flex items-center gap-2"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 size={16} className="animate-spin" />
-                      <span>Finishing setup...</span>
-                    </>
-                  ) : (
-                    <span>Finish setup</span>
+                  {telegramConnected && (
+                    <span className="inline-flex items-center gap-1 text-sm font-medium text-forest">
+                      <Check size={16} aria-hidden="true" /> Connected
+                    </span>
                   )}
-                </button>
+                </div>
+                {!telegramConnected && (
+                  <div className="mt-4">
+                    <button type="button" onClick={handleTelegram} disabled={busy !== null} className="btn-primary">
+                      {busy === "telegram" ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Send size={16} aria-hidden="true" />}
+                      {telegramOpened ? "Open Telegram again" : "Connect Telegram"}
+                    </button>
+                    {telegramOpened && (
+                      <p className="mt-2 text-xs text-ink-secondary" aria-live="polite">
+                        Tap Start in the bot. This page updates when it connects.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-border bg-white p-5">
+                <p className="text-sm font-semibold text-ink">LinkedIn</p>
+                <p className="mt-0.5 text-sm text-ink-secondary">Needed to publish your approved posts. You can do this later.</p>
+                <div className="mt-4">
+                  <button type="button" onClick={handleLinkedIn} disabled={busy !== null} className="btn-secondary">
+                    {busy === "linkedin" && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
+                    Connect LinkedIn
+                  </button>
+                </div>
               </div>
             </div>
-          )}
-        </main>
-      </div>
+
+            <div className="mt-10 flex items-center justify-between">
+              <button type="button" onClick={goBack} disabled={busy !== null} className="btn-secondary">
+                <ArrowLeft size={16} aria-hidden="true" />
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={handleStart}
+                disabled={busy !== null}
+                className={telegramConnected ? "btn-primary" : "btn-secondary"}
+              >
+                {busy === "finish" && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
+                {telegramConnected ? "Start" : "Skip for now"}
+              </button>
+            </div>
+          </div>
+        )}
+      </main>
     </div>
   );
 }
