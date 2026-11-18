@@ -1,3 +1,4 @@
+import { ImproveDraftsCard } from "@/components/overview/ImproveDraftsCard";
 import { describeCycleOutcome } from "@/lib/jobs/cycle-outcome";
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -218,6 +219,18 @@ export default async function OverviewPage() {
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     .slice(0, 5);
 
+  // Offer a writing sample once there is a draft to improve and no sample yet.
+  const hasAnyPost = counts.awaiting + counts.approved + counts.scheduled + counts.published > 0;
+  let showImproveDrafts = false;
+  if (hasAnyPost) {
+    const { data: voice, error: voiceError } = await supabase
+      .from("voice_profiles")
+      .select("sample_text")
+      .eq("workspace_id", workspace.id)
+      .maybeSingle();
+    showImproveDrafts = !voiceError && !String(voice?.sample_text ?? "").trim();
+  }
+
   const metrics = [
     { href: "/app/content", label: "Needs Review", value: counts.awaiting, sub: counts.approved ? `${counts.approved} approved` : "Drafts awaiting action", icon: FileText },
     { href: "/app/calendar", label: "Scheduled", value: counts.scheduled, sub: weeklyTarget === null ? "Strategy target not set" : `${weeklyTarget} per week target`, icon: Calendar },
@@ -240,6 +253,8 @@ export default async function OverviewPage() {
         </div>
         <Link href="/app/content" className="btn-primary self-start sm:self-auto"><Plus size={15} />New Draft</Link>
       </div>
+
+      {showImproveDrafts && <ImproveDraftsCard />}
 
       {needsBilling && (
         <div className="notice-warning flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
