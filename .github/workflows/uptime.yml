@@ -1,0 +1,62 @@
+name: Uptime check
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nunuza-uptime
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      # Repository variable, e.g. https://nunuza.com. Required.
+      APP_URL: ${{ vars.NUNUZA_APP_URL }}
+      # Optional: alert to Telegram as well as the failed-run email.
+      OPS_ALERT_BOT_TOKEN: ${{ secrets.OPS_ALERT_BOT_TOKEN }}
+      OPS_ALERT_TELEGRAM_CHAT_ID: ${{ vars.OPS_ALERT_TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Probe site and health endpoint
+        id: probe
+        shell: bash
+        run: |
+          set -u
+          if [ -z "${APP_URL:-}" ]; then
+            echo "::error::Set the repository variable NUNUZA_APP_URL (for example https://nunuza.com)."
+            exit 1
+          fi
+          base="${APP_URL%/}"
+          fail=""
+          try() { # url, label
+            for attempt in 1 2 3; do
+              code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$1" || echo 000)"
+              if [ "$code" = "200" ]; then return 0; fi
+              sleep 10
+            done
+            fail="$fail$2 returned $code. "
+            return 1
+          }
+          try "$base/" "Homepage" || true
+          try "$base/api/health" "Health check" || true
+          if [ -n "$fail" ]; then
+            echo "message=$fail" >> "$GITHUB_OUTPUT"
+            echo "::error::$fail"
+            exit 1
+          fi
+          echo "Site and health check are up."
+      - name: Alert on Telegram
+        if: failure() && env.OPS_ALERT_BOT_TOKEN != '' && env.OPS_ALERT_TELEGRAM_CHAT_ID != ''
+        shell: bash
+        run: |
+          text="🚨 Nunuza is down: ${{ steps.probe.outputs.message }}"
+          curl -s --max-time 20 -X POST \
+            "https://api.telegram.org/bot${OPS_ALERT_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${OPS_ALERT_TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${text}" >/dev/null || true

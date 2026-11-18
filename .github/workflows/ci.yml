@@ -18,6 +18,7 @@ jobs:
       - name: Production dependency security audit
         run: |
           node scripts/audit-gate.test.mjs
+          node scripts/apply-migrations.test.mjs
           node scripts/audit-gate.mjs
       - name: Type check
         run: npm run type-check
