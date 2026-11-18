@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { PenLine, X } from "lucide-react";
 
 const STORAGE_KEY = "nunuza:improve-drafts-dismissed";
@@ -13,26 +13,37 @@ const STORAGE_KEY = "nunuza:improve-drafts-dismissed";
  * Dismissal is a per-browser convenience; the card also disappears for good
  * once a sample exists.
  */
+const CHANGE_EVENT = "nunuza:improve-drafts-change";
+
+function subscribe(onChange: () => void): () => void {
+  window.addEventListener("storage", onChange);
+  window.addEventListener(CHANGE_EVENT, onChange);
+  return () => {
+    window.removeEventListener("storage", onChange);
+    window.removeEventListener(CHANGE_EVENT, onChange);
+  };
+}
+
+function readDismissed(): boolean {
+  try {
+    return window.localStorage.getItem(STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function ImproveDraftsCard() {
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    try {
-      if (window.localStorage.getItem(STORAGE_KEY) !== "1") setVisible(true);
-    } catch {
-      setVisible(true);
-    }
-  }, []);
-
-  if (!visible) return null;
+  // Server render assumes dismissed, so nobody who closed the card sees it flash.
+  const dismissed = useSyncExternalStore(subscribe, readDismissed, () => true);
+  if (dismissed) return null;
 
   const dismiss = () => {
-    setVisible(false);
     try {
       window.localStorage.setItem(STORAGE_KEY, "1");
     } catch {
       // Storage can be blocked; the card simply comes back next visit.
     }
+    window.dispatchEvent(new Event(CHANGE_EVENT));
   };
 
   return (
