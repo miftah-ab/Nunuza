@@ -64,10 +64,29 @@ export async function loadDraftPreviewInput(
     return { response: new Response("This draft is no longer available.", { status: 404 }) };
   }
 
-  // Identity priority: connected LinkedIn profile -> Nunuza profile -> neutral "You".
-  // No email-derived names, generated initials, or invented profile details.
+  const identity = await loadDraftIdentity(supabase, post.workspace_id);
+  return {
+    input: {
+      name: identity.name,
+      headline: identity.headline,
+      avatarUrl: identity.avatarUrl,
+      text: post.text || "",
+      seed: post.id,
+    },
+  };
+}
+
+/**
+ * Who the draft is shown as. Identity priority: connected LinkedIn profile ->
+ * Nunuza profile -> neutral "You". No email-derived names, generated initials,
+ * or invented profile details.
+ */
+export async function loadDraftIdentity(
+  supabase: any,
+  workspaceId: string
+): Promise<{ name: string; headline: string | null; avatarUrl: string | null }> {
   const { data: workspace } = await supabase.from("workspaces")
-    .select("owner_user_id").eq("id", post.workspace_id).maybeSingle();
+    .select("owner_user_id").eq("id", workspaceId).maybeSingle();
 
   let linkedinName: string | null = null;
   let linkedinHeadline: string | null = null;
@@ -79,7 +98,7 @@ export async function loadDraftPreviewInput(
     const [{ data: connection }, { data: profile }] = await Promise.all([
       supabase.from("integration_connections")
         .select("status, metadata")
-        .eq("workspace_id", post.workspace_id)
+        .eq("workspace_id", workspaceId)
         .eq("provider", "linkedin")
         .maybeSingle(),
       supabase.from("profiles")
@@ -102,12 +121,8 @@ export async function loadDraftPreviewInput(
 
   const displayName = linkedinName || profileName || "You";
   return {
-    input: {
-      name: displayName,
-      headline: linkedinName ? linkedinHeadline : null,
-      avatarUrl: linkedinAvatar || profileAvatar,
-      text: post.text || "",
-      seed: post.id,
-    },
+    name: linkedinName || profileName || "You",
+    headline: linkedinName ? linkedinHeadline : null,
+    avatarUrl: linkedinAvatar || profileAvatar,
   };
 }

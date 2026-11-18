@@ -22,7 +22,18 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        source: "/:path*",
+        // Telegram Web embeds the Mini App in a frame, so the reader page is
+        // the one route that may be framed, and only by Telegram.
+        source: "/telegram/review/:path*",
+        headers: [
+          { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Content-Security-Policy", value: "frame-ancestors https://web.telegram.org https://webk.telegram.org https://webz.telegram.org https://t.me" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+        ],
+      },
+      {
+        source: "/((?!telegram/review).*)",
         headers: [
           { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
           { key: "X-Content-Type-Options", value: "nosniff" },
