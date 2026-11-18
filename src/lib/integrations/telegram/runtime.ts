@@ -17,6 +17,8 @@ export interface TelegramBrowserBinding {
       viewport?: { width: number; height: number; deviceScaleFactor?: number };
       screenshotOptions?: { fullPage?: boolean };
       gotoOptions?: { waitUntil?: "load" | "domcontentloaded" | "networkidle0" | "networkidle2"; timeout?: number };
+      /** Take the screenshot even if navigation or waiting times out. */
+      bestAttempt?: boolean;
     }
   ): Promise<Response>;
 }

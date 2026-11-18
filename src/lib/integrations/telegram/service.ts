@@ -1542,18 +1542,16 @@ export async function sendTelegramDraftPreview(
   if (!signingSecret?.trim() || !appUrl?.trim()) {
     return sendUnavailableNotice("preview configuration is incomplete");
   }
-  if (!browserBinding) {
-    return sendUnavailableNotice("Browser Rendering binding is unavailable");
-  }
 
   const fast = options.fastFail === true;
   // "fast" is for request-scoped work (dashboard, MCP, webhook) that a Worker
-  // cuts off ~30s after the response. A cold browser needs more than the old
-  // 15s, which is why web drafts fell back to the "preview not available" notice.
-  const gotoTimeoutMs = fast ? 18_000 : 45_000;
-  const renderDeadlineMs = fast ? 23_000 : 60_000;
+  // cuts off ~30s after the response, so it gets one quick attempt and then the
+  // browserless fallback. Queue work can afford two full attempts.
+  const gotoTimeoutMs = fast ? 9_000 : 25_000;
+  const renderDeadlineMs = fast ? 12_000 : 35_000;
   const readDeadlineMs = fast ? 2_000 : 15_000;
-  const uploadDeadlineMs = fast ? 4_000 : 20_000;
+  const uploadDeadlineMs = fast ? 5_000 : 20_000;
+  const attempts = fast ? 1 : 2;
 
   const withTimeout = async <T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1569,69 +1567,112 @@ export async function sendTelegramDraftPreview(
     }
   };
 
+  const caption = scheduledLabel
+    ? `🕐 Scheduled to publish on ${scheduledLabel}.\nTap Stop if you do not want it published.`
+    : revised
+      ? "✏️ Your LinkedIn draft has been revised.\nSaved as a draft. Nothing has been published."
+      : "📝 Your LinkedIn draft is ready.\nSaved as a draft. Nothing has been published.";
+
+  const expires = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
+  const signature = crypto.createHmac("sha256", signingSecret).update(`${post.id}.${expires}`).digest("hex");
+  const signedUrl = (route: "draft-preview" | "draft-image"): string => {
+    const url = new URL(`/api/telegram/${route}/${encodeURIComponent(post.id)}`, appUrl);
+    url.searchParams.set("expires", String(expires));
+    url.searchParams.set("signature", signature);
+    return url.toString();
+  };
+
+  const failures: string[] = [];
+
+  // Renderer 1: Browser Rendering screenshot of the HTML preview. Best quality.
+  if (browserBinding) {
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        // The browser navigation timeout does not bound the full binding
+        // request, so an outer deadline keeps a stalled binding from holding a
+        // Queue message and its lease. bestAttempt takes the screenshot even if
+        // a slow avatar or font keeps the page from going idle.
+        const imageResponse = await withTimeout(
+          browserBinding.quickAction("screenshot", {
+            url: signedUrl("draft-preview"),
+            // Square canvas: Telegram shows a square photo fully in the chat.
+            viewport: { width: 1080, height: 1080 },
+            screenshotOptions: { fullPage: true },
+            gotoOptions: { waitUntil: "load", timeout: gotoTimeoutMs },
+            bestAttempt: true,
+          }),
+          renderDeadlineMs,
+          "Browser Rendering request timed out"
+        );
+        if (!imageResponse.ok) throw new Error(`Browser Rendering returned HTTP ${imageResponse.status}`);
+        const imageType = imageResponse.headers.get("content-type") || "";
+        if (!imageType.includes("image/")) throw new Error("Browser Rendering did not return an image");
+        const image = await withTimeout(imageResponse.arrayBuffer(), readDeadlineMs, "Reading the rendered image timed out");
+        if (image.byteLength === 0 || image.byteLength > 10 * 1024 * 1024) throw new Error("The rendered image size was invalid");
+
+        const form = new FormData();
+        form.append("chat_id", String(chatId));
+        form.append("photo", new Blob([image], { type: imageType }), "nunuza-draft.png");
+        form.append("caption", caption);
+        form.append("reply_markup", JSON.stringify(replyMarkup));
+        const response = await fetch(TG_API(token, "sendPhoto"), { method: "POST", body: form, signal: AbortSignal.timeout(uploadDeadlineMs) });
+        const result: any = await response.json();
+        if (!response.ok || !result?.ok) throw new Error(result?.description || `Telegram photo upload failed (HTTP ${response.status})`);
+        return { ok: true };
+      } catch (error) {
+        failures.push(`browser attempt ${attempt}: ${error instanceof Error ? error.message : "unknown error"}`);
+        if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+    }
+  } else {
+    failures.push("Browser Rendering binding is unavailable");
+  }
+
+  // Renderer 2: a PNG drawn by our own route, with no headless browser. Telegram
+  // downloads it from the signed URL, so it works when Browser Rendering is
+  // slow, rate limited or down.
   try {
-    const expires = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
-    const signature = crypto.createHmac("sha256", signingSecret).update(`${post.id}.${expires}`).digest("hex");
-    const previewUrl = new URL(`/api/telegram/draft-preview/${encodeURIComponent(post.id)}`, appUrl);
-    previewUrl.searchParams.set("expires", String(expires));
-    previewUrl.searchParams.set("signature", signature);
-
-    // The browser navigation timeout does not bound the full Browser Binding
-    // request. Add an outer deadline so a stalled binding cannot hold a Queue
-    // message and its database lease indefinitely.
-    const imageResponse = await withTimeout(
-      browserBinding.quickAction("screenshot", {
-        url: previewUrl.toString(),
-        // Square canvas: Telegram shows a square photo fully in the chat.
-        viewport: { width: 1080, height: 1080 },
-        screenshotOptions: { fullPage: true },
-        gotoOptions: { waitUntil: "networkidle0", timeout: gotoTimeoutMs },
-      }),
-      renderDeadlineMs,
-      "Browser Rendering request timed out"
-    );
-    if (!imageResponse.ok) {
-      return sendUnavailableNotice(`Browser Rendering returned HTTP ${imageResponse.status}`);
-    }
-
-    const imageType = imageResponse.headers.get("content-type") || "";
-    if (!imageType.includes("image/")) {
-      return sendUnavailableNotice("Browser Rendering did not return an image");
-    }
-    const image = await withTimeout(
-      imageResponse.arrayBuffer(),
-      readDeadlineMs,
-      "Reading the rendered image timed out"
-    );
-    if (image.byteLength === 0 || image.byteLength > 10 * 1024 * 1024) {
-      return sendUnavailableNotice("The rendered image size was invalid");
-    }
-
-    const form = new FormData();
-    form.append("chat_id", String(chatId));
-    form.append("photo", new Blob([image], { type: imageType }), "nunuza-draft.png");
-    form.append(
-      "caption",
-      scheduledLabel
-        ? `🕐 Scheduled to publish on ${scheduledLabel}.\nTap Stop if you do not want it published.`
-        : revised
-          ? "✏️ Your LinkedIn draft has been revised.\nSaved as a draft. Nothing has been published."
-          : "📝 Your LinkedIn draft is ready.\nSaved as a draft. Nothing has been published."
-    );
-    form.append("reply_markup", JSON.stringify(replyMarkup));
-
     const response = await fetch(TG_API(token, "sendPhoto"), {
       method: "POST",
-      body: form,
-      signal: AbortSignal.timeout(uploadDeadlineMs),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, photo: signedUrl("draft-image"), caption, reply_markup: replyMarkup }),
+      signal: AbortSignal.timeout(fast ? 12_000 : 25_000),
     });
     const result: any = await response.json();
-    if (!response.ok || !result?.ok) {
-      return sendUnavailableNotice(result?.description || `Telegram photo upload failed (HTTP ${response.status})`);
+    if (response.ok && result?.ok) {
+      console.warn("[telegram] Draft image sent through the browserless fallback:", failures.join(" | "));
+      return { ok: true };
     }
-    return { ok: true };
+    failures.push(`image route: ${result?.description || `Telegram HTTP ${response.status}`}`);
   } catch (error) {
-    return sendUnavailableNotice(error instanceof Error ? error.message : "Unknown preview delivery error");
+    failures.push(`image route: ${error instanceof Error ? error.message : "unknown error"}`);
+  }
+
+  // Both renderers failed. Tell the operator, and still tell the user their
+  // draft is safe (never with the draft text).
+  await alertDraftImageFailure(post.id, failures);
+  return sendUnavailableNotice(failures.join(" | "));
+}
+
+/** Best-effort operator alert: a user did not get their draft image. */
+async function alertDraftImageFailure(postId: string, failures: string[]): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const opsChat = process.env.OPS_ALERT_TELEGRAM_CHAT_ID?.trim();
+  if (!token?.trim() || !opsChat) return;
+  try {
+    const text = [
+      "🚨 [NUNUZA ADMIN] Draft image could not be sent",
+      `Draft: ${postId.slice(0, 8)}`,
+      ...failures.slice(0, 4).map((f) => `• ${f.slice(0, 160)}`),
+    ].join("\n");
+    await fetch(TG_API(token, "sendMessage"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: opsChat, text }),
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch {
+    // Alerting must never break delivery.
   }
 }
 
