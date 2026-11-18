@@ -72,10 +72,10 @@ export function ReviewClient({ postId }: { postId: string }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ initData, postId }),
         });
-        const json = await response.json();
+        const json = (await response.json()) as { data?: DraftData; error?: string };
         if (cancelled) return;
         if (!response.ok || !json.data) setError(json.error || "We couldn’t load this draft.");
-        else setDraft(json.data as DraftData);
+        else setDraft(json.data);
       } catch {
         if (!cancelled) setError("We couldn’t load this draft. Check your connection and try again.");
       }
@@ -108,13 +108,13 @@ export function ReviewClient({ postId }: { postId: string }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ initData, postId, action }),
         });
-        const json = await response.json();
+        const json = (await response.json()) as { data?: { outcome: string; when?: string }; error?: string };
         if (!response.ok || !json.data) {
           setError(json.error || "That did not go through. Please try again.");
           setBusy(null);
           return;
         }
-        const data = json.data as { outcome: string; when?: string };
+        const data = json.data;
         setOutcome(
           data.outcome === "rejected" ? { kind: "rejected" } : data.outcome === "scheduled" && data.when ? { kind: "scheduled", when: data.when } : { kind: "approved" }
         );

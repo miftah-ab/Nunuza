@@ -18,7 +18,7 @@ export type ApproveResult =
   | { kind: "restricted" }
   | { kind: "not_found" }
   | { kind: "not_approvable" }
-  | { kind: "scheduled"; postId: string; title: string; scheduledFor: string; timezone: string }
+  | { kind: "scheduled"; postId: string; title: string; scheduledFor: string; timezone?: string }
   | { kind: "approved_unscheduled"; postId: string; title: string; reason: string };
 
 export async function approveDraft(
