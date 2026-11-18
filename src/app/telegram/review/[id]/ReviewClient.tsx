@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Check, Loader2 } from "lucide-react";
 
 interface TelegramWebApp {
@@ -36,7 +36,13 @@ type Outcome = { kind: "scheduled"; when: string } | { kind: "approved" } | { ki
  * post is enabled only once the end of it has been reached.
  */
 export function ReviewClient({ postId }: { postId: string }) {
-  const [initData, setInitData] = useState<string | null>(null);
+  // Telegram's signed launch data; empty until the Telegram script is ready.
+  const initData = useSyncExternalStore(
+    () => () => {},
+    () => window.Telegram?.WebApp?.initData || "",
+    () => ""
+  );
+  const [waited, setWaited] = useState(false);
   const [draft, setDraft] = useState<DraftData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reachedEnd, setReachedEnd] = useState(false);
@@ -46,21 +52,22 @@ export function ReviewClient({ postId }: { postId: string }) {
   const endRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    const timer = setTimeout(() => setWaited(true), 1500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!initData) return;
     const tg = window.Telegram?.WebApp;
-    if (!tg?.initData) {
-      setError("Open this page from the Read full post button in your Nunuza Telegram bot.");
-      return;
-    }
-    tg.ready();
-    tg.expand();
+    tg?.ready();
+    tg?.expand();
     try {
-      tg.setHeaderColor?.("#ffffff");
-      tg.setBackgroundColor?.("#ffffff");
+      tg?.setHeaderColor?.("#ffffff");
+      tg?.setBackgroundColor?.("#ffffff");
     } catch {
       // Older Telegram versions do not support colors.
     }
-    setInitData(tg.initData);
-  }, []);
+  }, [initData]);
 
   useEffect(() => {
     if (!initData) return;
@@ -149,10 +156,13 @@ export function ReviewClient({ postId }: { postId: string }) {
     );
   }
 
-  if (error && !draft) {
+  const missingLaunchData = !initData && waited;
+  if ((error && !draft) || missingLaunchData) {
     return (
       <main className="min-h-screen bg-white flex items-center justify-center px-6 text-center">
-        <p className="max-w-xs text-[15px] text-ink-secondary" role="alert">{error}</p>
+        <p className="max-w-xs text-[15px] text-ink-secondary" role="alert">
+          {error || "Open this page from the Read full post button in your Nunuza Telegram bot."}
+        </p>
       </main>
     );
   }
