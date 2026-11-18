@@ -21,7 +21,9 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { handleTelegramConversation } from "./conversation";
 import { getDraftUsagePeriod } from "@/lib/db/usage";
 import { escapeMd } from "./markdown";
-import { scheduleApprovedPost, cancelScheduledPostByAgent, formatScheduledTime, APPROVAL_LEAD_MS } from "@/lib/jobs/agent-scheduling";
+import { approveDraft, canPublishEntitlement, rejectDraft } from "./draft-actions";
+import { cancelScheduledPostByAgent, formatScheduledTime } from "@/lib/jobs/agent-scheduling";
+import { fitDraftText } from "./draft-preview-html";
 import { getRequestBrowserBinding, type TelegramBrowserBinding } from "./runtime";
 
 export type { TelegramBrowserBinding } from "./runtime";
@@ -235,6 +237,38 @@ async function loadPostTitle(supabase: any, workspaceId: string, postId: string)
   return draftLabel(data ?? {});
 }
 
+/** Button that opens the full post in the Telegram Mini App. Null when the app URL is not https. */
+export function readFullPostButton(postId: string): { text: string; web_app: { url: string } } | null {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (!appUrl?.startsWith("https://")) return null;
+  return { text: "📖 Read full post", web_app: { url: new URL(`/telegram/review/${encodeURIComponent(postId)}`, appUrl).toString() } };
+}
+
+/**
+ * A draft too long for the image must be read in full before it can be approved.
+ * Returns the message that sends the user to the reader, or null when the whole
+ * draft is already visible in the image.
+ */
+async function buildReadFullGate(
+  supabase: any,
+  workspaceId: string,
+  postId: string
+): Promise<{ text: string; markup: any } | null> {
+  const { data } = await supabase
+    .from("content_posts")
+    .select("text")
+    .eq("id", postId)
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+  if (!data?.text || !fitDraftText(String(data.text)).truncated) return null;
+  const button = readFullPostButton(postId);
+  if (!button) return null;
+  return {
+    text: "📖 *Read the full post first*\n\nThis draft is longer than the preview image\\. Open it, read it to the end, and approve it there\\.",
+    markup: { inline_keyboard: [[button], [{ text: "Cancel", callback_data: "menu:drafts" }]] },
+  };
+}
+
 // ─── Pairing Tokens ───────────────────────────────────────────────────────────
 
 export interface PairingTokenResult {
@@ -373,9 +407,6 @@ async function resolveWorkspace(
   return { workspaceId: link.workspace_id, workspace };
 }
 
-function canPublishEntitlement(entitlement: string): boolean {
-  return ["internal_beta", "publishing_beta", "internal_test", "paid_trial", "paid_active"].includes(entitlement);
-}
 
 function notLinkedResponse(appUrl: string): CommandResponse {
   return {
@@ -793,6 +824,12 @@ export async function handleCallbackQuery(
       return;
     }
 
+    const readFirst = await buildReadFullGate(supabase, workspaceId, postId);
+    if (readFirst) {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, readFirst.text, readFirst.markup);
+      return;
+    }
+
     const approveTitle = await loadPostTitle(supabase, workspaceId, postId);
     await editTelegramMessage(
       ctx.chatId,
@@ -813,8 +850,18 @@ export async function handleCallbackQuery(
   // ── Approve (confirmed) ──
   if (data.startsWith("draft:approve_confirm:")) {
     const postId = data.replace("draft:approve_confirm:", "");
+    const backButtons = { inline_keyboard: [[{ text: "📝 Drafts", callback_data: "menu:drafts" }, { text: "🏠 Menu", callback_data: "menu:main" }]] };
 
-    if (!canPublishEntitlement(entitlement)) {
+    // A draft that does not fit in the image can only be approved after it has
+    // been read in full in the Mini App. This covers the Drafts list too.
+    const unreadGate = await buildReadFullGate(supabase, workspaceId, postId);
+    if (unreadGate) {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, unreadGate.text, unreadGate.markup);
+      return;
+    }
+
+    const result = await approveDraft(supabase, { workspaceId, postId, entitlement, source: "telegram_callback" });
+    if (result.kind === "restricted") {
       await editTelegramMessage(
         ctx.chatId,
         ctx.messageId,
@@ -823,80 +870,23 @@ export async function handleCallbackQuery(
       );
       return;
     }
-
-    // Verify post belongs to this workspace
-    const { data: post } = await supabase
-      .from("content_posts")
-      .select("id, status, internal_title")
-      .eq("id", postId)
-      .eq("workspace_id", workspaceId)
-      .maybeSingle();
-
-    if (!post) {
-      await editTelegramMessage(
-        ctx.chatId,
-        ctx.messageId,
-        `❌ *Post not found or access denied\\.* The post may have been deleted\\.`,
-        { inline_keyboard: [[{ text: "📝 Drafts", callback_data: "menu:drafts" }, { text: "🏠 Menu", callback_data: "menu:main" }]] }
-      );
+    if (result.kind === "not_found") {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, `❌ *Post not found or access denied\\.* The post may have been deleted\\.`, backButtons);
       return;
     }
-
-    const { data: approvedRows, error: approveErr } = await supabase
-      .from("content_posts")
-      .update({ status: "approved" })
-      .eq("id", post.id)
-      .eq("workspace_id", workspaceId)
-      .in("status", ["draft", "needs_review"])
-      .select("id");
-
-    if (approveErr || !approvedRows || approvedRows.length === 0) {
-      await editTelegramMessage(
-        ctx.chatId,
-        ctx.messageId,
-        `❌ *Could not approve this draft\\.* It may already be approved, published or rejected\\.`,
-        { inline_keyboard: [[{ text: "📝 Drafts", callback_data: "menu:drafts" }, { text: "🏠 Menu", callback_data: "menu:main" }]] }
-      );
+    if (result.kind === "not_approvable") {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, `❌ *Could not approve this draft\\.* It may already be approved, published or rejected\\.`, backButtons);
       return;
     }
-
-    const { error: callbackApprovalSignalError } = await supabase.from("approval_events").insert({
-      workspace_id: workspaceId, post_id: post.id, actor_type: "telegram", action: "approved",
-    });
-    if (callbackApprovalSignalError) console.error("[telegram] Approval learning signal failed:", callbackApprovalSignalError.message);
-
-    await supabase.from("audit_events").insert({
-      workspace_id: workspaceId,
-      actor_type: "telegram",
-      action: "post_approved",
-      resource_type: "content_post",
-      resource_id: post.id,
-      safe_metadata: { source: "telegram_callback" },
-    });
-
-    const title = escapeMd((post.internal_title || "Post").slice(0, 40));
-    // Approval means "publish this": put it on the next preferred slot instead
-    // of leaving it parked. The user can still cancel from the buttons below.
-    const { data: ownerRow } = await supabase.from("workspaces").select("owner_user_id").eq("id", workspaceId).maybeSingle();
-    const scheduled = ownerRow?.owner_user_id
-      ? await scheduleApprovedPost(supabase, {
-          workspaceId, ownerUserId: ownerRow.owner_user_id, postId: post.id,
-          minLeadMs: APPROVAL_LEAD_MS, autopilot: false,
-        })
-      : { ok: false as const, reason: "WORKSPACE_ACCESS_DENIED" };
-    if (scheduled.ok) {
-      await supabase.from("audit_events").insert({
-        workspace_id: workspaceId, actor_type: "telegram", action: "schedule_post",
-        resource_type: "content_post", resource_id: post.id,
-        safe_metadata: { source: "telegram_callback", scheduledFor: scheduled.scheduledFor },
-      });
+    const title = escapeMd(result.title.slice(0, 40));
+    if (result.kind === "scheduled") {
       await editTelegramMessage(
         ctx.chatId,
         ctx.messageId,
-        `✅ *Approved\\!*\n\n_${title}_ will be published on ${escapeMd(formatScheduledTime(scheduled.scheduledFor, scheduled.timezone))}\\.`,
+        `✅ *Approved\\!*\n\n_${title}_ will be published on ${escapeMd(formatScheduledTime(result.scheduledFor, result.timezone))}\\.`,
         {
           inline_keyboard: [
-            [{ text: "🛑 Cancel schedule", callback_data: `post:cancel:${post.id}` }],
+            [{ text: "🛑 Cancel schedule", callback_data: `post:cancel:${result.postId}` }],
             [{ text: "📝 More Drafts", callback_data: "menu:drafts" }, { text: "🏠 Menu", callback_data: "menu:main" }],
           ],
         }
@@ -911,12 +901,8 @@ export async function handleCallbackQuery(
     await editTelegramMessage(
       ctx.chatId,
       ctx.messageId,
-      `✅ *Approved\\!*\n\n_${title}_ is approved but was not scheduled${whyNot[scheduled.reason] ? ": " + whyNot[scheduled.reason] : ""}\\. You can schedule it from the dashboard\\.`,
-      {
-        inline_keyboard: [
-          [{ text: "📝 More Drafts", callback_data: "menu:drafts" }, { text: "🏠 Menu", callback_data: "menu:main" }],
-        ],
-      }
+      `✅ *Approved\\!*\n\n_${title}_ is approved but was not scheduled${whyNot[result.reason] ? ": " + whyNot[result.reason] : ""}\\. You can schedule it from the dashboard\\.`,
+      { inline_keyboard: [[{ text: "📝 More Drafts", callback_data: "menu:drafts" }, { text: "🏠 Menu", callback_data: "menu:main" }]] }
     );
     return;
   }
@@ -945,33 +931,12 @@ export async function handleCallbackQuery(
   // ── Reject (confirmed) ──
   if (data.startsWith("draft:reject_confirm:")) {
     const postId = data.replace("draft:reject_confirm:", "");
-
-    const { data: post } = await supabase
-      .from("content_posts")
-      .select("id, internal_title")
-      .eq("id", postId)
-      .eq("workspace_id", workspaceId)
-      .maybeSingle();
-
-    if (!post) {
-      await editTelegramMessage(
-        ctx.chatId,
-        ctx.messageId,
-        `❌ *Post not found or access denied\\.`,
-        { inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]] }
-      );
+    const result = await rejectDraft(supabase, { workspaceId, postId, source: "telegram_callback" });
+    if (result.kind === "not_found") {
+      await editTelegramMessage(ctx.chatId, ctx.messageId, `❌ *Post not found or access denied\\.`, { inline_keyboard: [[{ text: "🏠 Main Menu", callback_data: "menu:main" }]] });
       return;
     }
-
-    const { data: rejectedRows, error: rejectError } = await supabase
-      .from("content_posts")
-      .update({ status: "rejected" })
-      .eq("id", post.id)
-      .eq("workspace_id", workspaceId)
-      .in("status", ["draft", "needs_review"])
-      .select("id");
-
-    if (rejectError || !rejectedRows?.length) {
+    if (result.kind === "not_rejectable") {
       await editTelegramMessage(
         ctx.chatId,
         ctx.messageId,
@@ -980,32 +945,12 @@ export async function handleCallbackQuery(
       );
       return;
     }
-
-    const { error: callbackRejectionSignalError } = await supabase.from("approval_events").insert({
-      workspace_id: workspaceId, post_id: post.id, actor_type: "telegram",
-      action: "rejected", reason: "Rejected via Telegram",
-    });
-    if (callbackRejectionSignalError) console.error("[telegram] Rejection learning signal failed:", callbackRejectionSignalError.message);
-
-    await supabase.from("audit_events").insert({
-      workspace_id: workspaceId,
-      actor_type: "telegram",
-      action: "post_rejected",
-      resource_type: "content_post",
-      resource_id: post.id,
-      safe_metadata: { reason: "Rejected via Telegram" },
-    });
-
-    const title = escapeMd((post.internal_title || "Post").slice(0, 40));
+    const title = escapeMd(result.title.slice(0, 40));
     await editTelegramMessage(
       ctx.chatId,
       ctx.messageId,
       `🗑️ *Rejected*\n\n_${title}_ has been rejected\\.`,
-      {
-        inline_keyboard: [
-          [{ text: "📝 More Drafts", callback_data: "menu:drafts" }, { text: "🏠 Menu", callback_data: "menu:main" }],
-        ],
-      }
+      { inline_keyboard: [[{ text: "📝 More Drafts", callback_data: "menu:drafts" }, { text: "🏠 Menu", callback_data: "menu:main" }]] }
     );
     return;
   }
@@ -1504,15 +1449,28 @@ export async function sendTelegramDraftPreview(
           [{ text: "✏️ Request Changes", callback_data: `draft:revise:${post.id}` }],
         ],
       }
-    : {
-        inline_keyboard: [
-          [
-            { text: "✅ Approve & Publish", callback_data: `draft:approve:${post.id}` },
-            { text: "❌ Reject", callback_data: `draft:reject:${post.id}` },
-          ],
-          [{ text: "✏️ Request Changes", callback_data: `draft:revise:${post.id}` }],
-        ],
-      };
+    : (() => {
+        // A draft that does not fit the image is read in full in the Mini App,
+        // and approved there. Approve is not offered in the chat for it.
+        const readButton = post.text && fitDraftText(String(post.text)).truncated ? readFullPostButton(post.id) : null;
+        return readButton
+          ? {
+              inline_keyboard: [
+                [readButton],
+                [{ text: "❌ Reject", callback_data: `draft:reject:${post.id}` }],
+                [{ text: "✏️ Request Changes", callback_data: `draft:revise:${post.id}` }],
+              ],
+            }
+          : {
+              inline_keyboard: [
+                [
+                  { text: "✅ Approve & Publish", callback_data: `draft:approve:${post.id}` },
+                  { text: "❌ Reject", callback_data: `draft:reject:${post.id}` },
+                ],
+                [{ text: "✏️ Request Changes", callback_data: `draft:revise:${post.id}` }],
+              ],
+            };
+      })();
 
   // A saved draft must not be held hostage by image rendering. If Browser
   // Rendering is unavailable or slow, tell the user the draft is ready and keep
