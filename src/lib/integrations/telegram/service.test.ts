@@ -247,11 +247,13 @@ describe("Telegram photo draft delivery", () => {
     expect(String(form.get("reply_markup"))).toContain("draft:approve:post-123");
   });
 
-  it("never sends the draft text as a message when the browser binding is missing", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      ok: true,
-      result: { message_id: 43 },
-    }), { status: 200, headers: { "content-type": "application/json" } }));
+  const okResponse = (id: number) =>
+    new Response(JSON.stringify({ ok: true, result: { message_id: id } }), { status: 200, headers: { "content-type": "application/json" } });
+  const failResponse = () =>
+    new Response(JSON.stringify({ ok: false, description: "Bad Request: failed to get HTTP URL content" }), { status: 400, headers: { "content-type": "application/json" } });
+
+  it("still sends an image, by URL, when the browser binding is missing", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okResponse(43));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await sendTelegramDraftPreview(
@@ -261,26 +263,17 @@ describe("Telegram photo draft delivery", () => {
 
     expect(result.ok).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(String(fetchMock.mock.calls[0][0])).toContain("/sendMessage");
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/sendPhoto");
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
-    // The post body must never be pasted into the chat, even as a fallback.
-    expect(body.text).not.toContain("The saved draft content");
-    expect(body.text).toContain("AI in finance");
-    expect(body.text).toContain("nothing has been published");
-    // The review actions are still buttons, and Nunuza is one tap away.
+    expect(body.photo).toContain("https://nunuza.example/api/telegram/draft-image/post-123");
+    expect(body.photo).toContain("signature=");
+    expect(body.caption).not.toContain("The saved draft content");
     expect(body.reply_markup.inline_keyboard[0][0].callback_data).toBe("draft:approve:post-123");
-    const urls = body.reply_markup.inline_keyboard.flat().map((button: any) => button.url).filter(Boolean);
-    expect(urls).toEqual(["https://nunuza.example/app/content?post=post-123"]);
-    // No typed commands or short IDs anywhere in the message.
-    expect(body.text).not.toMatch(/\/(approve|reject|drafts)/);
   });
 
-  it("falls back to the notice, not to text, when the screenshot fails", async () => {
+  it("falls back to the image route, not to text, when the screenshot fails", async () => {
     const quickAction = vi.fn().mockResolvedValue(new Response("nope", { status: 500 }));
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      ok: true,
-      result: { message_id: 44 },
-    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const fetchMock = vi.fn().mockResolvedValue(okResponse(44));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await sendTelegramDraftPreview(
@@ -292,9 +285,56 @@ describe("Telegram photo draft delivery", () => {
     );
 
     expect(result.ok).toBe(true);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/sendPhoto");
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.photo).toContain("/api/telegram/draft-image/post-123");
+    expect(body.caption).toContain("revised");
+  });
+
+  it("retries the screenshot once for queued work before using the fallback", async () => {
+    vi.useFakeTimers();
+    try {
+      const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+      const quickAction = vi.fn()
+        .mockResolvedValueOnce(new Response("busy", { status: 429 }))
+        .mockResolvedValueOnce(new Response(png, { status: 200, headers: { "content-type": "image/png" } }));
+      const fetchMock = vi.fn().mockResolvedValue(okResponse(45));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const pending = sendTelegramDraftPreview(12345, { id: "post-123", internal_title: "T", text: "x" }, false, { quickAction });
+      await vi.advanceTimersByTimeAsync(2000);
+      const result = await pending;
+
+      expect(result.ok).toBe(true);
+      expect(quickAction).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[0][1].body).toBeInstanceOf(FormData);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("only when every renderer fails: notice with buttons, never the draft text", async () => {
+    const quickAction = vi.fn().mockResolvedValue(new Response("nope", { status: 500 }));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(failResponse())
+      .mockResolvedValueOnce(okResponse(46));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await sendTelegramDraftPreview(
+      12345,
+      { id: "post-123", internal_title: "AI in finance", text: "The saved draft content." },
+      false,
+      { quickAction },
+      { fastFail: true }
+    );
+
+    expect(result.ok).toBe(true);
+    expect(String(fetchMock.mock.calls[1][0])).toContain("/sendMessage");
+    const body = JSON.parse(fetchMock.mock.calls[1][1].body as string);
     expect(body.text).not.toContain("The saved draft content");
-    expect(body.text).toContain("revised");
+    expect(body.text).toContain("AI in finance");
+    expect(body.reply_markup.inline_keyboard[0][0].callback_data).toBe("draft:approve:post-123");
+    expect(body.text).not.toMatch(/\/(approve|reject|drafts)/);
   });
 
   afterAll(() => {
