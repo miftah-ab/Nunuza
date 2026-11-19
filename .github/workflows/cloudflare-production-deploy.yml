@@ -122,8 +122,9 @@ jobs:
         # Runs before the new code goes live so code never meets a missing table or function.
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
         run: |
+          # The project ref comes from NEXT_PUBLIC_SUPABASE_URL in NUNUZA_WORKER_ENV_JSON.
+          export SUPABASE_PROJECT_REF="$(node -e 'console.log(new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname.split(".")[0])')"
           node scripts/apply-migrations.test.mjs
           node scripts/apply-migrations.mjs
       - name: Deploy Worker with runtime secrets

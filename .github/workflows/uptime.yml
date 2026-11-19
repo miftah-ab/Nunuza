@@ -17,10 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      # Repository variable, e.g. https://nunuza.com. Required.
-      APP_URL: ${{ vars.NUNUZA_APP_URL }}
-      # Optional: alert to Telegram as well as the failed-run email.
-      OPS_ALERT_BOT_TOKEN: ${{ secrets.OPS_ALERT_BOT_TOKEN }}
+      # Same secret the deploy uses: supplies the site URL and the bot token.
+      NUNUZA_WORKER_ENV_JSON: ${{ secrets.NUNUZA_WORKER_ENV_JSON }}
       OPS_ALERT_TELEGRAM_CHAT_ID: ${{ vars.OPS_ALERT_TELEGRAM_CHAT_ID }}
     steps:
       - name: Probe site and health endpoint
@@ -28,8 +26,9 @@ jobs:
         shell: bash
         run: |
           set -u
-          if [ -z "${APP_URL:-}" ]; then
-            echo "::error::Set the repository variable NUNUZA_APP_URL (for example https://nunuza.com)."
+          APP_URL="$(node -e 'try{process.stdout.write(JSON.parse(process.env.NUNUZA_WORKER_ENV_JSON||"{}").NEXT_PUBLIC_APP_URL||"")}catch{}')"
+          if [ -z "$APP_URL" ]; then
+            echo "::error::NEXT_PUBLIC_APP_URL is missing from NUNUZA_WORKER_ENV_JSON."
             exit 1
           fi
           base="${APP_URL%/}"
@@ -52,9 +51,11 @@ jobs:
           fi
           echo "Site and health check are up."
       - name: Alert on Telegram
-        if: failure() && env.OPS_ALERT_BOT_TOKEN != '' && env.OPS_ALERT_TELEGRAM_CHAT_ID != ''
+        if: failure() && env.OPS_ALERT_TELEGRAM_CHAT_ID != ''
         shell: bash
         run: |
+          OPS_ALERT_BOT_TOKEN="$(node -e 'try{process.stdout.write(JSON.parse(process.env.NUNUZA_WORKER_ENV_JSON||"{}").TELEGRAM_BOT_TOKEN||"")}catch{}')"
+          [ -n "$OPS_ALERT_BOT_TOKEN" ] || exit 0
           text="🚨 Nunuza is down: ${{ steps.probe.outputs.message }}"
           curl -s --max-time 20 -X POST \
             "https://api.telegram.org/bot${OPS_ALERT_BOT_TOKEN}/sendMessage" \
