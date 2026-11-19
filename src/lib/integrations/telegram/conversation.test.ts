@@ -432,6 +432,27 @@ describe("resolveActiveDraftId", () => {
     const supabase = fakeSupabase([{ id: "web", updated_at: iso(60_000), status: "draft" }]);
     expect(await resolveActiveDraftId({ supabase, workspaceId: "w" } as any, undefined)).toBe("web");
   });
+
+  it("keeps the draft the user chose with Request Changes even when another is newer", async () => {
+    const supabase = fakeSupabase([
+      { id: "chosen", updated_at: iso(3_600_000), status: "draft" },
+      { id: "newer", updated_at: iso(60_000), status: "draft" },
+    ]);
+    expect(await resolveActiveDraftId({ supabase, workspaceId: "w" } as any, "chosen", iso(30_000))).toBe("chosen");
+  });
+
+  it("ignores an old focus and a focus on a draft that is no longer open", async () => {
+    const supabase = fakeSupabase([
+      { id: "chosen", updated_at: iso(7_200_000), status: "draft" },
+      { id: "newer", updated_at: iso(60_000), status: "draft" },
+    ]);
+    expect(await resolveActiveDraftId({ supabase, workspaceId: "w" } as any, "chosen", iso(2 * 3_600_000))).toBe("newer");
+    const closed = fakeSupabase([
+      { id: "chosen", updated_at: iso(3_600_000), status: "rejected" },
+      { id: "newer", updated_at: iso(60_000), status: "draft" },
+    ]);
+    expect(await resolveActiveDraftId({ supabase: closed, workspaceId: "w" } as any, "chosen", iso(30_000))).toBe("newer");
+  });
 });
 
 describe("AI message routing", () => {

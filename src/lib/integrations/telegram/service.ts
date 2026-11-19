@@ -18,7 +18,7 @@
 
 import crypto from "crypto";
 import { createServiceClient } from "@/lib/supabase/server";
-import { handleTelegramConversation } from "./conversation";
+import { focusDraftForRevision, handleTelegramConversation } from "./conversation";
 import { getDraftUsagePeriod } from "@/lib/db/usage";
 import { escapeMd } from "./markdown";
 import { approveDraft, canPublishEntitlement, rejectDraft } from "./draft-actions";
@@ -801,6 +801,12 @@ export async function handleCallbackQuery(
       return;
     }
 
+    await focusDraftForRevision(supabase, {
+      telegramUserId: ctx.telegramUserId,
+      chatId: ctx.chatId,
+      workspaceId,
+      postId,
+    });
     await editTelegramMessage(
       ctx.chatId,
       ctx.messageId,
