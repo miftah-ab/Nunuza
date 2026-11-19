@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireWorkspace } from "@/lib/auth/workspace";
+import { consumeIdeasAllowance } from "@/lib/db/usage";
 import { apiError } from "@/lib/api/respond";
 import { aiService } from "@/lib/ai/service";
 import { getContentStrategy, getVoiceProfile } from "@/lib/db/workspace";
@@ -61,6 +62,9 @@ function makePeopleSearches(audience: string, industry: string, workspaceName: s
 export async function POST() {
   try {
     const workspace = await requireWorkspace();
+    if (!(await consumeIdeasAllowance(workspace.id))) {
+      return NextResponse.json({ error: "You've reached the hourly limit for idea generation. Try again in a little while." }, { status: 429 });
+    }
     const supabase = await createClient();
 
     const [voice, strategy, profileResult, connectionResult, recentPosts] = await Promise.all([
