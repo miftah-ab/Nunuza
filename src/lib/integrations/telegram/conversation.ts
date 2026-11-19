@@ -20,6 +20,8 @@ type ConversationState = {
   /** The last chat exchange, so a follow-up like "yes, write it" has context. */
   lastUserText?: string;
   lastReply?: string;
+  /** Set when the user tapped Request Changes on a specific draft. */
+  focusedAt?: string;
 };
 
 type TelegramConversationInput = {
@@ -97,6 +99,7 @@ export function isRevisionRequest(text: string, hasActiveDraft: boolean): boolea
   return true;
 }
 
+const FOCUS_WINDOW_MS = 60 * 60 * 1000;
 const ACTIVE_DRAFT_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 /**
@@ -104,8 +107,19 @@ const ACTIVE_DRAFT_WINDOW_MS = 48 * 60 * 60 * 1000;
  * updated open draft of the workspace (within 48 hours), or the draft this chat
  * is already working on when that one is at least as recent.
  */
-export async function resolveActiveDraftId(input: TelegramConversationInput, chatActiveId?: string): Promise<string | undefined> {
+export async function resolveActiveDraftId(
+  input: TelegramConversationInput,
+  chatActiveId?: string,
+  focusedAt?: string
+): Promise<string | undefined> {
   try {
+    // The draft the user explicitly chose with Request Changes wins for a while,
+    // even when another draft is newer.
+    if (chatActiveId && focusedAt && Date.now() - Date.parse(focusedAt) < FOCUS_WINDOW_MS) {
+      const { data: focused } = await input.supabase.from("content_posts")
+        .select("id, status").eq("workspace_id", input.workspaceId).eq("id", chatActiveId).maybeSingle();
+      if (focused?.status === "draft") return chatActiveId;
+    }
     const { data: latest } = await input.supabase.from("content_posts")
       .select("id, updated_at")
       .eq("workspace_id", input.workspaceId).eq("status", "draft")
@@ -136,6 +150,7 @@ function readConversationState(value: unknown): ConversationState {
     ...(typeof state.proposedText === "string" ? { proposedText: state.proposedText.slice(0, 1000) } : {}),
     ...(typeof state.lastUserText === "string" ? { lastUserText: state.lastUserText.slice(0, 300) } : {}),
     ...(typeof state.lastReply === "string" ? { lastReply: state.lastReply.slice(0, 400) } : {}),
+    ...(typeof state.focusedAt === "string" ? { focusedAt: state.focusedAt } : {}),
   };
 }
 
@@ -144,8 +159,41 @@ function stateWithoutPending(state: ConversationState): ConversationState {
     ...(state.activePostId ? { activePostId: state.activePostId } : {}),
     ...(state.topic ? { topic: state.topic } : {}),
     ...(state.pillar ? { pillar: state.pillar } : {}),
+    ...(state.focusedAt ? { focusedAt: state.focusedAt } : {}),
     updatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Remembers which draft the user chose with Request Changes, so the next
+ * message edits that draft and not whichever draft happens to be newest.
+ * Best effort: when the chat is busy the newest-draft rule still applies.
+ */
+export async function focusDraftForRevision(
+  supabase: any,
+  target: { telegramUserId: number; chatId: number; workspaceId: string; postId: string }
+): Promise<void> {
+  try {
+    const lockToken = crypto.randomUUID();
+    const { data: claim } = await supabase.rpc("claim_telegram_conversation", {
+      p_telegram_user_id: target.telegramUserId,
+      p_chat_id: target.chatId,
+      p_workspace_id: target.workspaceId,
+      p_lock_token: lockToken,
+    });
+    if (!claim?.claimed) return;
+    const prior = readConversationState(claim.state);
+    const now = new Date().toISOString();
+    await supabase.rpc("release_telegram_conversation", {
+      p_telegram_user_id: target.telegramUserId,
+      p_chat_id: target.chatId,
+      p_workspace_id: target.workspaceId,
+      p_lock_token: lockToken,
+      p_state: { ...prior, activePostId: target.postId, focusedAt: now, updatedAt: now },
+    });
+  } catch {
+    console.error("[telegram-conversation] Could not focus draft for revision.");
+  }
 }
 
 async function releaseConversation(
@@ -298,7 +346,7 @@ export async function handleTelegramConversation(input: TelegramConversationInpu
     // only one created in this chat. Drafts made on the web, by the daily agent
     // or through MCP arrive here as an image, and "make it shorter" must edit
     // that draft instead of starting a new post about "make it shorter".
-    const activePostId = await resolveActiveDraftId(input, state.activePostId);
+    const activePostId = await resolveActiveDraftId(input, state.activePostId, state.focusedAt);
 
     // Work out what the message means before generating anything. Only a clear
     // request (or a button the user tapped) creates or edits a draft.
