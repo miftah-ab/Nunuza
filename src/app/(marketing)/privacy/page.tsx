@@ -100,7 +100,7 @@ export default function PrivacyPage() {
             </h2>
             <p>
               You can export your drafts and content at any time from the
-              dashboard. You can request account deletion from Settings. On
+              dashboard. You can request account deletion from Settings, which explains how to email us from your registered address. On
               deletion, your workspace data and credentials are scheduled for
               removal according to our documented retention policy. Some records
               may be retained as required by applicable law or accounting
@@ -118,8 +118,8 @@ export default function PrivacyPage() {
               Contact
             </h2>
             <p>
-              Questions about this policy? Contact the Nunuza team at the
-              address provided in the dashboard after signing in.
+              Questions about this policy? Contact the Nunuza team at{" "}
+              <a href="mailto:support@nunuza.com" className="text-forest hover:text-forest-hover">support@nunuza.com</a>.
             </p>
           </section>
         </div>

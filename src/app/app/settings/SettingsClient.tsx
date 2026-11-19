@@ -61,7 +61,10 @@ export function SettingsClient({
 
   const handleExportData = async () => {
     try {
+      setError(null);
       const res = await fetch("/api/posts");
+      // A failed request must not produce a "successful" export with no posts.
+      if (!res.ok) throw new Error("export request failed");
       const json = (await res.json()) as any;
       const exportObject = {
         exportedAt: new Date().toISOString(),
@@ -89,7 +92,7 @@ export function SettingsClient({
       downloadAnchor.click();
       downloadAnchor.remove();
     } catch {
-      alert("We couldn’t export your workspace data. Please try again.");
+      setError("We couldn’t export your workspace data. Nothing was downloaded. Please try again.");
     }
   };
 
