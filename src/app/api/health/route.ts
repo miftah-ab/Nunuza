@@ -11,7 +11,17 @@ const STALL_MINUTES = 20;
  * Returns 200 only when the database answers and the job queue is draining.
  * The body reports pass/fail per check and never exposes data or errors.
  */
+/** The probe is public, so a burst of requests reuses one recent result. */
+const CACHE_MS = 15_000;
+let cached: { at: number; ok: boolean; checks: { database: boolean; jobs: boolean } } | null = null;
+
 export async function GET() {
+  if (cached && Date.now() - cached.at < CACHE_MS) {
+    return NextResponse.json(
+      { status: cached.ok ? "ok" : "degraded", checks: cached.checks },
+      { status: cached.ok ? 200 : 503, headers: { "Cache-Control": "no-store" } }
+    );
+  }
   const checks = { database: false, jobs: false };
   try {
     const supabase = createServiceClient();
@@ -32,6 +42,7 @@ export async function GET() {
   }
 
   const ok = checks.database && checks.jobs;
+  cached = { at: Date.now(), ok, checks };
   return NextResponse.json(
     { status: ok ? "ok" : "degraded", checks },
     { status: ok ? 200 : 503, headers: { "Cache-Control": "no-store" } }
