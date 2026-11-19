@@ -277,6 +277,32 @@ export async function consumeVoiceTestAllowance(workspaceId: string): Promise<bo
 }
 
 /**
+ * Hourly allowance for AI idea generation. This route calls the AI provider on
+ * every request and had no cap, so one signed-in account could run up the AI
+ * bill in a loop. Same atomic counter as the voice preview limit.
+ */
+export const IDEAS_PER_HOUR = 10;
+
+export async function consumeIdeasAllowance(workspaceId: string): Promise<boolean> {
+  const supabase = createServiceClient();
+  const now = new Date();
+  const periodStart = now.toISOString().slice(0, 10);
+  const hourKey = now.toISOString().slice(0, 13).replace(/[-T:]/g, "");
+  const { data, error } = await supabase.rpc("increment_usage_counter", {
+    p_workspace_id: workspaceId,
+    p_metric: "ideas:" + hourKey,
+    p_period_start: periodStart,
+    p_period_end: periodStart,
+  });
+  if (error) throw new Error("[usage] consumeIdeasAllowance: " + error.message);
+  const count = Number(data);
+  if (!Number.isInteger(count) || count < 1) {
+    throw new Error("[usage] Idea generation allowance could not be verified.");
+  }
+  return count <= IDEAS_PER_HOUR;
+}
+
+/**
  * Atomically increments the monthly draft counter for a workspace.
  * Uses UPSERT with an atomic increment to prevent race conditions.
  * Returns the new count after increment.

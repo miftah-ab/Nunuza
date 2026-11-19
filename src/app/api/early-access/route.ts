@@ -13,6 +13,7 @@ const requestSchema = z.object({
 });
 
 const genericSuccess = { success: true };
+const EARLY_ACCESS_MAX_PER_10_MIN = 200;
 
 export async function POST(request: Request) {
   try {
@@ -39,6 +40,16 @@ export async function POST(request: Request) {
     }
 
     const supabase = createServiceClient();
+    // Flood brake for this public, unauthenticated form: a bot cannot fill the
+    // table with thousands of rows. Far above any real launch-day traffic.
+    const { count: recentSignups } = await supabase
+      .from("early_access_signups")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", new Date(Date.now() - 10 * 60_000).toISOString());
+    if ((recentSignups ?? 0) >= EARLY_ACCESS_MAX_PER_10_MIN) {
+      return NextResponse.json({ error: "We’re getting a lot of requests right now. Please try again in a few minutes." }, { status: 429 });
+    }
+
     const { error } = await supabase.from("early_access_signups").insert({
       name: name || null,
       email: email.toLowerCase(),
