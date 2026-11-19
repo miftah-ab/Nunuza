@@ -118,6 +118,14 @@ jobs:
           const secrets = Object.fromEntries(names.filter(name => process.env[name] !== undefined).map(name => [name, process.env[name]]));
           fs.writeFileSync(".worker-secrets.json", JSON.stringify(secrets), { mode: 0o600 });
           NODE
+      - name: Apply database migrations
+        # Runs before the new code goes live so code never meets a missing table or function.
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          node scripts/apply-migrations.test.mjs
+          node scripts/apply-migrations.mjs
       - name: Deploy Worker with runtime secrets
         run: npx wrangler deploy --config .wrangler.deploy.json --secrets-file .worker-secrets.json
       - name: Remove temporary secret files
